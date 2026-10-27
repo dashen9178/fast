@@ -1,0 +1,26 @@
+const WebSocket=require('/home/user/fast/test/node_modules/ws');const fs=require('fs');const HTTP='http://127.0.0.1:9222';
+function get(p){return new Promise((res,rej)=>require('http').get(HTTP+p,r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>res(JSON.parse(d)));}).on('error',rej));}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));let id=0;
+(async()=>{const l=await get('/json/list');const t=l.find(x=>x.type==='page');
+const ws=new WebSocket(t.webSocketDebuggerUrl,{perMessageDeflate:false});const P={};
+await new Promise(r=>ws.on('open',r));
+ws.on('message',m=>{const o=JSON.parse(m);if(o.id&&P[o.id])o.error?P[o.id].j(new Error(JSON.stringify(o.error))):P[o.id].r(o.result);});
+const send=(m,p={})=>new Promise((r,j)=>{const i=++id;P[i]={r,j};ws.send(JSON.stringify({id:i,method:m,params:p}));});
+await send('Page.enable');await send('Runtime.enable');
+await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:2,mobile:true});
+const ev=async e=>{const r=await send('Runtime.evaluate',{expression:e,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)console.log('EXC',JSON.stringify(r.exceptionDetails).slice(0,300));return r.result.value;};
+await new Promise(r=>{send('Page.navigate',{url:'http://127.0.0.1:8931/editor.html?z='+Date.now()});setTimeout(r,1000);});
+await ev(`localStorage.setItem('__bb_block_zoom_v1','1.1');1`);
+await new Promise(r=>{send('Page.navigate',{url:'http://127.0.0.1:8931/editor.html?z='+Date.now()});setTimeout(r,1100);});
+await ev(`document.getElementById('btnNewApp').click();1`);await sleep(200);
+await ev(`(function(){var i=document.getElementById('newAppName');i.value='测试';i.dispatchEvent(new Event('input',{bubbles:true}));return 1;})()`);await sleep(100);
+await ev(`document.getElementById('createGo').click();1`);await sleep(600);
+await ev(`document.getElementById('tabBlocks').click();1`);await sleep(800);
+const m0=await ev(`JSON.stringify({mainScale:blocklyWs.scale})`);
+console.log('main scale after open:',m0);
+await ev(`(function(){var b=[].slice.call(document.querySelectorAll('#bbCats .bb-cat')).find(x=>x.title==='事件');b.click();return 1;})()`);
+await sleep(700);
+const m1=await ev(`(function(){var fl=blocklyWs.getFlyout();var svg=document.querySelector('.blocklyFlyout').getBoundingClientRect();var o=fl.getWorkspace().getTopBlocks(true).map(function(b){var r=b.getSvgRoot().getBoundingClientRect();return {t:b.type,R:Math.round(r.right-svg.right),L:Math.round(svg.left-r.left)};});return JSON.stringify({flScale:fl.getWorkspace().scale,flW:Math.round(fl.width_),o:o});})()`);
+console.log('flyout at first open:',m1);
+let s=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync('/tmp/t_flyout_cold11.png',Buffer.from(s.data,'base64'));
+process.exit(0);})().catch(e=>{console.error(e);process.exit(1);});

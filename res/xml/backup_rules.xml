@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  系统自动备份（Auto Backup）排除规则。
+
+  设备签名密钥（<filesDir>/signing/）是这个 App 的"印章"，它只应该存在于本机：
+  一旦被云备份带走，别处就多了一份可以冒充本机作者签名的副本。
+  用户的作品数据仍然照常备份，只有这一份密钥被排除。
+-->
+<full-backup-content>
+    <exclude domain="file" path="signing/" />
+    <!-- AI 的 API Key 同理：它只应该存在于本机，进了云备份就等于多了一份副本 -->
+    <exclude domain="file" path="secret/" />
+</full-backup-content>

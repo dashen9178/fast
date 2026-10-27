@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 白底 -->
+  <rect width="512" height="512" fill="#ffffff"/>
+  <!-- 科技感：右上角两条速度线 + 左下角细角标，纯黑极简 -->
+  <g fill="#111111">
+    <rect x="356" y="96"  width="92" height="14" rx="7"/>
+    <rect x="388" y="124" width="60" height="14" rx="7"/>
+  </g>
+  <!-- FAST 字标：粗体几何无衬线，居中偏上 -->
+  <text x="256" y="300" text-anchor="middle"
+        font-family="Arial Black, 'Helvetica Neue', Arial, sans-serif"
+        font-size="118" font-weight="900" letter-spacing="2" fill="#111111">FAST</text>
+  <!-- 字标下方一条贯穿的强调线，速度/科技感 -->
+  <rect x="96" y="338" width="320" height="16" rx="8" fill="#111111"/>
+  <rect x="96"  y="366" width="200" height="10" rx="5" fill="#111111" opacity="0.55"/>
+</svg>

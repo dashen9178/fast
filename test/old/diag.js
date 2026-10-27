@@ -1,0 +1,28 @@
+const WebSocket=require('ws');const HTTP='http://127.0.0.1:9222';
+function get(p){return new Promise((res,rej)=>require('http').get(HTTP+p,r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>res(JSON.parse(d)));}).on('error',rej));}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));let id=0;
+(async()=>{const l=await get('/json/list');const t=l.find(x=>x.type==='page');
+const ws=new WebSocket(t.webSocketDebuggerUrl,{perMessageDeflate:false});const P={};
+await new Promise(r=>ws.on('open',r));
+ws.on('message',m=>{const o=JSON.parse(m);if(o.id&&P[o.id])o.error?P[o.id].j(new Error(JSON.stringify(o.error))):P[o.id].r(o.result);});
+const send=(m,p={})=>new Promise((r,j)=>{const i=++id;P[i]={r,j};ws.send(JSON.stringify({id:i,method:m,params:p}));});
+await send('Page.enable');await send('Runtime.enable');
+const ev=async e=>{const r=await send('Runtime.evaluate',{expression:e,returnByValue:true});if(r.exceptionDetails)console.log('EXC',JSON.stringify(r.exceptionDetails).slice(0,300));return r.result.value;};
+await new Promise(r=>{send('Page.navigate',{url:'http://127.0.0.1:8931/editor.html'});setTimeout(r,1400);});
+await send('Emulation.setDeviceMetricsOverride',{width:412,height:915,deviceScaleFactor:2.625,mobile:true});
+await send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+await sleep(300);
+await ev(`document.getElementById('btnNewApp').click();1`);await sleep(300);
+await ev(`document.getElementById('createGo').click();1`);await sleep(500);
+await ev(`document.getElementById('tabBlocks').click();1`);await sleep(1600);
+console.log('cats:',await ev(`[].slice.call(document.querySelectorAll('#bbCats .bb-cat .bb-cat-lb')).map(x=>x.textContent).join(',')`));
+const p=await ev(`(function(){const b=[].slice.call(document.querySelectorAll('#bbCats .bb-cat')).find(x=>x.querySelector('.bb-cat-lb').textContent==='控制');const r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})()`);
+console.log('控制 btn',p);const q=JSON.parse(p);
+await send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:q.x,y:q.y}]});
+await send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+await sleep(800);
+console.log('flyout html len:',await ev(`(document.querySelector('.blocklyFlyout')||{}).innerHTML?document.querySelector('.blocklyFlyout').innerHTML.length:'no flyout'`));
+console.log('flyout blocks:',await ev(`document.querySelectorAll('.blocklyFlyout g.blocklyBlock, .blocklyFlyout path.blocklyBlockPath').length`));
+console.log('flyout svg rect:',await ev(`(function(){const f=document.querySelector('.blocklyFlyout');if(!f)return 'none';const r=f.getBoundingClientRect();return r.width+'x'+r.height+' display='+getComputedStyle(f).display;})()`));
+console.log('selected cat:',await ev(`(function(){const on=document.querySelector('#bbCats .bb-cat.on');return on?on.querySelector('.bb-cat-lb').textContent:'(无)';})()`));
+process.exit(0);})().catch(e=>{console.error(e);process.exit(1);});

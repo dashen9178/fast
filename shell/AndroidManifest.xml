@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.doubao.rt.a00000"
+    android:versionCode="1"
+    android:versionName="0.00">
+
+    <!-- 本文件是竖屏壳 / 横屏壳共用的唯一模板：打包脚本把下面的 @ORIENTATION@
+         换成 portrait / landscape，因此无需再维护一份重复的 shell-land 清单 -->
+    <!-- package / label / versionName 均由 AxmlRewriter 在导出时重写（长度任意） -->
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="30" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <application
+        android:label="XXXXXXXXXXXXXXXXXXXX"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:allowBackup="true"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name="com.doubao.blockbuilder.MainActivity"
+            android:exported="true"
+            android:screenOrientation="@ORIENTATION@"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

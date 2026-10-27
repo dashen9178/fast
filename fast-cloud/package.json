@@ -1,0 +1,13 @@
+{
+  "name": "fast-cloud",
+  "private": true,
+  "version": "1.0.0",
+  "description": "FAST 的账号/社区中转（Cloudflare Worker）—— SeaTable 凭据只存在这里，不进 APK",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "wrangler": "^4.140.0"
+  }
+}

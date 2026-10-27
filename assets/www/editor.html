@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-store">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>FAST</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='white'/><text x='50' y='72' font-size='62' font-family='Arial Black,Arial' font-weight='900' text-anchor='middle' fill='%23111'>F</text></svg>">
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+
+<!-- ============ 首页：所有 App ============ -->
+<div id="viewHome" class="home">
+  <div class="home-head" id="homeHead">
+    <div class="home-title">𝑭𝑨𝑺𝑻</div>
+    <div class="right">
+      <span id="homeVersion" class="home-ver" title="当前版本">v—</span>
+      <button id="btnUpdate" class="icon-setting" title="检查更新" aria-label="检查更新">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 4a8 8 0 0 1 7.9 6.7l1.8-1.2-1.1-3.1-2.8 1.9A8 8 0 1 0 20 13h-2a6 6 0 1 1-2.5-4.9l-1.4 3.9 3-1 1.4-3.9A8 8 0 0 0 12 4zm1 5v5l4 2.4-.9 1.5-5.1-3V9h2z" transform="rotate(180 12 12)"/></svg>
+      </button>
+      <button id="btnHelp" class="icon-setting" title="使用帮助" aria-label="使用帮助">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 17h-2v-2h2v2zm1.6-5.5c-.8.7-1.1 1-1.1 1.8h-2v-.5c0-1.2.5-1.9 1.3-2.6.7-.6 1.2-1 1.2-1.9a2 2 0 0 0-4 0H9a4 4 0 1 1 8 0c0 1.4-.7 2.1-1.4 2.7z"/></svg>
+      </button>
+      <button id="btnSettings" class="icon-setting" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94c0-.32-.02-.63-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+      <button id="btnImport" class="icon-setting" title="导入作品（别人分享的 .fast 文件）" aria-label="导入作品">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M11 3h2v9.6l2.3-2.3 1.4 1.4-4.7 4.8-4.7-4.8 1.4-1.4L11 12.6V3zM4 18h16v2H4v-2z"/></svg>
+      </button>
+      <button id="btnUser" class="icon-setting" title="账号：未登录（点击登录或注册）" aria-label="账号">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.4-8 5.3V21h16v-1.7c0-2.9-3.6-5.3-8-5.3z"/></svg>
+      </button>
+      <button id="btnNewApp" class="tb big">＋ 创建新 App</button>
+    </div>
+  </div>
+  <div class="home-sub">所有 App</div>
+  <div id="projectList" class="project-list"></div>
+  <div id="homeEmpty" class="home-empty hidden"></div>
+  <!-- 导入别人分享的 .fast 作品文件。
+       accept 故意放宽到 */*：微信/QQ 存下来的文件各家报的 MIME 不一致，
+       收紧反而会让文件在选择器里变灰选不中；真正的合法性由导入时的解析校验把关。 -->
+  <input type="file" id="importFile" accept="*/*" style="display:none">
+  <!-- 换头像 / 换应用图标共用的隐藏选图框（accept=image/* 时原生侧会走系统图片选择器） -->
+  <input type="file" id="pickImgFile" accept="image/*" style="display:none">
+</div>
+
+<!-- 作品卡片右上角「分享」→ 三个大框：分享到社区 / 分享到社交平台 / 保存在本地 -->
+<div id="shareMask" class="mask hidden">
+  <div class="modal share-modal">
+    <div class="mtitle create-title">分享作品</div>
+    <div id="shareName" class="share-name"></div>
+    <div class="share-acts">
+      <button id="shareToComm" class="share-act" type="button">分享到社区</button>
+      <button id="shareToSocial" class="share-act" type="button">分享到社交平台</button>
+      <button id="shareToLocal" class="share-act" type="button">保存在本地</button>
+    </div>
+    <div class="share-close-row">
+      <button id="shareClose" class="tb icononly" title="关闭" aria-label="关闭">✕</button>
+    </div>
+  </div>
+</div>
+
+<!-- 分享到社区：应用图标 + 作品名称 + 是否开源 -->
+<div id="commShareMask" class="mask hidden">
+  <div class="modal share-modal">
+    <div class="mtitle create-title">分享到社区</div>
+    <div class="comm-share-row">
+      <button id="csIcon" class="comm-icon" type="button" title="换应用图标"></button>
+      <div class="comm-share-col">
+        <div class="m3-outlined acct-field">
+          <input id="csName" class="m3-input" type="text" maxlength="24" placeholder="作品名称" autocomplete="off">
+        </div>
+        <div class="comm-os-row">
+          <span class="comm-os-cap">是否开源</span>
+          <div class="orient-seg" id="csOpen">
+            <button data-open="no" class="orientbtn on" type="button">否</button>
+            <button data-open="yes" class="orientbtn" type="button">是</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="csMsg" class="create-err hidden"></div>
+    <div class="mbtns create-btns">
+      <button id="csCancel" class="tb" type="button">取消</button>
+      <button id="csGo" class="tb primary" type="button">发布</button>
+    </div>
+  </div>
+</div>
+
+<!-- 已发布过的作品：管理（改图标 / 名称 / 是否开源 → 更新）＋ 删除分享 -->
+<div id="commManageMask" class="mask hidden">
+  <div class="modal share-modal">
+    <div class="mtitle create-title">管理分享</div>
+    <div class="comm-share-row">
+      <button id="cmIcon" class="comm-icon" type="button" title="换应用图标"></button>
+      <div class="comm-share-col">
+        <div class="m3-outlined acct-field">
+          <input id="cmName" class="m3-input" type="text" maxlength="24" placeholder="作品名称" autocomplete="off">
+        </div>
+        <div class="comm-os-row">
+          <span class="comm-os-cap">是否开源</span>
+          <div class="orient-seg" id="cmOpen">
+            <button data-open="no" class="orientbtn on" type="button">否</button>
+            <button data-open="yes" class="orientbtn" type="button">是</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="cmMsg" class="create-err hidden"></div>
+    <div class="mbtns create-btns">
+      <button id="cmDel" class="tb danger-text" type="button">删除分享</button>
+      <button id="cmClose" class="tb" type="button">关闭</button>
+      <button id="cmGo" class="tb primary" type="button">更新</button>
+    </div>
+  </div>
+</div>
+
+<!-- 从社区点「运行」前的提示（独立的「不再提示」，和别的提示互不影响） -->
+<div id="runHowMask" class="mask hidden">
+  <div class="modal runtip-modal">
+    <div class="mtitle runtip-title">如何结束运行？</div>
+    <div class="runtip-body">下滑手机通知栏，点「终止运行」按钮即可</div>
+    <button id="runHowNever" class="runtip-never" role="checkbox" aria-checked="false" type="button">
+      <span class="runtip-box"></span><span>不再提示</span>
+    </button>
+    <div class="mbtns create-btns"><button id="runHowOk" class="tb primary" type="button">知道了</button></div>
+  </div>
+</div>
+
+<!-- 社区卡片「保存本地」：先问存到手机还是导出一份到编辑器 -->
+<div id="commSaveMask" class="mask hidden">
+  <div class="modal commsave-modal">
+    <div class="mtitle create-title">保存这个作品</div>
+    <button id="commSavePhone" class="commsave-opt" type="button">保存到手机</button>
+    <button id="commSaveCopy" class="commsave-opt" type="button">在编辑器生成一个副本</button>
+    <div class="mbtns create-btns"><button id="commSaveCancel" class="tb" type="button">取消</button></div>
+  </div>
+</div>
+
+<!-- 选图（换头像 / 换应用图标共用）：预设图标 或 从相册选一张 -->
+<div id="pickMask" class="mask hidden">
+  <div class="modal share-modal">
+    <div class="mtitle create-title" id="pickTitle">选择图片</div>
+    <div id="pickGrid" class="pick-grid"></div>
+    <div class="mbtns create-btns">
+      <button id="pickClear" class="tb" type="button">恢复默认</button>
+      <button id="pickFile" class="tb" type="button">从相册选</button>
+      <button id="pickCancel" class="tb primary" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 更换邮箱：先给新邮箱发验证码，验证通过才写回 -->
+<div id="mailMask" class="mask hidden">
+  <div class="modal create-modal auth-modal">
+    <div class="mtitle create-title">更换邮箱</div>
+    <div class="create-row">
+      <div class="m3-outlined">
+        <input id="mailNew" class="m3-input" type="text" inputmode="email" placeholder="新邮箱" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="create-row">
+      <div class="m3-outlined code-outlined">
+        <input id="mailCode" class="m3-input" type="tel" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" autocomplete="off">
+        <button id="mailSend" class="code-send" type="button">获取验证码</button>
+      </div>
+    </div>
+    <div id="mailErr" class="create-err hidden"></div>
+    <div class="mbtns create-btns">
+      <button id="mailCancel" class="tb" type="button">取消</button>
+      <button id="mailGo" class="tb primary" type="button">确认更换</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 使用帮助（问号进入） ============ -->
+<div id="viewHelp" class="help hidden">
+  <div class="help-topbar">
+    <button id="btnHelpBack" class="tb icononly" title="返回" aria-label="返回">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </button>
+    <div class="help-h-title">使用帮助</div>
+    <button id="btnHelpTips" class="tb tips-entry" title="进阶技巧：更复杂的代码拼法">进阶技巧 🤩</button>
+  </div>
+  <div class="help-body">
+    <div id="helpCats" class="bb-mode-general">
+      <div class="bb-switch-wrap bb-top-wrap">
+        <button id="hpTopSw" class="bb-switch" type="button"><span class="bb-sw-tx">常规代码</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10l6 6 6-6"/></svg></button>
+      </div>
+      <div class="bb-rail-viewport">
+        <div class="bb-panel bb-panel-widget" id="hpWidgetPanel"></div>
+        <div class="bb-panel bb-panel-general" id="hpGeneralPanel"></div>
+      </div>
+      <div class="bb-switch-wrap bb-bot-wrap">
+        <button id="hpBotSw" class="bb-switch" type="button"><span class="bb-sw-tx">控件代码</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14l6-6 6 6"/></svg></button>
+      </div>
+    </div>
+    <div class="help-content" id="helpContent"></div>
+  </div>
+</div>
+
+<!-- ============ 进阶技巧（独立页面：左列表 / 右展示） ============ -->
+<div id="viewTips" class="tips hidden">
+  <div class="help-topbar">
+    <button id="btnTipsBack" class="tb icononly" title="返回使用帮助" aria-label="返回使用帮助">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </button>
+    <div class="help-h-title">进阶技巧 🤩</div>
+    <span class="tips-hint">点左边挑一条，右边看拼法</span>
+  </div>
+  <div class="tips-body">
+    <div id="tipsList" class="tips-list"></div>
+    <div id="tipsBody" class="tips-content"></div>
+  </div>
+</div>
+
+<!-- ============ 账号页（登录后点顶部账号按钮进入） ============
+     整页切换，和「使用帮助 / 进阶技巧」同一套做法：左边一条较窄的列表
+     （个人信息 / 社区），右边是内容区。未登录时不会走到这里 —— 点账号按钮还是原来的登录框。 -->
+<div id="viewAccount" class="acct hidden">
+  <div class="help-topbar">
+    <button id="btnAccountBack" class="tb icononly" title="返回" aria-label="返回">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </button>
+    <div class="help-h-title">账号</div>
+    <button id="btnAccountOut" class="tb">退出登录</button>
+    <!-- 刷新挪到顶栏右上角：以前放在社区列表头部，一滚动就跟着滚没了（2026-10-27 用户要求）。
+         默认 hidden，showAcctPane 切到「社区」栏才显示。 -->
+    <button id="acctRefresh" class="tb acct-rf hidden" type="button">刷新</button>
+  </div>
+  <div class="acct-body">
+    <div class="acct-rail">
+      <button id="acctNavInfo" class="acct-item on" type="button">个人信息</button>
+      <button id="acctNavComm" class="acct-item" type="button">社区</button>
+    </div>
+    <div class="acct-content">
+      <!-- 个人信息：上面头像 / 账号名 / 用户邮箱，下面我分享到社区的作品 -->
+      <section id="acctPaneInfo" class="acct-pane">
+        <div class="acct-card">
+          <div class="acct-prof">
+            <button id="acctAvatar" class="acct-avatar" type="button" title="点头像换一个"></button>
+            <div class="acct-fields">
+              <div class="m3-outlined acct-field">
+                <input id="acctName" class="m3-input" type="text" maxlength="24" placeholder="账号名" autocomplete="off">
+              </div>
+              <button id="acctNameSave" class="tb primary acct-save" type="button">保存账号名</button>
+              <div class="acct-mailrow">
+                <span class="acct-mail" id="acctMail"></span>
+                <button id="acctMailBtn" class="tb acct-save" type="button">更换邮箱</button>
+              </div>
+            </div>
+          </div>
+          <div id="acctErr" class="create-err hidden"></div>
+        </div>
+        <div class="acct-sec-title">我分享到社区的作品</div>
+        <div id="acctMine" class="acct-mine"></div>
+      </section>
+      <!-- 社区：两列卡片，最新在上 -->
+      <section id="acctPaneComm" class="acct-pane hidden">
+        <div class="acct-comm-head">
+          <span class="acct-sec-title">社区作品</span>
+        </div>
+        <div id="acctComm" class="comm-list"></div>
+        <div id="acctCommEmpty" class="acct-empty hidden"></div>
+        <button id="acctMore" class="tb acct-more hidden" type="button">加载更多</button>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 编辑器 ============ -->
+<div id="viewEditor" class="editor hidden">
+  <div id="topbar">
+    <button id="btnHome" class="tb icononly" title="所有 App">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    </button>
+    <div class="seg viewseg">
+      <button id="tabDesign" class="segbtn on">设计</button>
+      <button id="tabBlocks" class="segbtn">代码</button>
+    </div>
+    <input id="appName" class="appname" value="我的应用" maxlength="20">
+    <button id="btnScreenMenu" class="tb screen-menu">页面 ▾</button>
+    <span class="tb-spacer"></span>
+    <button id="btnLayout" class="tb" title="拖动布局">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg>布局
+    </button>
+    <div class="run-split" id="runSplit">
+      <button id="btnRun" class="tb primary run-main"><span id="runMainIco">⏮</span><span class="run-main-tx">运行</span></button>
+      <button id="btnRunCaret" class="tb primary run-caret" title="选择运行方式">▾</button>
+    </div>
+    <div id="runMenu" class="popover hidden">
+      <button class="menu-item run-opt" id="runFromStart"><span class="run-opt-ico">⏮</span><span class="run-opt-tx">从头开始运行</span><span class="run-opt-ck">✓</span></button>
+      <button class="menu-item run-opt" id="runCurrent"><span class="run-opt-ico">▶</span><span class="run-opt-tx">当前页面运行</span><span class="run-opt-ck">✓</span></button>
+    </div>
+    <button id="btnExport" class="tb accent">导出</button>
+    <button id="btnMore" class="tb icononly caret" title="更多">▾</button>
+
+    <!-- 页面切换/增删 菜单 -->
+    <div id="screenMenu" class="popover hidden">
+      <div id="screenMenuList" class="menu-list"></div>
+      <div class="menu-sep"></div>
+      <button id="menuAddScreen" class="menu-item">＋ 新建页面</button>
+      <button id="menuDelScreen" class="menu-item danger">删除当前页面</button>
+    </div>
+
+    <!-- 更多：当前页面名称 + 屏幕方向 -->
+    <div id="moreMenu" class="popover hidden wide">
+      <div class="menu-field">
+        <span class="menu-label">当前页面名称</span>
+        <input id="morePageTitle" class="inp" type="text" placeholder="页面名称">
+      </div>
+      <div class="menu-field">
+        <span class="menu-label">屏幕方向</span>
+        <div class="orient-seg" id="moreOrient">
+          <button data-orient="portrait" class="orientbtn on">竖屏</button>
+          <button data-orient="landscape" class="orientbtn">横屏</button>
+        </div>
+      </div>
+      <div class="menu-field">
+        <span class="menu-label">显示通知栏</span>
+        <div class="orient-seg" id="moreStatusBar">
+          <button data-sb="yes" class="orientbtn on">是</button>
+          <button data-sb="no" class="orientbtn">否</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设计视图（横屏三栏） -->
+  <div id="viewDesign" class="view">
+    <aside class="design-left">
+      <div class="pane-sec">
+        <div class="pane-title">控件类型
+          <button id="btnTpl" class="tpl-btn" type="button" title="一键搭好整页（控件 + 代码）">模板库</button>
+        </div>
+        <!-- 按类型分组收纳（用户要求：用「控件类型⬇️」把小分类收起来） -->
+        <div class="addgroups">
+          <div class="addgroup open" data-g="base">
+            <button class="addgroup-h" type="button"><span class="addgroup-t">基础</span><span class="addgroup-a">▾</span></button>
+            <div class="addbtns">
+              <button data-add="text">文字</button>
+              <button data-add="button">按钮</button>
+              <button data-add="input">输入框</button>
+              <button data-add="image">图片</button>
+            </div>
+          </div>
+          <div class="addgroup" data-g="form">
+            <button class="addgroup-h" type="button"><span class="addgroup-t">输入与选择</span><span class="addgroup-a">▾</span></button>
+            <div class="addbtns">
+              <button data-add="select">下拉选择框</button>
+              <button data-add="radio">单选组</button>
+              <button data-add="switch">开关</button>
+              <button data-add="checkbox">复选框</button>
+              <button data-add="slider">滑块</button>
+              <button data-add="stepper">步进器</button>
+              <button data-add="date">日期</button>
+              <button data-add="time">时间</button>
+            </div>
+          </div>
+          <div class="addgroup" data-g="show">
+            <button class="addgroup-h" type="button"><span class="addgroup-t">展示</span><span class="addgroup-a">▾</span></button>
+            <div class="addbtns">
+              <button data-add="list">列表</button>
+              <button data-add="progress">进度条</button>
+              <button data-add="timer">计时器</button>
+              <button data-add="card">卡片</button>
+              <button data-add="container">容器</button>
+              <button data-add="table">表格</button>
+              <button data-add="chart">图表</button>
+              <button data-add="canvas">画布</button>
+              <button data-add="divider">分隔线</button>
+              <button data-add="spacer">空白占位</button>
+            </div>
+          </div>
+          <div class="addgroup" data-g="media">
+            <button class="addgroup-h" type="button"><span class="addgroup-t">媒体与其它</span><span class="addgroup-a">▾</span></button>
+            <div class="addbtns">
+              <button data-add="video">视频</button>
+              <button data-add="audio">音频</button>
+              <button data-add="web">网页</button>
+              <button data-add="imgbtn">图片按钮</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="design-mid">
+      <div id="compList" class="complist"></div>
+    </section>
+
+    <aside id="propPanel" class="proppanel hidden"></aside>
+  </div>
+
+  <!-- 代码视图 -->
+  <div id="viewBlocks" class="view hidden">
+    <div id="blocklyDiv"></div>
+
+    <div id="delZone">
+      <svg viewBox="0 0 24 24" width="38" height="38"><path fill="#fff" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm3 2v8h2v-8H9zm4 0v8h2v-8h-2z"/></svg>
+      <span>松手删除</span>
+    </div>
+  </div>
+
+  <!-- AI 悬浮球 + 面板：放在编辑器外壳里，设计页和代码页都能用
+       （控件在设计页管、代码在代码页生成，助手要跟着用户走） -->
+  <div id="aiBall" class="ai-ball" role="button" aria-label="𝑭𝒍𝒖𝒙" title="𝑭𝒍𝒖𝒙">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+      <path d="M12 2.2l1.7 4.6 4.6 1.7-4.6 1.7L12 14.8l-1.7-4.6L5.7 8.5l4.6-1.7L12 2.2z"/>
+      <path d="M18.6 14.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3z"/>
+      <path d="M6.4 15.1l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8z"/>
+    </svg>
+  </div>
+
+  <div id="aiPanel" class="ai-panel hidden">
+    <!-- 对话侧边栏：**盖在面板最上层**，范围从面板顶一直到输入框上沿（用户圈定的区域）。
+         以前它缩在聊天区里，上下都露着一截，看着很怪。 -->
+    <div id="aiChatList" class="ai-chatlist hidden">
+      <div class="ai-chatlist-head">
+        <span>对话</span>
+        <button id="aiChatListClose" class="ai-iconbtn" aria-label="收起对话列表" title="收起">✕</button>
+      </div>
+      <button id="aiNewChat2" class="ai-newchat">＋ 新建对话</button>
+      <div id="aiChats" class="ai-chats"></div>
+    </div>
+    <div class="ai-head">
+      <button id="aiMenu" class="ai-iconbtn" aria-label="对话列表" title="对话列表">☰</button>
+      <span class="ai-title">𝑭𝒍𝒖𝒙</span>
+      <div class="ai-head-ops">
+        <!-- 看报错：读运行时日志，让 AI 定位到出错的那一段（放在顶栏，和模型/思考同一排） -->
+        <button id="aiDiagBtn" class="ai-diagbtn" aria-label="看报错" title="读运行时日志，定位出错的那一段">看报错</button>
+        <!-- 模型 和 深度思考 是两个独立的轴：可以单独换模型，也可以单独开关思考。
+             模型选择用自绘的 M3 菜单（原生 <select> 在真机上是系统白底弹窗，跟这套设计不搭） -->
+        <button id="aiModelTop" class="ai-modelbtn" aria-haspopup="listbox" title="选择模型">
+          <span id="aiModelTopLabel">v4-pro</span><span class="caret">▾</span>
+        </button>
+        <button id="aiThink" class="ai-iconbtn ai-thinkbtn on" role="switch" aria-checked="true"
+                aria-label="深度思考" title="深度思考">🧠</button>
+        <button id="aiNewChat" class="ai-iconbtn" aria-label="新建对话" title="新建对话">＋</button>
+        <button id="aiClose" class="ai-x" aria-label="关闭">✕</button>
+      </div>
+    </div>
+    <div class="ai-shell">
+      <div class="ai-main">
+        <!-- 页一：对话 -->
+        <div id="aiChatPage" class="ai-page">
+          <div class="ai-body">
+            <div id="aiLog" class="ai-log"></div>
+            <div id="aiStatus" class="ai-status">用一句话描述你想要的效果，我来生成。</div>
+
+            <!-- 控件改动清单：控件没法"画出来预览"，所以列出将要做的改动，确认后再应用。
+                 按钮统一挪到下面的 .ai-actions 里，和「打开代码画布」同一层级 -->
+            <div id="aiCompWrap" class="ai-comp-wrap hidden">
+              <div class="ai-comp-title">将要改动控件</div>
+              <ul id="aiCompList" class="ai-comp-list"></ul>
+            </div>
+
+            <!-- 修复方案：AI 针对"拖进来的代码 / 画布上第 N 段"给出的替换版本，确认后替换 -->
+            <div id="aiFixWrap" class="ai-comp-wrap ai-fix-wrap hidden">
+              <div class="ai-comp-title">修复方案（确认后替换画布上对应的代码）</div>
+              <ul id="aiFixList" class="ai-fix-list"></ul>
+            </div>
+          </div>
+
+          <!-- 拖进对话框的代码（本体代码仍在画布上；可多段、可删、可清空） -->
+          <div id="aiStaged" class="ai-staged hidden"></div>
+
+          <!-- 底部动作区：「应用这些改动」和「打开代码画布」同一套样式、同一个位置 -->
+          <div class="ai-actions">
+            <div id="aiFixOps" class="ai-act hidden">
+              <button id="aiFixApply" class="tb primary ai-act-btn">确认替换代码</button>
+            </div>
+            <div id="aiCompOps" class="ai-act hidden">
+              <button id="aiCompApply" class="tb primary ai-act-btn">应用这些改动</button>
+            </div>
+            <div id="aiPreviewWrap" class="ai-act hidden">
+              <button id="aiOpenCanvas" class="tb primary ai-act-btn">打开代码画布</button>
+            </div>
+          </div>
+
+          <!-- AI 不确定用户意思时给的选择框：也钉在底部，一眼就能看见、点一下就答 -->
+          <div id="aiAskWrap" class="ai-ask-wrap hidden">
+            <div id="aiAskQ" class="ai-ask-q"></div>
+            <div id="aiAskOpts" class="ai-ask-opts"></div>
+          </div>
+
+          <!-- 流式生成中：思考过程实时滚出来（用户要求"实时看到，而不是生成完才看到"） -->
+          <div id="aiLiveWrap" class="ai-live-wrap hidden">
+            <div id="aiLiveHead" class="ai-live-head">💭 正在思考…</div>
+            <div id="aiLiveBody" class="ai-live-body"></div>
+          </div>
+        </div>
+
+        <!-- 页二：代码画布（仍在这个框里，不占全屏）
+             顶栏：返回 + 插入 + 复制（都放一行，底下不再有按钮行，画布就能更高） -->
+        <div id="aiCanvasPage" class="ai-page hidden">
+          <div class="ai-canvas-bar">
+            <button id="aiCanvasBack" class="tb ai-canvas-back" title="返回对话" aria-label="返回对话">←</button>
+            <button id="aiCanvasInsert" class="tb primary ai-canvas-act">插入到画布</button>
+            <button id="aiCanvasCopy" class="tb ai-canvas-act">复制</button>
+          </div>
+          <div id="aiPreview" class="ai-preview"></div>
+          <!-- 缩放按钮：真机上双指缩放不一定顺手，这里给一组看得见的按钮兜底 -->
+          <div class="ai-zoom">
+            <button id="aiZoomOut" class="ai-zoom-btn" title="缩小" aria-label="缩小">−</button>
+            <button id="aiZoomIn" class="ai-zoom-btn" title="放大" aria-label="放大">＋</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ai-foot">
+      <div class="ai-foot-row">
+        <textarea id="aiInput" class="ai-input" rows="2" spellcheck="false"
+                  placeholder="例如：加一个登录按钮，点了弹出提示"></textarea>
+        <button id="aiSend" class="tb primary ai-send">生成</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 独立全屏：页面布局（拖动排版） ============ -->
+<!-- 进入后是一个全新界面：只含 单个页面舞台 + 可拖控件 + 页面切换 + 控件控制台；方向跟随项目设置并物理旋转 -->
+<div id="viewLayout" class="layout-screen hidden">
+  <div class="lay-topbar">
+    <!-- 这两个按钮以前在 HTML 里丢了（JS 里还在找 #layPageBtn），结果布局页顶栏是空的：
+         退不出去、也换不了页面，只能靠系统返回键 —— 用户说的"致命问题"就是这个 -->
+    <button id="layBack" class="lay-back" title="返回编辑器" aria-label="返回编辑器">←</button>
+    <button id="layPageBtn" class="lay-page-pick">页面 ▾</button>
+    <span class="lay-top-spacer"></span>
+    <div id="layPageMenu" class="popover lay-page-menu hidden"></div>
+  </div>
+  <div class="lay-stage-wrap">
+    <div id="layStage" class="lay-stage portrait">
+      <div id="layFlow" class="lay-flow"></div>
+    </div>
+  </div>
+  <!-- 控件控制台（横屏=右侧侧拉面板，竖屏=底部上拉抽屉，仅点按钮展开） -->
+  <div id="laySheet" class="lay-sheet">
+    <div class="lay-sheet-head">
+      <div id="laySheetTitle" class="lay-sheet-title">未选中组件</div>
+      <button id="laySheetClose" class="lay-sheet-close" title="收起控制台">✕</button>
+    </div>
+    <div id="laySheetBody" class="lay-sheet-body"></div>
+  </div>
+  <button id="layFab" class="lay-fab hidden" title="调整组件数据">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+  </button>
+</div>
+
+<!-- 设置弹窗：主题色 + 明暗模式 -->
+<!-- 创建 App：M3 描边输入框（聚焦标签上浮）+ 竖/横屏手机图标，单屏完整展示 -->
+<div id="createMask" class="mask hidden">
+  <div class="modal create-modal">
+    <div class="mtitle create-title">创建一个app</div>
+    <div class="create-row">
+      <div class="m3-outlined">
+        <input id="newAppName" class="m3-input" type="text" placeholder="输入app名字" maxlength="24" enterkeyhint="done" autocomplete="off">
+      </div>
+    </div>
+    <!-- 重名提示（用户要求：列表里已经有同名 App 就不给创建） -->
+    <div id="createErr" class="create-err hidden"></div>
+    <div class="mbtns create-btns">
+      <button id="createCancel" class="tb">取消</button>
+      <button id="createGo" class="tb primary" disabled>创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 账号：登录 / 注册（邮箱验证码方式）。验证码由阿里云 FC 函数经 QQ 邮箱下发；
+     验证通过后在 SeaTable 的「账号」表建档（用户邮箱 / 账号名）。 -->
+<div id="authMask" class="mask hidden">
+  <div class="modal create-modal auth-modal">
+    <div class="mtitle create-title" id="authTitle">登录账号</div>
+    <div id="authForm">
+      <div class="create-row">
+        <div class="m3-outlined">
+          <input id="authEmail" class="m3-input" type="text" inputmode="email" placeholder="邮箱" autocomplete="off" spellcheck="false" enterkeyhint="next">
+        </div>
+      </div>
+      <div class="create-row">
+        <div class="m3-outlined code-outlined">
+          <input id="authCode" class="m3-input" type="tel" inputmode="numeric" maxlength="6" placeholder="邮箱验证码" autocomplete="off" enterkeyhint="done">
+          <button id="authSendCode" class="code-send" type="button">获取验证码</button>
+        </div>
+      </div>
+      <div id="authErr" class="create-err hidden"></div>
+    </div>
+    <div id="authMe" class="auth-me hidden"></div>
+    <div class="mbtns create-btns">
+      <button id="authCancel" class="tb">关闭</button>
+      <button id="authOut" class="tb danger-text hidden">退出登录</button>
+      <button id="authGo" class="tb primary">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 没有通知栏权限时：拒绝运行，并给一个直达系统设置的按钮 -->
+<div id="notifMask" class="mask hidden">
+  <div class="modal runtip-modal">
+    <div class="mtitle runtip-title">需要通知栏权限</div>
+    <div class="runtip-body">没有通知栏权限，运行起来就没法结束。去系统设置里打开本应用的通知，再点运行。</div>
+    <div class="mbtns create-btns">
+      <button id="notifCancel" class="tb">关闭</button>
+      <button id="notifGo" class="tb primary">去设置</button>
+    </div>
+  </div>
+</div>
+
+<div id="settingsMask" class="mask hidden">
+  <div class="modal sheet-modal settings-modal fill">
+    <div class="mtitle">设置</div>
+    <div class="mbody">
+      <div class="settings-grid">
+        <div class="set-group">
+          <div class="set-label">主题颜色</div>
+          <div class="seed-row" id="seedRow"></div>
+        </div>
+        <div class="set-group">
+          <div class="set-label">显示模式</div>
+          <div class="mode-seg" id="modeSeg">
+            <button data-mode="light">浅色</button>
+            <button data-mode="dark">深色</button>
+            <button data-mode="auto">跟随系统</button>
+          </div>
+        </div>
+        <div class="set-group">
+          <div class="set-label">𝑭𝒍𝒖𝒙（AI 助手，DeepSeek）</div>
+          <div class="ai-key-row">
+            <input id="aiKey" class="inp" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="粘贴你的 DeepSeek API Key">
+            <button id="aiKeyTest" class="small">测试</button>
+          </div>
+          <div id="aiKeyStatus" class="ai-key-status"></div>
+          <!-- 模型切换只在 AI 面板顶栏提供（用户要求：设置里不要重复一个切换入口） -->
+          <div class="ai-key-hint">
+            密钥只存在这台手机上（已排除出云备份），<b>不会</b>随作品分享、也不会打进导出的 App。<br>
+            没有的话去 platform.deepseek.com 申请一个，自己按量付费。
+          </div>
+        </div>
+        <!-- 出问题时不用你描述：这里一键把最近的运行记录导出来 -->
+        <div class="set-group">
+          <div class="set-label">出问题了？</div>
+          <div class="ai-key-row">
+            <button id="btnDiag" class="small" style="flex:1">查看 / 导出诊断信息</button>
+          </div>
+          <div class="ai-key-hint">会带上最近的出错记录与页面状态，发给我就能定位问题（不含你的 API Key 内容）。</div>
+        </div>
+      </div>
+    </div>
+    <div class="mbtns"><button id="settingsClose" class="tb primary">完成</button></div>
+  </div>
+</div>
+
+<!-- 导出弹窗：图标 + 版本号（紧凑单屏，底部按钮常驻可见，无需下滑） -->
+<div id="exportMask" class="mask hidden">
+  <div class="modal sheet-modal export-modal fill">
+    <div class="mtitle">导出 APK</div>
+    <div class="mbody compact">
+      <div id="expEmptyHint" class="exp-empty hidden">这个作品还没有控件，装出来是一个空白页（之后加了控件再导出一次即可）</div>
+      <div class="exp-row">
+        <div id="iconPreview" class="icon-preview">图</div>
+        <div class="exp-icon-ops">
+        <button id="btnPickIcon" class="small">选择应用图标</button>
+        <button id="btnClearIcon" class="small">恢复默认</button>
+        <input id="iconFile" type="file" accept="image/*" class="hidden">
+        </div>
+      </div>
+      <div class="exp-grid">
+        <label class="exp-label">版本号
+          <input id="expVersion" class="inp" type="text" value="1.0" maxlength="12">
+        </label>
+      </div>
+    </div>
+    <div class="mbtns pinned">
+      <button id="exportCancel" class="tb">取消</button>
+      <button id="exportGo" class="tb primary">生成 APK</button>
+    </div>
+  </div>
+</div>
+
+<!-- 检查更新 -->
+<div id="updateMask" class="mask hidden">
+  <div class="modal sheet-modal fill" style="max-width:430px">
+    <div class="mtitle upd-title-row">
+      <span>检查更新</span>
+      <button type="button" id="updateContact" class="contact-chip">联系开发者</button>
+    </div>
+    <div class="mbody compact">
+      <div id="updateStatus" class="upd-status">正在检查更新…</div>
+      <div id="updateList" class="upd-list"></div>
+    </div>
+    <div class="mbtns pinned">
+      <button id="updateCancel" class="tb">关闭</button>
+      <button id="updateGo" class="tb primary" disabled>下载并安装</button>
+    </div>
+  </div>
+</div>
+
+<!-- 联系开发者 -->
+<div id="contactMask" class="mask hidden">
+  <div class="modal" style="max-width:380px">
+    <div class="mtitle" style="font-size:24px;justify-content:flex-start">联系开发者</div>
+    <div class="mbody">
+      <div class="contact-line">开发者微信/抖音号：<b class="contact-id" id="contactIdText">dashen1949</b></div>
+      <div class="contact-sub">在微信或抖音搜索该账号即可添加</div>
+    </div>
+    <div class="mbtns">
+      <button id="contactClose" class="tb">关闭</button>
+      <button id="contactCopy" class="tb primary">复制账号</button>
+    </div>
+  </div>
+</div>
+
+<!-- 精美确认弹窗 -->
+<div id="confirmMask" class="mask hidden">
+  <div class="modal" style="max-width:360px">
+    <div id="confirmIcon" class="confirm-icon">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+    </div>
+    <div id="confirmTitle" class="mtitle" style="font-size:20px;margin-bottom:8px">确认操作</div>
+    <div id="confirmMsg" class="confirm-msg"></div>
+    <div class="mbtns">
+      <button id="confirmCancel" class="tb">取消</button>
+      <button id="confirmOk" class="tb" style="background:var(--error);color:var(--on-error)">删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- M3 自定义取色器（替代安卓系统原生取色框：预设 + 色相/饱和度/明度 + HEX） -->
+<div id="colorMask" class="mask hidden">
+  <div class="modal sheet-modal color-modal">
+    <div class="mtitle">选择颜色</div>
+    <div class="mbody">
+      <div class="cp-top">
+        <div id="cpNew" class="cp-big"></div>
+        <div class="cp-hexfield">
+          <span class="cp-cap">HEX 色值</span>
+          <input id="cpHex" class="inp" type="text" maxlength="9" placeholder="#6750A4" spellcheck="false">
+        </div>
+      </div>
+      <div class="set-label">预设颜色</div>
+      <div id="cpPresets" class="cp-presets"></div>
+      <div class="cp-slider">
+        <div class="cp-slider-head"><span>色相 H</span><b id="cpHv">0°</b></div>
+        <input id="cpH" type="range" min="0" max="360" step="1">
+      </div>
+      <div class="cp-slider">
+        <div class="cp-slider-head"><span>饱和度 S</span><b id="cpSv">0%</b></div>
+        <input id="cpS" type="range" min="0" max="100" step="1">
+      </div>
+      <div class="cp-slider">
+        <div class="cp-slider-head"><span>明度 L</span><b id="cpLv">0%</b></div>
+        <input id="cpL" type="range" min="0" max="100" step="1">
+      </div>
+    </div>
+    <div class="mbtns">
+      <button id="cpClear" class="tb">恢复默认</button>
+      <span style="flex:1"></span>
+      <button id="cpCancel" class="tb">取消</button>
+      <button id="cpOk" class="tb primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 创建 / 编辑云表格（SeaTable） -->
+<div id="cloudCreateMask" class="mask hidden">
+  <div class="modal sheet-modal cloud-modal">
+    <div class="mtitle create-title" id="ccTitle">创建 SeaTable 云列表</div>
+    <div class="mbody">
+      <div class="cc-field">
+        <span class="cc-cap">服务器</span>
+        <div class="m3-outlined">
+          <button type="button" id="ccProvider" class="m3-input m3-select m3-select-btn" value="seatable-cn">
+            <span class="m3s-label">SeaTable 中国版（cloud.seatable.cn）</span>
+            <span class="pp-sel-chev"></span>
+          </button>
+        </div>
+      </div>
+      <div class="cc-field" id="ccServerField" style="display:none">
+        <span class="cc-cap">服务器地址</span>
+        <div class="m3-outlined">
+          <input id="ccServer" class="m3-input" type="text" placeholder="输入服务器地址，如 https://cloud.example.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="cc-field">
+        <span class="cc-cap">云表格名称</span>
+        <div class="m3-outlined">
+          <input id="ccName" class="m3-input" type="text" placeholder="给这个云表格命名，如：客户表" maxlength="20" autocomplete="off">
+        </div>
+      </div>
+      <div class="cc-field">
+        <span class="cc-cap">表格 UUID</span>
+        <div class="m3-outlined">
+          <input id="ccUuid" class="m3-input" type="text" placeholder="输入表格 UUID" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="cc-field">
+        <span class="cc-cap">API 密钥</span>
+        <div class="m3-outlined">
+          <input id="ccToken" class="m3-input" type="text" placeholder="输入 API 密钥" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+      <div id="ccError" class="cc-error"></div>
+    </div>
+    <div class="mbtns">
+      <button id="ccCancel" class="tb">取消</button>
+      <button id="ccGo" class="tb primary">创建云表格</button>
+    </div>
+  </div>
+</div>
+
+<!-- 管理云表格 -->
+<div id="cloudManageMask" class="mask hidden">
+  <div class="modal sheet-modal cloud-manage-modal fill">
+    <div class="mtitle create-title">管理 SeaTable 云列表</div>
+    <div class="mbody">
+      <div id="cmList" class="cm-list"></div>
+    </div>
+    <div class="mbtns">
+      <button id="cmAdd" class="tb">＋ 创建云表格</button>
+      <span style="flex:1"></span>
+      <button id="cloudManageDone" class="tb primary">完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- Blockly 输入/确认弹窗（替代安卓原生 prompt/confirm/alert，M3 风格） -->
+<div id="blocklyDialogMask" class="mask hidden">
+  <div class="modal" style="max-width:380px">
+    <div id="bdMessage" class="bd-message">更改值：</div>
+    <div class="m3-outlined" id="bdField">
+      <input id="bdInput" class="m3-input bd-input" type="text" autocomplete="off">
+    </div>
+    <div class="mbtns">
+      <button id="bdCancel" class="tb">取消</button>
+      <button id="bdOk" class="tb primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用提示弹层 -->
+<div id="modalMask" class="mask hidden">
+  <div class="modal">
+    <div id="modalTitle" class="mtitle">提示</div>
+    <div id="modalBody" class="mbody"></div>
+    <div class="mbtns">
+      <button id="modalCancel" class="tb">关闭</button>
+      <button id="modalExtra" class="tb hidden">备用</button>
+      <button id="modalOk" class="tb primary hidden">安装</button>
+    </div>
+  </div>
+</div>
+
+<!-- 侧滑返回手势提示条 -->
+<div id="edgeHint" class="edge-hint"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg></div>
+
+<!-- M3 轻提示（非阻塞，自动消失） -->
+<div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
+
+<script src="blockly/blockly.min.js?v=__BUILD__"></script>
+<script src="blockly/zh-hans.js?v=__BUILD__"></script>
+<script src="blocks.js?v=__BUILD__"></script>
+<script src="editor.js?v=__BUILD__"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+name = "fast-cloud"
+main = "index.js"
+compatibility_date = "2026-09-01"
+
+# SeaTable 凭据不写在这里！在 Cloudflare 控制台配成加密变量：
+#   Worker → Settings → Variables and Secrets → Add → 类型选 Secret
+#     SEATABLE_TOKEN = <你的 SeaTable API Token>
+# （可选）SEATABLE_UUID / SEATABLE_SRV 也有默认值，一般不用配
