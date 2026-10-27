@@ -3277,22 +3277,135 @@
     }, renderPropPanel, false);
   }
 
-  /* 选择图片并压缩为 dataURL（正方形上限 256，控制工程体积） */
+  /* 选择图片 → **先裁剪** → 再压缩为 dataURL（最长边上限 256，控制工程体积）
+     2026-10-28 用户需求：选完图要能自己裁一块。
+     以前是"整张塞进画布再等比缩小"，想只要照片中间那块只能先拿别的软件裁好再传。 */
   function pickImage(input, cb) {
     var f = input.files && input.files[0]; if (!f) return;
     var reader = new FileReader();
     reader.onload = function () {
       var img = new Image();
-      img.onload = function () {
-        var side = Math.max(img.width, img.height), max = 256, scale = Math.min(1, max / side);
-        var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-        var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-        cv.getContext('2d').drawImage(img, 0, 0, w, h);
-        cb(cv.toDataURL('image/png'));
-      };
+      img.onload = function () { openCropper(img, cb); };
       img.src = reader.result;
     };
     reader.readAsDataURL(f);
+  }
+
+  /* ---------------- 裁剪弹窗 ----------------
+     不引第三方库：舞台里一张按比例铺满的 <img> + 一个可拖动、可拉四角的选框。
+     坐标一律按**显示像素**算，确认时再乘（naturalWidth / 显示宽）映射回原图。
+     框外那层半透明黑是用 box-shadow 铺的（比四个遮罩块省事，也不会露缝）。 */
+  function openCropper(img, cb) {
+    var 旧 = $('cropMask'); if (旧 && 旧.parentNode) 旧.parentNode.removeChild(旧);
+
+    var mask = el('div', 'mask crop-mask'); mask.id = 'cropMask';
+    var box = el('div', 'crop-box');
+    var stage = el('div', 'crop-stage');
+    var ph = el('img'); ph.src = img.src;
+    var selEl = el('div', 'crop-sel');
+    ['nw', 'ne', 'sw', 'se'].forEach(function (k) {
+      var h = el('div', 'crop-h ' + k); h.setAttribute('data-k', k); selEl.appendChild(h);
+    });
+    stage.appendChild(ph); stage.appendChild(selEl);
+    var btns = el('div', 'crop-btns');
+    var bNo = el('button', 'tb', '取消'), bYes = el('button', 'tb primary', '完成');
+    bNo.type = 'button'; bYes.type = 'button';
+    btns.appendChild(bNo); btns.appendChild(bYes);
+    box.appendChild(el('div', 'crop-title', '裁剪图片'));
+    box.appendChild(stage);
+    box.appendChild(el('div', 'crop-tip', '拖动方框或四个圆点，选你要保留的部分'));
+    box.appendChild(btns);
+    mask.appendChild(box);
+    document.body.appendChild(mask);
+
+    var 图 = null;   // 图片在舞台里的显示区域（舞台坐标）
+    var 框 = null;   // 选框（舞台坐标）
+    var 拖 = null;
+
+    function 量图() {
+      var a = stage.getBoundingClientRect(), b = ph.getBoundingClientRect();
+      if (!b.width || !b.height) return false;
+      图 = { left: b.left - a.left, top: b.top - a.top, w: b.width, h: b.height };
+      return true;
+    }
+    function 画() {
+      selEl.style.left = 框.x + 'px'; selEl.style.top = 框.y + 'px';
+      selEl.style.width = 框.w + 'px'; selEl.style.height = 框.h + 'px';
+    }
+    function 初始框() {
+      if (框 || !量图()) return;
+      var m = Math.round(Math.min(图.w, 图.h) * 0.06);
+      框 = { x: 图.left + m, y: 图.top + m, w: 图.w - m * 2, h: 图.h - m * 2 };
+      画();
+    }
+    function 位置(e) {
+      var r = stage.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+    /* 只挂在舞台上，靠 e.target 区分"拉角"还是"整体拖"：点空白处不动 */
+    function 按下(e) {
+      if (!框) 初始框();
+      if (!框) return;
+      var t = e.target, k = (t && t.getAttribute && t.getAttribute('data-k')) || '';
+      if (t !== selEl && !k) return;
+      var p = 位置(e);
+      拖 = { 模式: k || 'move', sx: p.x, sy: p.y, x: 框.x, y: 框.y, w: 框.w, h: 框.h };
+      e.preventDefault();
+    }
+    function 移动(e) {
+      if (!拖 || !图) return;
+      var p = 位置(e), dx = p.x - 拖.sx, dy = p.y - 拖.sy;
+      var L = 图.left, T = 图.top, R = 图.left + 图.w, B = 图.top + 图.h;
+      var MIN = Math.max(24, Math.min(图.w, 图.h) * 0.1);   // 别让人裁成一个点
+      var x = 拖.x, y = 拖.y, w = 拖.w, h = 拖.h;
+      if (拖.模式 === 'move') {
+        x = Math.min(Math.max(L, 拖.x + dx), Math.max(L, R - w));
+        y = Math.min(Math.max(T, 拖.y + dy), Math.max(T, B - h));
+      } else {
+        var l = 拖.x, t2 = 拖.y, r = 拖.x + 拖.w, b = 拖.y + 拖.h;
+        if (拖.模式.indexOf('w') >= 0) l = Math.min(Math.max(L, 拖.x + dx), r - MIN);
+        if (拖.模式.indexOf('e') >= 0) r = Math.max(Math.min(R, 拖.x + 拖.w + dx), l + MIN);
+        if (拖.模式.indexOf('n') >= 0) t2 = Math.min(Math.max(T, 拖.y + dy), b - MIN);
+        if (拖.模式.indexOf('s') >= 0) b = Math.max(Math.min(B, 拖.y + 拖.h + dy), t2 + MIN);
+        x = l; y = t2; w = r - l; h = b - t2;
+      }
+      框 = { x: x, y: y, w: w, h: h };
+      画();
+      e.preventDefault();
+    }
+    function 松开() { 拖 = null; }
+    function 关(收尾) {
+      document.removeEventListener('pointermove', 移动);
+      document.removeEventListener('pointerup', 松开);
+      document.removeEventListener('pointercancel', 松开);
+      if (mask.parentNode) mask.parentNode.removeChild(mask);
+      if (收尾) 收尾();
+    }
+
+    // pointerdown 挂在舞台：sel 和四个圆点是它的子节点，事件会冒泡上来
+    stage.addEventListener('pointerdown', 按下);
+    document.addEventListener('pointermove', 移动);
+    document.addEventListener('pointerup', 松开);
+    document.addEventListener('pointercancel', 松开);
+    bNo.addEventListener('click', function () { 关(); });
+    bYes.addEventListener('click', function () {
+      if (!图 || !框) { 关(); return; }   // 取消不回调：调用方什么都不改
+      var 比 = img.naturalWidth ? (img.naturalWidth / 图.w) : 1;
+      var sx = Math.max(0, Math.round((框.x - 图.left) * 比));
+      var sy = Math.max(0, Math.round((框.y - 图.top) * 比));
+      var sw = Math.max(1, Math.min(img.naturalWidth - sx, Math.round(框.w * 比)));
+      var sh = Math.max(1, Math.min(img.naturalHeight - sy, Math.round(框.h * 比)));
+      // 出口统一压到 256 以内（和以前一样控制工程体积），只缩不放大
+      var 缩 = Math.min(1, 256 / Math.max(sw, sh));
+      var w = Math.max(1, Math.round(sw * 缩)), h = Math.max(1, Math.round(sh * 缩));
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+      var url = cv.toDataURL('image/png');
+      关(function () { cb(url); });
+    });
+
+    初始框();
+    if (!框) requestAnimationFrame(初始框);   // 刚挂上去还没排版，下一帧再量
   }
 
   /* ---------------- 自定义渲染器 fastzelos ---------------------------------------

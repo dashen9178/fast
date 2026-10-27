@@ -739,6 +739,50 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .sheet-modal > .mbtns { flex: 0 0 auto; }
 .sheet-modal .mbtns.pinned { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--outline-var); }
 
+/* ================= 裁剪弹窗（选图后先裁再存，2026-10-28 新功能） ================= */
+/* 舞台铺一张等比图片，选框用 box-shadow 在框外盖一层半透明黑；四个角是手抓点。
+   `touch-action: none` 必须加，否则手机上拖方框会变成滚动页面。 */
+.crop-mask { padding: 12px; }
+.crop-box {
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(94vw, 560px); height: min(88vh, 640px); height: min(88dvh, 640px);
+  background: var(--c-high); color: var(--on-surface);
+  border-radius: var(--r-xl); padding: 16px; box-shadow: var(--shadow-2);
+  animation: pop .22s var(--ease); max-height: none; overflow: hidden;
+}
+.crop-title { font-size: 18px; font-weight: 500; flex: 0 0 auto; }
+.crop-stage {
+  position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: #000; border-radius: 12px; touch-action: none;
+}
+.crop-stage img {
+  max-width: 100%; max-height: 100%; display: block;
+  pointer-events: none; user-select: none; -webkit-user-drag: none;
+}
+.crop-sel {
+  position: absolute; box-sizing: border-box; border: 1px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55);
+  cursor: move; touch-action: none;
+}
+.crop-h {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  border-radius: 50%; background: #fff; border: 2px solid var(--primary);
+  box-sizing: border-box; touch-action: none;
+}
+.crop-h.nw { left: 0; top: 0; cursor: nwse-resize; }
+.crop-h.ne { left: 100%; top: 0; cursor: nesw-resize; }
+.crop-h.sw { left: 0; top: 100%; cursor: nesw-resize; }
+.crop-h.se { left: 100%; top: 100%; cursor: nwse-resize; }
+.crop-tip { font-size: 13px; color: var(--on-surface-var); flex: 0 0 auto; }
+.crop-btns { display: flex; gap: 8px; justify-content: flex-end; flex: 0 0 auto; }
+.crop-btns .tb { min-width: 84px; height: 40px; }
+@media (max-width: 480px) {
+  .crop-box { padding: 12px; gap: 8px; }
+  .crop-title { font-size: 16px; }
+  .crop-tip { font-size: 12px; }
+}
+
 /* ================= 创建 App 弹窗（M3 描边输入框 + 竖/横屏图标，单屏完整） ================= */
 .create-modal { max-width: 420px; padding: 26px 24px 22px; }
 .create-title { font-size: 26px; font-weight: 500; text-align: left; margin: 0 0 22px; }
