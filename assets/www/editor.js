@@ -11728,11 +11728,14 @@
     var list = commState.rows.slice(0, commState.shown);
     // 内容没变就别重建 DOM：切栏时这个函数会被触发两次（切栏 + 一个 rAF），
     // 每次 children 全删全加会让列表在慢设备上"闪一下"（2026-09-25 真机反馈）。
-    // ⚠️ 指纹必须把**作者名**也算进去（2026-10-27 用户报的"改名后后台是新的、App 还是原名"）：
-    // 以前只比 作品iD/作品名/条数，账号改名后这三样一个都没变 → 这里判定"内容没变"直接 return，
-    // 新读回来的行根本没被画出来，卡片就一直停在旧名字上（只有重启 App 才会好）。
+    // ⚠️ 指纹必须把**卡片上真正画出来的内容**都算进去（2026-10-27 用户报的"改名后后台是新的、App 还是原名"，
+    // 以及 2026-10-28 报的"改回不开源后社区还显示开源"）：
+    // 以前只比 作品iD/作品名/条数（后来补了作者名），但「是否开源」「封面图」变了不动指纹 →
+    // 这里判定"内容没变"直接 return，新读回来的行根本没被画出来，卡片一直停在旧状态（只有重启 App 才会好）。
+    // 卡片实际渲染的就是：封面图 / 作品名 / 是否开源 / 作者 / 时间 —— 这五项 + 作品iD 都得进指纹。
     var 指纹 = list.map(function (r) {
-      return [strOf(r[COMM_COL.sid]), strOf(r[COMM_COL.name]), strOf(r[COMM_COL.user]), timeOfRow(r)].join('\u0002');
+      return [strOf(r[COMM_COL.sid]), strOf(r[COMM_COL.name]), strOf(r[COMM_COL.user]),
+        strOf(r[COMM_COL.open]), firstPath(r[COMM_COL.image]), timeOfRow(r)].join('\u0002');
     }).join('\u0001') + '#' + list.length;
     if (commState.指画过 === 指纹 && box.children.length) { return; }
     commState.指画过 = 指纹;
