@@ -3292,9 +3292,10 @@
   }
 
   /* ---------------- 裁剪弹窗 ----------------
-     不引第三方库：舞台里一张按比例铺满的 <img> + 一个可拖动、可拉四角的选框。
-     坐标一律按**显示像素**算，确认时再乘（naturalWidth / 显示宽）映射回原图。
-     框外那层半透明黑是用 box-shadow 铺的（比四个遮罩块省事，也不会露缝）。 */
+     规格（2026-10-28 用户定）：**固定大小的正方形**，不许拉角改形状/大小；
+     只能拖动、缩放图片来调整方块里露出的那块（和头像裁剪一个手感）。
+     不引第三方库：舞台里一张绝对定位的 <img>，方块固定居中，框外那层半透明黑用 box-shadow 铺。
+     坐标一律按**显示像素**算，确认时再乘（naturalWidth / 显示宽）映射回原图。 */
   function openCropper(img, cb) {
     var 旧 = $('cropMask'); if (旧 && 旧.parentNode) 旧.parentNode.removeChild(旧);
 
@@ -3302,79 +3303,112 @@
     var box = el('div', 'crop-box');
     var stage = el('div', 'crop-stage');
     var ph = el('img'); ph.src = img.src;
-    var selEl = el('div', 'crop-sel');
-    ['nw', 'ne', 'sw', 'se'].forEach(function (k) {
-      var h = el('div', 'crop-h ' + k); h.setAttribute('data-k', k); selEl.appendChild(h);
-    });
-    stage.appendChild(ph); stage.appendChild(selEl);
+    var sq = el('div', 'crop-sq');
+    stage.appendChild(ph); stage.appendChild(sq);
     var btns = el('div', 'crop-btns');
     var bNo = el('button', 'tb', '取消'), bYes = el('button', 'tb primary', '完成');
     bNo.type = 'button'; bYes.type = 'button';
     btns.appendChild(bNo); btns.appendChild(bYes);
     box.appendChild(el('div', 'crop-title', '裁剪图片'));
     box.appendChild(stage);
-    box.appendChild(el('div', 'crop-tip', '拖动方框或四个圆点，选你要保留的部分'));
+    box.appendChild(el('div', 'crop-tip', '拖动图片、双指或滚轮缩放，方块里就是保留的部分'));
     box.appendChild(btns);
     mask.appendChild(box);
     document.body.appendChild(mask);
 
-    var 图 = null;   // 图片在舞台里的显示区域（舞台坐标）
-    var 框 = null;   // 选框（舞台坐标）
-    var 拖 = null;
+    var 台 = null;                 // 舞台尺寸
+    var 方 = 0;                    // 方块边长（固定，不随图片变）
+    var 倍 = 1, 最小倍 = 1;        // 倍 = 显示像素 / 原图像素（最小倍保证图片盖满方块）
+    var 偏 = { x: 0, y: 0 };       // 图片中心相对方块中心的位移
+    var 指 = {}, 拖 = null, 捏 = null;
 
-    function 量图() {
-      var a = stage.getBoundingClientRect(), b = ph.getBoundingClientRect();
-      if (!b.width || !b.height) return false;
-      图 = { left: b.left - a.left, top: b.top - a.top, w: b.width, h: b.height };
+    function 量台() {
+      // 用 clientWidth/Height 而不是 getBoundingClientRect：弹窗进场有 pop 缩放动画，
+      // rect 量到的是被缩过的尺寸，方块会跟着变小且此后不再修正。
+      var w = stage.clientWidth, h = stage.clientHeight;
+      if (!w || !h) return false;
+      台 = { w: w, h: h };
+      方 = Math.max(40, Math.round(Math.min(w, h) * 0.82));
+      最小倍 = Math.max(方 / img.naturalWidth, 方 / img.naturalHeight);
       return true;
     }
-    function 画() {
-      selEl.style.left = 框.x + 'px'; selEl.style.top = 框.y + 'px';
-      selEl.style.width = 框.w + 'px'; selEl.style.height = 框.h + 'px';
+    function 夹偏() {
+      var w = img.naturalWidth * 倍, h = img.naturalHeight * 倍;
+      var mx = Math.max(0, (w - 方) / 2), my = Math.max(0, (h - 方) / 2);
+      偏.x = Math.min(mx, Math.max(-mx, 偏.x));
+      偏.y = Math.min(my, Math.max(-my, 偏.y));
     }
-    function 初始框() {
-      if (框 || !量图()) return;
-      var m = Math.round(Math.min(图.w, 图.h) * 0.06);
-      框 = { x: 图.left + m, y: 图.top + m, w: 图.w - m * 2, h: 图.h - m * 2 };
-      画();
+    function 布局() {
+      var w = img.naturalWidth * 倍, h = img.naturalHeight * 倍;
+      夹偏();
+      ph.style.width = w + 'px'; ph.style.height = h + 'px';
+      ph.style.left = ((台.w - w) / 2 + 偏.x) + 'px';
+      ph.style.top = ((台.h - h) / 2 + 偏.y) + 'px';
+      sq.style.width = 方 + 'px'; sq.style.height = 方 + 'px';
+      sq.style.left = ((台.w - 方) / 2) + 'px';
+      sq.style.top = ((台.h - 方) / 2) + 'px';
     }
-    function 位置(e) {
+    function 初始() {
+      if (!量台()) return false;
+      倍 = 最小倍; 偏 = { x: 0, y: 0 };
+      布局();
+      return true;
+    }
+    function 缩放(到) {
+      var lo = 最小倍, hi = 最小倍 * 6;      // 最多放大 6 倍，够挑细节了
+      倍 = Math.min(hi, Math.max(lo, 到));
+      布局();
+    }
+    function 位(e) {
       var r = stage.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
+      // 进场动画期间 rect 是被 transform 缩过的：按"布局尺寸 / 视觉尺寸"换回布局坐标
+      var kx = (台 && r.width) ? 台.w / r.width : 1;
+      var ky = (台 && r.height) ? 台.h / r.height : 1;
+      return { x: (e.clientX - r.left) * kx, y: (e.clientY - r.top) * ky };
     }
-    /* 只挂在舞台上，靠 e.target 区分"拉角"还是"整体拖"：点空白处不动 */
+    function 指距() {
+      var ids = Object.keys(指);
+      if (ids.length < 2) return 0;
+      var a = 指[ids[0]], b = 指[ids[1]];
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+    // 事件统一挂舞台：手指落在图片上还是方块上都冒泡到这里（两者都 pointer-events:none）
     function 按下(e) {
-      if (!框) 初始框();
-      if (!框) return;
-      var t = e.target, k = (t && t.getAttribute && t.getAttribute('data-k')) || '';
-      if (t !== selEl && !k) return;
-      var p = 位置(e);
-      拖 = { 模式: k || 'move', sx: p.x, sy: p.y, x: 框.x, y: 框.y, w: 框.w, h: 框.h };
+      if (!台 && !初始()) return;
+      指[e.pointerId] = 位(e);
+      var ids = Object.keys(指);
+      if (ids.length >= 2) { 捏 = { d: 指距(), 倍: 倍 }; 拖 = null; }
+      else { 拖 = { sx: 指[e.pointerId].x, sy: 指[e.pointerId].y, ox: 偏.x, oy: 偏.y }; 捏 = null; }
+      try { stage.setPointerCapture(e.pointerId); } catch (x) { }
       e.preventDefault();
     }
     function 移动(e) {
-      if (!拖 || !图) return;
-      var p = 位置(e), dx = p.x - 拖.sx, dy = p.y - 拖.sy;
-      var L = 图.left, T = 图.top, R = 图.left + 图.w, B = 图.top + 图.h;
-      var MIN = Math.max(24, Math.min(图.w, 图.h) * 0.1);   // 别让人裁成一个点
-      var x = 拖.x, y = 拖.y, w = 拖.w, h = 拖.h;
-      if (拖.模式 === 'move') {
-        x = Math.min(Math.max(L, 拖.x + dx), Math.max(L, R - w));
-        y = Math.min(Math.max(T, 拖.y + dy), Math.max(T, B - h));
-      } else {
-        var l = 拖.x, t2 = 拖.y, r = 拖.x + 拖.w, b = 拖.y + 拖.h;
-        if (拖.模式.indexOf('w') >= 0) l = Math.min(Math.max(L, 拖.x + dx), r - MIN);
-        if (拖.模式.indexOf('e') >= 0) r = Math.max(Math.min(R, 拖.x + 拖.w + dx), l + MIN);
-        if (拖.模式.indexOf('n') >= 0) t2 = Math.min(Math.max(T, 拖.y + dy), b - MIN);
-        if (拖.模式.indexOf('s') >= 0) b = Math.max(Math.min(B, 拖.y + 拖.h + dy), t2 + MIN);
-        x = l; y = t2; w = r - l; h = b - t2;
+      if (!台 || !指[e.pointerId]) return;
+      指[e.pointerId] = 位(e);
+      if (Object.keys(指).length >= 2 && 捏 && 捏.d > 0) {
+        缩放(捏.倍 * (指距() / 捏.d));
+      } else if (拖) {
+        偏 = { x: 拖.ox + (指[e.pointerId].x - 拖.sx), y: 拖.oy + (指[e.pointerId].y - 拖.sy) };
+        布局();
       }
-      框 = { x: x, y: y, w: w, h: h };
-      画();
       e.preventDefault();
     }
-    function 松开() { 拖 = null; }
+    function 松开(e) {
+      delete 指[e.pointerId];
+      var ids = Object.keys(指);
+      if (ids.length === 0) { 拖 = null; 捏 = null; }
+      else if (ids.length === 1) {
+        拖 = { sx: 指[ids[0]].x, sy: 指[ids[0]].y, ox: 偏.x, oy: 偏.y }; 捏 = null;
+      }
+    }
+    function 滚(e) {
+      if (!台) return;
+      缩放(倍 * Math.exp(-e.deltaY * 0.0012));
+      e.preventDefault();
+    }
+    function 尺寸变了() { if (!台) return; var 前 = 方; 量台(); if (方 !== 前) { 倍 = Math.max(倍, 最小倍); } 布局(); }
     function 关(收尾) {
+      window.removeEventListener('resize', 尺寸变了);
       document.removeEventListener('pointermove', 移动);
       document.removeEventListener('pointerup', 松开);
       document.removeEventListener('pointercancel', 松开);
@@ -3382,31 +3416,36 @@
       if (收尾) 收尾();
     }
 
-    // pointerdown 挂在舞台：sel 和四个圆点是它的子节点，事件会冒泡上来
     stage.addEventListener('pointerdown', 按下);
+    stage.addEventListener('wheel', 滚, { passive: false });
     document.addEventListener('pointermove', 移动);
     document.addEventListener('pointerup', 松开);
     document.addEventListener('pointercancel', 松开);
-    bNo.addEventListener('click', function () { 关(); });
+    window.addEventListener('resize', 尺寸变了);
+    bNo.addEventListener('click', function () { 关(); });   // 取消不回调：调用方什么都不改
     bYes.addEventListener('click', function () {
-      if (!图 || !框) { 关(); return; }   // 取消不回调：调用方什么都不改
-      var 比 = img.naturalWidth ? (img.naturalWidth / 图.w) : 1;
-      var sx = Math.max(0, Math.round((框.x - 图.left) * 比));
-      var sy = Math.max(0, Math.round((框.y - 图.top) * 比));
-      var sw = Math.max(1, Math.min(img.naturalWidth - sx, Math.round(框.w * 比)));
-      var sh = Math.max(1, Math.min(img.naturalHeight - sy, Math.round(框.h * 比)));
+      if (!台) { 关(); return; }
+      // 方块 → 原图：两边同长，所以裁出来的天然是正方形
+      var sw = Math.min(方 / 倍, img.naturalWidth, img.naturalHeight);
+      var cx = img.naturalWidth / 2 - 偏.x / 倍;
+      var cy = img.naturalHeight / 2 - 偏.y / 倍;
+      var sx = Math.min(Math.max(0, cx - sw / 2), img.naturalWidth - sw);
+      var sy = Math.min(Math.max(0, cy - sw / 2), img.naturalHeight - sw);
       // 出口统一压到 256 以内（和以前一样控制工程体积），只缩不放大
-      var 缩 = Math.min(1, 256 / Math.max(sw, sh));
-      var w = Math.max(1, Math.round(sw * 缩)), h = Math.max(1, Math.round(sh * 缩));
-      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+      var 缩 = Math.min(1, 256 / sw);
+      var side = Math.max(1, Math.round(sw * 缩));
+      var cv = document.createElement('canvas'); cv.width = side; cv.height = side;
+      cv.getContext('2d').drawImage(img, sx, sy, sw, sw, 0, 0, side, side);
       var url = cv.toDataURL('image/png');
       关(function () { cb(url); });
     });
 
-    初始框();
-    if (!框) requestAnimationFrame(初始框);   // 刚挂上去还没排版，下一帧再量
+    初始();
+    if (!台) requestAnimationFrame(function () { if (!初始() && !台) requestAnimationFrame(初始); });
+    // 图片刚挂上去可能还没解码出尺寸：等 load 再量一次（decode 完 naturalWidth 才可靠）
+    if (!img.complete || !img.naturalWidth) ph.onload = function () { if (!台) 初始(); };
   }
+
 
   /* ---------------- 自定义渲染器 fastzelos ---------------------------------------
      形态语言：语句代码 = 左边一条直线、右端整端半圆（D 形）；上下堆叠边铺平无卡扣；

@@ -740,8 +740,9 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .sheet-modal .mbtns.pinned { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--outline-var); }
 
 /* ================= 裁剪弹窗（选图后先裁再存，2026-10-28 新功能） ================= */
-/* 舞台铺一张等比图片，选框用 box-shadow 在框外盖一层半透明黑；四个角是手抓点。
-   `touch-action: none` 必须加，否则手机上拖方框会变成滚动页面。 */
+/* 方块**固定大小、正方形**（用户定的规格），只能拖/缩放图片改变方块里的内容。
+   舞台里 <img> 绝对定位、由 JS 写 left/top/宽高；方块也绝对定位居中，只负责画边框和框外那层半透明黑
+   （用 box-shadow 铺，比四块遮罩省事且不会露缝）。`touch-action: none` 必须加，否则手机上拖图会变成滚动页面。 */
 .crop-mask { padding: 12px; }
 .crop-box {
   display: flex; flex-direction: column; gap: 10px;
@@ -753,27 +754,16 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .crop-title { font-size: 18px; font-weight: 500; flex: 0 0 auto; }
 .crop-stage {
   position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
   background: #000; border-radius: 12px; touch-action: none;
 }
 .crop-stage img {
-  max-width: 100%; max-height: 100%; display: block;
+  position: absolute; left: 0; top: 0; max-width: none; max-height: none; display: block;
   pointer-events: none; user-select: none; -webkit-user-drag: none;
 }
-.crop-sel {
+.crop-sq {
   position: absolute; box-sizing: border-box; border: 1px solid #fff;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55);
-  cursor: move; touch-action: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); pointer-events: none;
 }
-.crop-h {
-  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px;
-  border-radius: 50%; background: #fff; border: 2px solid var(--primary);
-  box-sizing: border-box; touch-action: none;
-}
-.crop-h.nw { left: 0; top: 0; cursor: nwse-resize; }
-.crop-h.ne { left: 100%; top: 0; cursor: nesw-resize; }
-.crop-h.sw { left: 0; top: 100%; cursor: nesw-resize; }
-.crop-h.se { left: 100%; top: 100%; cursor: nwse-resize; }
 .crop-tip { font-size: 13px; color: var(--on-surface-var); flex: 0 0 auto; }
 .crop-btns { display: flex; gap: 8px; justify-content: flex-end; flex: 0 0 auto; }
 .crop-btns .tb { min-width: 84px; height: 40px; }

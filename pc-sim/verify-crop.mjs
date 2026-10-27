@@ -1,11 +1,13 @@
 // verify-crop.mjs —— 验证「选图后能裁剪」（2026-10-28 新功能）
 //
-// 走真人路径：打开导出弹窗 → 给隐藏的 #iconFile 塞一张 400×200 的 PNG →
-// 触发 change（等同用户从相册选完）→ 必须弹出裁剪框 → 拖动右下角圆点缩小 →
-// 点「完成」→ 图标预览必须变成裁剪后的图（尺寸比例跟着框走、且 ≤256）。
-// 另外验一次「取消」：不回调、原图不变。
+// 规格（用户定）：裁剪框是**固定大小的正方形**，不许改形状/大小；
+// 只能拖动、缩放图片来调整方块里露出的那块。
 //
-// 旧代码（没有裁剪）在这一步不会出现 #cropMask，用例如直接失败。
+// 走真人路径：打开导出弹窗 → 给隐藏的 #iconFile 塞一张 400×200 的 PNG →
+// 触发 change（等同用户从相册选完）→ 必须弹出裁剪框 →
+// ① 方块宽=高、尺寸固定（拖图片时不变）；② 拖图片位置会变；③ 滚轮放大；
+// ④ 点「完成」→ 预览图必须是正方形、≤256，且放大后裁出来的更小；
+// ⑤ 再选一次点「取消」→ 预览图不能变。
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -85,30 +87,37 @@ const 选一张图 = `(function(){
 const 读裁剪框 = `(function(){
   var m = document.getElementById('cropMask');
   if (!m) return null;
-  var sel = m.querySelector('.crop-sel');
-  var img = m.querySelector('.crop-stage img');
-  if (!sel || !img) return { 异常: '缺元素' };
-  var sr = sel.getBoundingClientRect(), ir = img.getBoundingClientRect();
+  var sq = m.querySelector('.crop-sq'), img = m.querySelector('.crop-stage img');
+  var st = m.querySelector('.crop-stage');
+  if (!sq || !img || !st) return { 异常: '缺元素' };
+  var sr = sq.getBoundingClientRect(), ir = img.getBoundingClientRect(), tr = st.getBoundingClientRect();
   return {
-    图片: { w: Math.round(ir.width), h: Math.round(ir.height) },
-    框: { w: Math.round(sr.width), h: Math.round(sr.height), x: Math.round(sr.left - ir.left), y: Math.round(sr.top - ir.top) },
-    角: m.querySelectorAll('.crop-h').length
+    方块: { w: Math.round(sr.width), h: Math.round(sr.height), left: Math.round(sr.left), top: Math.round(sr.top) },
+    图片: { w: Math.round(ir.width), h: Math.round(ir.height), left: Math.round(ir.left), top: Math.round(ir.top) },
+    舞台: { w: Math.round(tr.width), h: Math.round(tr.height) },
+    圆点: m.querySelectorAll('.crop-h').length
   };
 })()`;
 
-// 拖动右下角圆点（PointerEvent 走的是真实事件，和手指一样）
-const 拖右下角 = `(function(){
-  var m = document.getElementById('cropMask');
-  var img = m.querySelector('.crop-stage img');
-  var h = m.querySelector('.crop-h.se');
-  var ir = img.getBoundingClientRect(), hr = h.getBoundingClientRect();
-  function ev(type, x, y) {
-    var e = new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'touch', isPrimary: true });
-    (type === 'pointerdown' ? h : document).dispatchEvent(e);
+// 按住舞台中间拖 60,40 —— 应该只移动图片，方块纹丝不动
+const 拖图 = `(function(){
+  var st = document.getElementById('cropMask').querySelector('.crop-stage');
+  var r = st.getBoundingClientRect();
+  var x = r.left + r.width / 2, y = r.top + r.height / 2;
+  function ev(type, cx, cy, target) {
+    target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true,
+      clientX: cx, clientY: cy, pointerId: 1, pointerType: 'touch', isPrimary: true }));
   }
-  ev('pointerdown', hr.left + hr.width / 2, hr.top + hr.height / 2);
-  ev('pointermove', hr.left + hr.width / 2 - ir.width * 0.35, hr.top + hr.height / 2 - ir.height * 0.35);
-  ev('pointerup', hr.left + hr.width / 2 - ir.width * 0.35, hr.top + hr.height / 2 - ir.height * 0.35);
+  ev('pointerdown', x, y, st);
+  ev('pointermove', x + 60, y + 40, document);
+  ev('pointerup', x + 60, y + 40, document);
+  return 1;
+})()`;
+
+// 滚轮放大（桌面/手机外接鼠标都能用；手机上是双指）
+const 放大 = `(function(){
+  var st = document.getElementById('cropMask').querySelector('.crop-stage');
+  st.dispatchEvent(new WheelEvent('wheel', { deltaY: -560, bubbles: true, cancelable: true }));
   return 1;
 })()`;
 
@@ -122,6 +131,13 @@ const 预览尺寸 = `new Promise(function (resolve) {
   im.onerror = function () { resolve({ 坏图: true }); };
   im.src = m[1];
 })`;
+
+const 点完成 = `(function(){ document.getElementById('cropMask').querySelector('.tb.primary').click(); return 1; })()`;
+const 点取消 = `(function(){
+  var m = document.getElementById('cropMask'), bs = m.querySelectorAll('.tb');
+  for (var i = 0; i < bs.length; i++) if (bs[i].textContent.trim() === '取消') { bs[i].click(); return 1; }
+  return 0;
+})()`;
 
 (async () => {
   const t = await pickTarget();
@@ -155,46 +171,67 @@ const 预览尺寸 = `new Promise(function (resolve) {
     process.exit(1);
   }
 
-  // ① 选图 → 必须弹裁剪框
+  // ① 选图 → 必须弹裁剪框，且方块是正方形、大小固定
   await js(选一张图);
   const 弹了 = await waitFor(`!!document.getElementById('cropMask')`, 8000);
+  await sleep(400);                       // 等 pop 动画结束再量（动画期间 getBoundingClientRect 是被缩放过的）
   const 框1 = await js(读裁剪框);
   if (!弹了 || !框1) {
     console.log(JSON.stringify({ 失败: '选完图没有出现裁剪框', 框: 框1 }, null, 2));
     process.exit(1);
   }
+  const 是方的 = 框1.方块.w === 框1.方块.h;
+  const 固定比例 = Math.abs(框1.方块.w - Math.round(Math.min(框1.舞台.w, 框1.舞台.h) * 0.82)) <= 2;
 
-  // ② 拖右下角把框缩小
-  await js(拖右下角);
-  await sleep(250);
+  // ② 拖图片：方块不许动，图片要动
+  await js(拖图);
+  await sleep(200);
   const 框2 = await js(读裁剪框);
+  const 方块没动 = 框2 && 框2.方块.w === 框1.方块.w && 框2.方块.h === 框1.方块.h &&
+    框2.方块.left === 框1.方块.left && 框2.方块.top === 框1.方块.top;
+  const 图动了 = 框2 && (框2.图片.left !== 框1.图片.left || 框2.图片.top !== 框1.图片.top);
 
-  // ③ 点「完成」→ 框消失、预览图变成裁剪后的图
-  await js(`(function(){ var b = document.getElementById('cropMask').querySelector('.tb.primary'); b.click(); return 1; })()`);
+  // ③ 点「完成」→ 预览必须是正方形
+  await js(点完成);
   const 消失了 = await waitFor(`!document.getElementById('cropMask')`, 5000);
   const 预览1 = await js(预览尺寸);
+  const 预览1长度 = await js(`String(document.getElementById('iconPreview').style.backgroundImage || '').length`);
+  const 预览是方的 = 预览1 && 预览1.w === 预览1.h && 预览1.w <= 256 && 预览1.w > 0;
 
-  // ④ 再选一次、点「取消」→ 预览图不能被改
+  // ④ 再选一次：放大后有变化的图（裁得更小），证明缩放真的进了计算
   await js(选一张图);
   await waitFor(`!!document.getElementById('cropMask')`, 8000);
-  await js(`(function(){ var m = document.getElementById('cropMask'); var bs = m.querySelectorAll('.tb'); for (var i=0;i<bs.length;i++){ if (bs[i].textContent.trim() === '取消') { bs[i].click(); return 1; } } bs[0].click(); return 1; })()`);
+  await sleep(400);
+  await js(放大);
+  await sleep(200);
+  const 框3 = await js(读裁剪框);
+  await js(点完成);
   await waitFor(`!document.getElementById('cropMask')`, 5000);
+  await sleep(200);
   const 预览2 = await js(预览尺寸);
+  const 预览2长度 = await js(`String(document.getElementById('iconPreview').style.backgroundImage || '').length`);
+  const 放大生效 = 框3 && 框3.图片.w > 框2.图片.w;
+  const 裁得更小 = 预览2 && 预览1 && 预览2.w === 预览2.h && 预览2.w < 预览1.w;
 
-  const 变小了 = 框2 && 框1 && 框2.框.w < 框1.框.w && 框2.框.h < 框1.框.h;
-  const 图变了 = 预览1 && 预览1.w && 预览1.w <= 256 && 预览1.h <= 256;
-  const 取消没改 = 预览1 && 预览2 && 预览1.w === 预览2.w && 预览1.h === 预览2.h;
-  // 裁剪后的宽高比要跟框一致（裁掉的部分真的被切掉了）
-  const 比例合 = 预览1 && 框2 && Math.abs((预览1.w / 预览1.h) - (框2.框.w / 框2.框.h)) < 0.12;
+  // ⑤ 再选一次、点「取消」→ 预览图不能被改
+  await js(选一张图);
+  await waitFor(`!!document.getElementById('cropMask')`, 8000);
+  await js(点取消);
+  await waitFor(`!document.getElementById('cropMask')`, 5000);
+  const 预览3 = await js(预览尺寸);
+  const 取消没改 = 预览2 && 预览3 && 预览2.w === 预览3.w && 预览2.h === 预览3.h;
 
-  const ok = 弹了 && 框1.角 === 4 && 变小了 && 消失了 && 图变了 && 比例合 && 取消没改;
+  const ok = 弹了 && 框1.圆点 === 0 && 是方的 && 固定比例 && 方块没动 && 图动了 && 消失了 &&
+    预览是方的 && 放大生效 && 裁得更小 && 取消没改;
   console.log(JSON.stringify({
-    弹出裁剪框: 弹了, 四角手柄: 框1.角,
-    框初始: 框1.框, 拖角后: 框2 && 框2.框, 拖角生效: 变小了,
-    完成关闭: 消失了, 预览像素: 预览1, 宽高比一致: 比例合,
-    取消后预览: 预览2, 取消不改图: 取消没改
+    弹出裁剪框: 弹了, 角手柄数: 框1.圆点, 方块: 框1.方块, 舞台: 框1.舞台,
+    正方形: 是方的, 尺寸固定: 固定比例, 拖图时方块不动: 方块没动, 图片动了: 图动了,
+    完成关闭: 消失了, 预览像素1: 预览1, 预览1长度, 预览是正方形: 预览是方的,
+    放大后方块: 框3 && 框3.方块, 放大后图片显示: 框3 && 框3.图片, 放大生效: 放大生效,
+    放大后裁得更小: 裁得更小, 预览像素2: 预览2, 预览2长度,
+    取消后预览: 预览3, 取消不改图: 取消没改
   }, null, 2));
-  console.log(ok ? '\n[OK] 选图后可裁剪 ✓' : '\n[FAIL] 裁剪流程不符合预期');
+  console.log(ok ? '\n[OK] 固定正方形裁剪 ✓' : '\n[FAIL] 裁剪流程不符合预期');
 
   try {
     const s = await send('Page.captureScreenshot', { format: 'png' });
