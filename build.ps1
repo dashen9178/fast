@@ -74,7 +74,7 @@ Check 'd8'
 
 Write-Host '== [4/8] stage assets（-A 只放一层；www 稍后追加） =='
 Copy-Item shell_assets\project.json "$STAGE\shell_assets\project.json"
-Copy-Item assets\www\runtime.html, assets\www\runtime.css, assets\www\runtime.js "$STAGE\shell_www\"
+Copy-Item assets\www\runtime.html, assets\www\runtime.css, assets\www\runtime.js, assets\www\comp-spec.js "$STAGE\shell_www\"
 # 这里刻意不再往编辑器 assets 里放任何签名密钥：
 # 导出的作品改由「设备端自己生成的密钥」签名（见 DeviceKey.java），
 # 编辑器 APK 里从此不含任何秘密，可以随意分发。

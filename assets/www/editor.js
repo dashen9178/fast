@@ -214,34 +214,15 @@
   var ICON_EYE_ON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>';
   var ICON_EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.804 11.804 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/></svg>';
 
-  var TYPE_META = {
-    text:     { label: '文字',   ico: 'Aa',   desc: '显示一段文字' },
-    button:   { label: '按钮',   ico: 'Btn',  desc: '可点击的按钮' },
-    input:    { label: '输入框', ico: 'In',   desc: '让用户输入文字' },
-    list:     { label: '列表',   ico: 'List', desc: '可滚动、可点选的列表' },
-    image:    { label: '图片',   ico: 'Img',  desc: '图片' },
-    switch:   { label: '开关',   ico: 'Sw',   desc: '开 / 关切换' },
-    checkbox: { label: '复选框', ico: '☑',    desc: '勾选 / 取消勾选' },
-    slider:   { label: '滑块',   ico: 'Sl',   desc: '拖动选择一个数值' },
-    progress: { label: '进度条', ico: 'Pr',   desc: '显示进度百分比' },
-    video:    { label: '视频播放器', ico: '▶', desc: '播放网络视频（mp4）' },
-    audio:    { label: '音频播放', ico: '♪',  desc: '播放网络音频（mp3）' },
-    web:      { label: '网页', ico: 'W',  desc: '内嵌显示一个网页' },
-    select:   { label: '下拉选择框', ico: '▾', desc: '点开选一项（表单常用）' },
-    radio:    { label: '单选组', ico: '◉',  desc: '一组里只能选一个' },
-    date:     { label: '日期', ico: '📅', desc: '选择年月日' },
-    time:     { label: '时间', ico: '⏰', desc: '选择时分' },
-    stepper:  { label: '步进器', ico: '±',  desc: '加减一个数字' },
-    imgbtn:   { label: '图片按钮', ico: '🖼', desc: '能点、带图片的按钮' },
-    timer:    { label: '计时器', ico: '⏱', desc: '显示倒计时/计时' },
-    canvas:   { label: '画布', ico: '✎',  desc: '用代码画点、线、圆（做小游戏）' },
-    card:     { label: '卡片', ico: '▢',  desc: '一块带背景圆角的底板，用来分组' },
-    container:{ label: '容器', ico: '▣',  desc: '真正的分组：装进去的控件跟着它一起动' },
-    table:    { label: '表格', ico: '▦',  desc: '按行按列显示数据' },
-    chart:    { label: '图表', ico: '📊', desc: '柱状图 / 折线图 / 饼图' },
-    divider:  { label: '分隔线', ico: '—',  desc: '一条横线，用来分隔内容' },
-    spacer:   { label: '空白占位', ico: '␣',  desc: '透明的间隔，用来撑开距离' }
-  };
+  /* 控件元数据（名称/图标/说明）统一来自 comp-spec.js —— 加新控件只改那一张表 */
+  var TYPE_META = (function () {
+    var m = {};
+    Object.keys(FAST_COMPONENTS).forEach(function (k) {
+      var s = FAST_COMPONENTS[k];
+      m[k] = { label: s.label, ico: s.ico, desc: s.desc };
+    });
+    return m;
+  })();
   var STORE_KEY = '__bb_projects_v2';
   var LEGACY_KEY = '__editorAutosave_v1';
   var OPEN_KEY = '__bb_open_id'; // 正在编辑的工程，用于从运行预览返回时自动恢复
@@ -838,6 +819,7 @@
   /* ---------------- 项目工程 ---------------- */
   function blankProject() {
     return {
+      fmt: 2,   // 工程数据格式版本：2 = 控件元数据集中在 comp-spec.js
       appName: '我的应用', orientation: 'portrait', version: '1.0', icon: null,
       startScreen: 's1', clouds: [],
       screens: [{ id: 's1', title: '页面1', components: [], blocksXml: '<xml xmlns="https://developers.google.com/blockly/xml"></xml>' }]
@@ -1265,6 +1247,7 @@
     act_set_text: '设置文本', act_show: '显示', act_hide: '隐藏', act_enable: '启用', act_disable: '停用',
     act_set_bg: '设置背景', act_set_color: '设置文字颜色', act_set_rot: '旋转', act_opacity: '透明度',
     act_http_get: '读取网址', act_http_post: '提交到网址', act_pick_image: '拍照或选图', act_set_data: '设置数据',
+    act_set_pos: '移到指定位置', act_set_size: '设置尺寸', act_set_options: '设置选项',
     act_set_progress: '设置进度', act_timer_start: '开始计时', act_timer_stop: '停止计时', act_timer_countup: '正计时',
     act_list_add: '列表加一项', act_copy: '复制文本', act_exit: '退出应用', act_keep_screen: '保持常亮',
     act_set_brightness: '设置亮度', cloud_rows: '查询所有行', cloud_add: '新增一行', cloud_update: '更新一行',
@@ -2303,6 +2286,13 @@
   // 控件在代码下拉里的“可读名”：优先用户命名，其次控件上实际显示的文案（如按钮文字 A），
   // 再次才是类型名；重名时追加 id 区分。值始终用 c.id，代码生成不受影响。
   function compPreview(c) {
+    if (c.type === 'multiSelect') {
+      var 选 = Array.isArray(c.value) ? c.value
+        : String(c.value == null ? '' : c.value).split(/[,，、\n]/).filter(function (s) { return s !== ''; });
+      return 选.length ? 选.join('、') : '多选下拉';
+    }
+    if (c.type === 'dateRange') return (c.start || c.end) ? ((c.start || '') + '~' + (c.end || '')) : '日期范围';
+    if (c.type === 'colorPicker') return '颜色 ' + String(c.value || '#6750a4');
     return c.text || c.value
       || ((c.type === 'switch' || c.type === 'checkbox') ? (c.checked ? '开' : '关') : '')
       || (c.type === 'slider' ? ('滑块 ' + (validN(c.value) ? c.value : 0)) : '')
@@ -2336,6 +2326,34 @@
   /* ---------------- 设计：页面与组件列表 ---------------- */
   // 横竖屏 / 通知栏 改为「当前页面」级，存到 screen 上（旧工程缺省时取 portrait / 是）
   function curOrient() { var s = curScreen(); return (s && s.orientation) || 'portrait'; }
+  /* 「如何预览」：auto = 跟着当前页面方向；portrait / landscape = 强制（用户要求，2026-10-28）。
+     只影响**布局页预览**，不改页面自身的 orientation，也不影响运行/导出。
+     存本地（跨工程记住），默认 auto。 */
+  var LAYOUT_ORIENT_KEY = '__bb_layout_orient';
+  function layoutOrientMode() {
+    var v = null; try { v = localStorage.getItem(LAYOUT_ORIENT_KEY); } catch (e) {}
+    return (v === 'portrait' || v === 'landscape') ? v : 'auto';
+  }
+  function setLayoutOrientMode(m) {
+    var ok = (m === 'portrait' || m === 'landscape') ? m : 'auto';
+    try { localStorage.setItem(LAYOUT_ORIENT_KEY, ok); } catch (e) {}
+    syncLayoutOrientMenu();
+  }
+  /** 布局页实际使用的方向 */
+  function layoutOrient() {
+    var m = layoutOrientMode();
+    return (m === 'portrait' || m === 'landscape') ? m : curOrient();
+  }
+  /** 布局页「如何预览」下拉里的勾选状态 */
+  function syncLayoutOrientMenu() {
+    var m = layoutOrientMode();
+    Array.prototype.forEach.call(document.querySelectorAll('#layoutOrientMenu .orient-opt'), function (b) {
+      var on = b.getAttribute('data-mode') === m;
+      b.classList.toggle('on', on);
+      var ck = b.querySelector('.run-opt-ck');
+      if (ck) ck.textContent = on ? '✓' : '';
+    });
+  }
   function curShowSB() { var s = curScreen(); return !s || s.showStatusBar !== false; }
   function syncOrientSeg() {
     var o = curOrient();
@@ -2362,6 +2380,17 @@
     if (c.type === 'switch' || c.type === 'checkbox') base = (c.text || TYPE_META[c.type].label) + '：' + (c.checked ? '已勾选' : '未勾选');
     else if (c.type === 'slider') base = '范围 ' + (c.min || 0) + '~' + (c.max || 100) + '，当前 ' + (validN(c.value) ? c.value : 0);
     else if (c.type === 'progress') base = '进度 ' + (validN(c.value) ? c.value : 0) + ' / ' + (c.max || 100);
+    else if (c.type === 'tabs') base = '页签 ' + ((c.items || []).length) + ' 个，当前第 ' + ((Number(c.value) || 0) + 1) + ' 个';
+    else if (c.type === 'collapse') base = (c.text || '折叠面板') + '：' + (c.open ? '展开' : '收起');
+    else if (c.type === 'rating') base = '评分 ' + (validN(c.value) ? c.value : 0) + ' / ' + (c.max || 5);
+    else if (c.type === 'ring') base = '进度 ' + (validN(c.value) ? c.value : 0) + ' / ' + (c.max || 100);
+    else if (c.type === 'multiSelect') {
+      var 已选 = Array.isArray(c.value) ? c.value
+        : String(c.value == null ? '' : c.value).split(/[,，、\n]/).filter(function (s) { return s !== ''; });
+      base = (已选.length ? '已选：' + 已选.join('、') : '还没选') + '（共 ' + ((c.items || []).length) + ' 项）';
+    }
+    else if (c.type === 'dateRange') base = (c.start || '未设') + ' 至 ' + (c.end || '未设');
+    else if (c.type === 'colorPicker') base = '颜色 ' + String(c.value || '#6750a4');
     else base = c.text || c.value || (c.items ? '列表：' + c.items.length + ' 项' : (c.hint || TYPE_META[c.type].desc));
     if (c.x != null && c.y != null) base += '（坐标 ' + c.x + ',' + c.y + '）';
     return base;
@@ -2448,59 +2477,28 @@
     return w;
   }
   function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-  /* 新建控件的“自身内容尺寸”：不再默认占满整行，而是按控件类型/文字内容给一个紧凑初始大小。
-     宽度不超过画布内宽；文字类高度留空由内容撑开，其余给类型固定高度。 */
+  /* 新建控件的“自身内容尺寸”：按控件类型/文字内容给一个紧凑初始大小。
+     字号、内边距、最小宽、固定高统一来自 comp-spec.js 的 nat 字段，
+     这里只负责实测文字宽度 —— 新增控件不用再改这个函数。 */
   function naturalSize(type, base) {
     var maxW = designSize().w - 32;
-    switch (type) {
-      case 'button':   return { w: Math.round(clampNum(textPixelWidth(base.text, 15) + (base.icon ? 46 : 36), 88, maxW)), h: 48 };
-      case 'input':    return { w: Math.round(Math.min(220, maxW)), h: 52 };
-      case 'list':     return { w: Math.round(Math.min(260, maxW)), h: 170 };
-      case 'image':    return { w: Math.round(Math.min(160, maxW)), h: 120 };
-      case 'switch':   return { w: Math.round(clampNum(textPixelWidth(base.text, 16) + 52 + 20, 112, maxW)), h: 40 };
-      case 'checkbox': return { w: Math.round(clampNum(textPixelWidth(base.text, 16) + 22 + 20, 96, maxW)), h: 40 };
-      case 'slider':   return { w: Math.round(Math.min(200, maxW)), h: 48 };
-      case 'progress': return { w: Math.round(Math.min(200, maxW)), h: 14 };
-      case 'video':    return { w: Math.round(Math.min(240, maxW)), h: 135 };
-      case 'audio':    return { w: Math.round(Math.min(280, maxW)), h: 44 };
-      case 'web':      return { w: Math.round(Math.min(320, maxW)), h: 240 };
-    case 'select':   return { w: Math.round(Math.min(220, maxW)), h: 48 };
-    case 'radio':    return { w: Math.round(Math.min(220, maxW)), h: 96 };
-    case 'date':     return { w: Math.round(Math.min(200, maxW)), h: 48 };
-    case 'time':     return { w: Math.round(Math.min(160, maxW)), h: 48 };
-    case 'stepper':  return { w: Math.round(Math.min(200, maxW)), h: 48 };
-    case 'imgbtn':   return { w: Math.round(Math.min(160, maxW)), h: 120 };
-    case 'timer':    return { w: Math.round(Math.min(160, maxW)), h: 44 };
-    case 'canvas':   return { w: Math.round(Math.min(300, maxW)), h: 200 };
-    case 'card':     return { w: Math.round(Math.min(300, maxW)), h: 120 };
-    case 'container': return { w: Math.round(Math.min(300, maxW)), h: 180 };
-    case 'table':    return { w: Math.round(Math.min(300, maxW)), h: 140 };
-    case 'chart':    return { w: Math.round(Math.min(280, maxW)), h: 180 };
-    case 'divider':  return { w: Math.round(Math.min(280, maxW)), h: 8 };
-    case 'spacer':   return { w: Math.round(Math.min(280, maxW)), h: 24 };
-      case 'text':
-      default:         return { w: Math.round(clampNum(textPixelWidth(base.value, 16) + 8, 56, maxW)) };
+    var nat = FAST_COMP.naturalOf(type);
+    if (!nat) return { w: Math.round(Math.min(200, maxW)), h: 44 };
+    if (nat.mode === 'text') {
+      var txt = String(base[nat.field || 'text'] || '');
+      var pad = (base.icon && nat.iconPad) ? nat.iconPad : nat.pad;
+      var w = Math.round(clampNum(textPixelWidth(txt, nat.fs || 16) + pad, nat.minW || 56, maxW));
+      return nat.h ? { w: w, h: nat.h } : { w: w };
     }
+    return { w: Math.round(Math.min(nat.w, maxW)), h: nat.h };
   }
-  /** 各类型控件的默认属性。手动点"添加控件"和 AI 新增控件共用这一份，避免两处不一致。 */
-  var COMPONENT_DEFAULTS = {
-    text: { value: '文字' }, button: { text: '按钮' },
-    input: { hint: '请输入', value: '' }, list: { items: ['第一项', '第二项'] }, image: { alt: '图片' },
-    switch: { text: '开关', checked: false }, checkbox: { text: '复选项', checked: false },
-    slider: { min: 0, max: 100, value: 40 }, progress: { max: 100, value: 40 },
-    video: { src: '' }, audio: { src: '' }, web: { url: '' },
-    select: { items: ['选项一', '选项二', '选项三'], value: '选项一' },
-    input2: {},
-    radio: { items: ['选项一', '选项二'], value: '选项一' },
-    date: { value: '' }, time: { value: '' },
-    stepper: { text: '数量', value: 1, min: 0, max: 99 },
-    imgbtn: { text: '按钮', src: '' },
-    timer: { text: '00:00', seconds: 60 },
-    canvas: { }, card: { text: '卡片' }, divider: { }, spacer: { },
-    container: { text: '容器', children: [] },
-    table: { columns: ['名称', '数量'], rows: [['苹果', '3'], ['香蕉', '5']] },
-    chart: { chartType: 'bar', chartData: [{ label: '一月', value: 30 }, { label: '二月', value: 60 }, { label: '三月', value: 45 }] }
-  };
+  /** 各类型控件的默认属性：统一来自 comp-spec.js 的 def（手动添加控件与 AI 新增控件共用） */
+  var COMPONENT_DEFAULTS = (function () {
+    var m = {};
+    Object.keys(FAST_COMPONENTS).forEach(function (k) { m[k] = FAST_COMPONENTS[k].def || {}; });
+    m.input2 = {};      // 历史遗留 type，留空默认值防止旧数据取不到
+    return m;
+  })();
   /* ---------------- 容器（真正的父子布局，路线图 1.2） ----------------
      数据：容器自己是普通组件，子控件放在它的 children 里，坐标**相对容器左上角**。
      三处必须一致（不变量）：设计页列表 / 布局页 / 运行时都用同一套相对坐标。 */
@@ -2720,6 +2718,14 @@
     renderTabs(); renderCompList();
     if (state.wsInited) loadScreenToWs(curScreen());
     autosave();
+    /* 在布局页里换页：方向必须跟着「如何预览」重算一遍，否则会留在上一页的方向上
+       （用户报的 bug：横屏预览切到竖屏页面，屏幕还是横的，竖屏内容被横着摆）。
+       然后重画舞台并重新 fit（物理旋转是异步的，靠 resize 监听和这里的多帧兜底）。 */
+    if (state.inLayout) {
+      applyLayoutOrient();
+      renderLayout();
+      requestAnimationFrame(fitStage);
+    }
   }
   function addScreen() {
     saveCurrentWs(true);
@@ -3099,6 +3105,24 @@
     }
     if (c.type === 'date') host.appendChild(ppField('默认日期（如 2025-01-01，可空）', txtInput(c.value, '2025-01-01', mark(function (v) { c.value = v; }))));
     if (c.type === 'time') host.appendChild(ppField('默认时间（如 08:30，可空）', txtInput(c.value, '08:30', mark(function (v) { c.value = v; }))));
+    if (c.type === 'multiSelect') {
+      host.appendChild(ppField('选项（每行一个）', areaInput((c.items || []).join('\n'), mark(function (v) {
+        c.items = v.split('\n').filter(function (s) { return s.trim() !== ''; });
+      }))));
+      var 已选 = Array.isArray(c.value) ? c.value : String(c.value == null ? '' : c.value).split(/[,，、\n]/).filter(function (s) { return s !== ''; });
+      host.appendChild(ppField('默认选中（每行一个已选项）', areaInput(已选.join('\n'), mark(function (v) {
+        c.value = v.split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
+      }))));
+    }
+    if (c.type === 'dateRange') {
+      var drRow = el('div', 'pp-row2');
+      drRow.appendChild(ppField('开始日期（如 2025-01-01）', txtInput(c.start, '2025-01-01', mark(function (v) { c.start = v; }))));
+      drRow.appendChild(ppField('结束日期（如 2025-01-31）', txtInput(c.end, '2025-01-31', mark(function (v) { c.end = v; }))));
+      host.appendChild(drRow);
+    }
+    if (c.type === 'colorPicker') {
+      host.appendChild(ppField('默认颜色', colorInput(c.value, '#6750a4', mark(function (v) { c.value = v; }))));
+    }
     if (c.type === 'stepper') {
       host.appendChild(ppField('前面的说明文字', txtInput(c.text, '数量', mark(function (v) { c.text = v; }))));
       host.appendChild(ppField('初始值', numInput(c.value, 1, mark(function (v) { c.value = v; }))));
@@ -3141,6 +3165,32 @@
       pgRow.appendChild(ppField('最大值', numInput(c.max, '100', mark(function (v) { c.max = v; }))));
       pgRow.appendChild(ppField('当前进度', numInput(c.value, '0', mark(function (v) { c.value = v; }))));
       host.appendChild(pgRow);
+    }
+    if (c.type === 'tabs') {
+      host.appendChild(ppField('页签（每行一个）', areaInput((c.items || []).join('\n'), mark(function (v) {
+        c.items = v.split('\n').filter(function (s) { return s.trim() !== ''; });
+      }))));
+      host.appendChild(ppField('默认选中第几个（从 1 开始）', numInput(validN(c.value) ? (Number(c.value) + 1) : 1, '1', mark(function (v) {
+        var n = Math.max(1, Math.round(Number(v) || 1));
+        c.value = n - 1;                                  // 存的是序号（从 0 开始）
+      }))));
+    }
+    if (c.type === 'collapse') {
+      host.appendChild(ppField('标题文字', txtInput(c.text, '点我展开', mark(function (v) { c.text = v; }))));
+      host.appendChild(ppField('展开后的内容', areaInput(c.body, mark(function (v) { c.body = v; }))));
+      host.appendChild(ppField('初始状态', segInput([['收起', false], ['展开', true]], !!c.open, mark(function (v) { c.open = v; }))));
+    }
+    if (c.type === 'rating') {
+      var rtRow = el('div', 'pp-row2');
+      rtRow.appendChild(ppField('最多几颗星', numInput(c.max, '5', mark(function (v) { c.max = v; }))));
+      rtRow.appendChild(ppField('初始星级', numInput(c.value, '0', mark(function (v) { c.value = v; }))));
+      host.appendChild(rtRow);
+    }
+    if (c.type === 'ring') {
+      var rgRow = el('div', 'pp-row2');
+      rgRow.appendChild(ppField('最大值', numInput(c.max, '100', mark(function (v) { c.max = v; }))));
+      rgRow.appendChild(ppField('当前值', numInput(c.value, '0', mark(function (v) { c.value = v; }))));
+      host.appendChild(rgRow);
     }
     if (c.type === 'video' || c.type === 'audio') {
       var isVid = c.type === 'video';
@@ -3206,10 +3256,12 @@
     host.appendChild(rotRow);
     host.appendChild(ppField('文字颜色', colorInput(c.color, c.type === 'button' ? '#ffffff' : '#1f2329', mark(function (v) { c.color = v; }))));
     if (c.type === 'button' || c.type === 'input' || c.type === 'list' || c.type === 'select'
-      || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider' || c.type === 'progress') {
-      var bgFallback = (c.type === 'button' || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider' || c.type === 'progress') ? '#6750a4'
+      || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider' || c.type === 'progress'
+      || c.type === 'tabs' || c.type === 'collapse' || c.type === 'ring') {
+      var bgFallback = (c.type === 'button' || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider'
+        || c.type === 'progress' || c.type === 'ring') ? '#6750a4'
         : '#ffffff';
-      host.appendChild(ppField('背景颜色', colorInput(c.bg, bgFallback, mark(function (v) { c.bg = v; }))));
+      host.appendChild(ppField(c.type === 'ring' ? '进度条颜色' : '背景颜色', colorInput(c.bg, bgFallback, mark(function (v) { c.bg = v; }))));
     }
     if (c.type === 'select') {
       // 下拉选择框：样式 + 调色（用户要求"多加几个样式，并且能调色"）
@@ -5627,7 +5679,8 @@
     $('viewLayout').classList.remove('hidden');
     if (window.Native && Native.setLayoutChrome) Native.setLayoutChrome(true);   // 与运行时一致的系统栏/安全区
     // 布局页始终隐藏通知栏（通知栏开关只在试运行/打包APK时生效）
-    if (window.Native && Native.setOrientation) Native.setOrientation(curOrient());
+    state.layoutOriented = null;              // 每次进来都按「如何预览」重新定方向
+    applyLayoutOrient();
     if (window.Native && Native.setStatusBar) Native.setStatusBar(false);
     renderLayout();
     watchStageResize();     // 可用区尺寸一变就重算舞台（控制台展开/收起、旋转、窗口变化）
@@ -5637,6 +5690,7 @@
   /* 返回编辑器：恢复横屏，隐藏布局屏 */
   function closeLayout() {
     state.inLayout = false;
+    state.layoutOriented = null;
     var bl = $('btnLayout'); if (bl) bl.classList.remove('on');
     closeSheet();
     closeMenus();
@@ -5647,6 +5701,20 @@
       try { renderCompList(); } catch (e) {}
       try { renderPropPanel(); } catch (e) {}
     requestAnimationFrame(requestWsResize);
+  }
+
+  /**
+   * 按「如何预览」把布局页的物理方向转到位。
+   * · auto         → 用当前页面自己的方向（换页要重新算，这是用户报的那个 bug）
+   * · 竖屏 / 横屏   → 强制，即使页面设的是另一边
+   * 方向没变就不重复下发，免得真机上转两次。
+   */
+  function applyLayoutOrient() {
+    if (!state.inLayout) return;
+    var o = layoutOrient();
+    if (state.layoutOriented === o) return;
+    state.layoutOriented = o;
+    try { if (window.Native && Native.setOrientation) Native.setOrientation(o); } catch (e) {}
   }
 
   /* 系统返回键：逐级返回（弹层 → 代码浮层 → 布局控制台 → 布局页 → 编辑器 → 我的应用），
@@ -5735,8 +5803,8 @@
     }
     return Math.max(0, Math.round(y));
   }
-  function designSize() {
-    var o = curOrient();
+  function designSize(o) {
+    o = o || curOrient();
     var base = o === 'landscape' ? DESIGN.landscape : DESIGN.portrait;
     var p = state.project && state.project.design;
     if (p && p.orientation === o &&
@@ -5779,10 +5847,11 @@
     if (!wrap || !stage || !state.inLayout) return;
     if (wrap.clientWidth < 2 || wrap.clientHeight < 2) return;   // 旋转动画中容器还没好，等 resize
     var changed = captureDesign();                              // 用真机可用区刷新设计画布尺寸
-    var landscape = curOrient() === 'landscape';
+    var pityO = layoutOrient();                                 // 「如何预览」：自动/强制竖/强制横
+    var landscape = pityO === 'landscape';
     stage.classList.toggle('portrait', !landscape);
     stage.classList.toggle('landscape', landscape);
-    var d = designSize();
+    var d = designSize(pityO);
     // 设计尺寸当舞台，等比 contain 缩放到可用区（留一点边距，别贴着边）
     var pad = 8;
     var k = Math.min((wrap.clientWidth - pad * 2) / d.w, (wrap.clientHeight - pad * 2) / d.h);
@@ -5919,37 +5988,10 @@
     renderLaySheet();
   }
   // 顶部页面下拉按钮文案（旧的横向滑动页签已移除，统一走下拉）
-  // 绝对定位但未填宽高时的“纯类型默认尺寸”，必须与 runtime.js 的 defaultBox 完全一致
+  // 绝对定位但未填宽高时的“纯类型默认尺寸”：统一由 comp-spec.js 提供
+  // （runtime.js 的 defaultBox 取同一份，避免设计页与运行时尺寸走偏）
   function defaultSize(c) {
-    switch (c.type) {
-      case 'button': return { w: 220, h: 48 };
-      case 'input': return { w: 220, h: 52 };
-      case 'list': return { w: 240, h: 170 };
-      case 'image': return { w: 160, h: 120 };
-      case 'switch': return { w: 220, h: 40 };
-      case 'checkbox': return { w: 220, h: 40 };
-      case 'slider': return { w: 220, h: 40 };
-      case 'progress': return { w: 220, h: 12 };
-      case 'video': return { w: 240, h: 135 };
-      case 'audio': return { w: 280, h: 44 };
-      case 'web': return { w: 320, h: 240 };
-    case 'select': return { w: 220, h: 48 };
-    case 'radio': return { w: 220, h: 96 };
-    case 'date': return { w: 200, h: 48 };
-    case 'time': return { w: 160, h: 48 };
-    case 'stepper': return { w: 200, h: 48 };
-    case 'imgbtn': return { w: 160, h: 120 };
-    case 'timer': return { w: 160, h: 44 };
-    case 'canvas': return { w: 300, h: 200 };
-    case 'card': return { w: 300, h: 120 };
-    case 'container': return { w: 300, h: 180 };
-    case 'table': return { w: 300, h: 140 };
-    case 'chart': return { w: 280, h: 180 };
-    case 'divider': return { w: 280, h: 8 };
-    case 'spacer': return { w: 280, h: 24 };
-      case 'text': return { w: 220, h: 40 };
-      default: return { w: 200, h: 44 };
-    }
+    return FAST_COMP.sizeOf(c.type);
   }
   // 把 #RRGGBB 调亮(amt>0)/调暗(amt<0)，用于按钮渐变；支持 3 位简写，非法输入回退紫色
   function shadeHex(hex, amt) {
@@ -6057,6 +6099,57 @@
       d.className = 'lv-divider';
     } else if (c.type === 'spacer') {
       d.className = 'lv-spacer';
+    } else if (c.type === 'tabs') {
+      d.className = 'lv-tabs';
+      var 页签项 = (c.items && c.items.length) ? c.items : ['页签一', '页签二'];
+      var 页签选 = Math.max(0, Math.min(页签项.length - 1, Number(c.value) || 0));
+      页签项.slice(0, 5).forEach(function (it, i) {
+        d.appendChild(el('span', 'lv-tab' + (i === 页签选 ? ' on' : ''), it || ('页签' + (i + 1))));
+      });
+    } else if (c.type === 'collapse') {
+      d.className = 'lv-collapse' + (c.open ? ' open' : '');
+      var 折头 = el('div', 'lv-collapse-h');
+      折头.appendChild(el('span', 'lv-label', c.text || '点我展开'));
+      折头.appendChild(el('span', 'lv-collapse-a', '▾'));
+      d.appendChild(折头);
+      if (c.open) d.appendChild(el('div', 'lv-collapse-b', c.body || '这里是内容'));
+    } else if (c.type === 'rating') {
+      d.className = 'lv-rating';
+      if (c.color) d.style.setProperty('--star-on', c.color);
+      var 星数 = Math.max(1, Number(c.max) || 5);
+      var 星值 = Math.max(0, Math.min(星数, Number(c.value) || 0));
+      for (var 星 = 0; 星 < 星数; 星++) d.appendChild(el('span', 'lv-star' + (星 < 星值 ? ' on' : ''), '★'));
+    } else if (c.type === 'ring') {
+      d.className = 'lv-ring-wrap';
+      var 环最大 = Math.max(1, Number(c.max) || 100);
+      var 环值 = Math.max(0, Math.min(环最大, Number(c.value) || 0));
+      var 环百分比 = 环最大 ? (环值 / 环最大 * 100) : 0;
+      var 环 = el('div', 'lv-ring');
+      // 尺寸写死成像素：拖动布局的舞台只搬“子元素”，百分比会失去参照物
+      环.style.width = (validN(c.w) ? c.w : 120) + 'px';
+      环.style.height = (validN(c.h) ? c.h : 120) + 'px';
+      环.style.background = 'conic-gradient(' + (c.bg || '#6750a4') + ' 0 ' + 环百分比 + '%, #e7e3ec ' + 环百分比 + '% 100%)';
+      环.appendChild(el('i', 'lv-ring-in'));
+      环.appendChild(el('span', 'lv-ring-t', Math.round(环百分比) + '%'));
+      d.appendChild(环);
+    } else if (c.type === 'multiSelect') {
+      d.className = 'lv-select lv-multi';
+      var 多选值 = Array.isArray(c.value) ? c.value
+        : String(c.value == null ? '' : c.value).split(/[,，、\n]/).filter(function (s) { return s !== ''; });
+      d.appendChild(el('span', 'lv-label', 多选值.length ? 多选值.join('、') : '请选择'));
+      d.appendChild(el('span', 'lv-caret', '▾'));
+    } else if (c.type === 'dateRange') {
+      d.className = 'lv-daterange';
+      d.appendChild(el('span', 'lv-date', c.start || '开始日期'));
+      d.appendChild(el('span', 'lv-dr-sep', '至'));
+      d.appendChild(el('span', 'lv-date', c.end || '结束日期'));
+    } else if (c.type === 'colorPicker') {
+      d.className = 'lv-color';
+      var 色块 = el('i', 'lv-color-sw');
+      色块.style.background = c.value || '#6750a4';
+      d.appendChild(色块);
+      d.appendChild(el('span', 'lv-label', String(c.value || '#6750a4')));
+      d.appendChild(el('span', 'lv-caret', '▾'));
     } else if (c.type === 'switch') {
       d.className = 'lv-row lv-between';
       d.appendChild(el('span', 'lv-label', txt));
@@ -6082,7 +6175,7 @@
     var th = c.type === 'text' ? d.querySelector('.v-text') : d;
     if (validN(c.fs)) th.style.fontSize = c.fs + 'px';
     if (c.color) th.style.color = c.color;
-    if (c.bg && c.type !== 'progress' && c.type !== 'slider' && c.type !== 'switch' && c.type !== 'checkbox') d.style.background = c.bg;
+    if (c.bg && c.type !== 'progress' && c.type !== 'slider' && c.type !== 'switch' && c.type !== 'checkbox' && c.type !== 'ring') d.style.background = c.bg;
     if (validN(c.radius)) d.style.borderRadius = c.radius + 'px';
     if (c.bold) th.style.fontWeight = '700';
     if (c.align) { th.style.textAlign = c.align; if (c.type !== 'text') d.style.textAlign = c.align; }
@@ -6294,7 +6387,7 @@
         var vs = visual.style;
         ['fontSize', 'color', 'background', 'borderRadius', 'fontWeight', 'textAlign', 'opacity',
          'fontStyle', 'textDecoration', 'letterSpacing', 'transform'].forEach(function (p) { if (vs[p]) item.style[p] = vs[p]; });
-        ['--g1', '--g2'].forEach(function (rv) {
+        ['--g1', '--g2', '--star-on'].forEach(function (rv) {
           var gv = visual.style.getPropertyValue(rv); if (gv) item.style.setProperty(rv, gv);
         });
         // 个性化特效类（按钮风格/艺术字/容器外观）同步到可拖动项
@@ -6554,7 +6647,7 @@
 
   /* ---------------- 顶栏下拉菜单（popover） ---------------- */
   function closeMenus() {
-    ['screenMenu', 'moreMenu', 'layPageMenu', 'runMenu'].forEach(function (id) { var m = $(id); if (m) m.classList.add('hidden'); });
+    ['screenMenu', 'moreMenu', 'layPageMenu', 'runMenu', 'layoutOrientMenu'].forEach(function (id) { var m = $(id); if (m) m.classList.add('hidden'); });
   }
   function positionMenu(menu, anchor) {
     var r = anchor.getBoundingClientRect();
@@ -6674,8 +6767,36 @@
     if (能要) { try { Native.askNotif(); } catch (e) {} 本次已请求权限 = true; }
     if (显示设置弹窗 || !能要) openNotifBlocked();
   }
+  /* 运行前的「怎么结束」提示（用户 2026-10-28 要求）：
+     点「运行」先说清楚 —— 要结束时下滑通知栏、点「终止」，不要再靠侧滑返回
+     （侧滑返回已在 runtime.js 里关掉，见 __rtSystemBack）。
+     勾「不再提示」后写进本机，以后点运行直接进。
+     只在真机（有通知栏卡片）上弹：电脑/浏览器里没有通知栏，说了也没用，反而是干扰。 */
+  var RUN_TIP_KEY = '__bb_runTipNever_v1';
+  function 运行提示已关() {
+    try { return localStorage.getItem(RUN_TIP_KEY) === '1'; } catch (e) { return false; }
+  }
+  function 要弹运行提示() {
+    if (运行提示已关()) return false;
+    try { return !!(window.Native && Native.startRunNotice); } catch (e) { return false; }
+  }
+  function 运行前提示(mode) {
+    if (!要弹运行提示()) { doRun(mode); return; }
+    var body = el('div', 'run-tip');
+    body.appendChild(el('div', 'run-tip-line', '点击运行后，若要结束请下滑通知栏，点击终止即可。'));
+    var lab = el('label', 'run-tip-never');
+    var cb = document.createElement('input'); cb.type = 'checkbox';
+    lab.appendChild(cb);
+    lab.appendChild(el('span', '', '不再提示'));
+    body.appendChild(lab);
+    modal('运行提示', body, '开始运行', function () {
+      if (cb.checked) { try { localStorage.setItem(RUN_TIP_KEY, '1'); } catch (e) {} }
+      hideModal();
+      doRun(mode);
+    });
+  }
   function onRun(mode) {
-    if (通知真的可用()) { doRun(mode); return; }      // 有权限 → 直接运行（不弹任何东西）
+    if (通知真的可用()) { 运行前提示(mode); return; }   // 有权限 → （首次）说明怎么结束，然后运行
     if (!本次已请求权限) { 请求通知权限(false); return; }   // 没权限 → 弹系统授权框，本次拒绝运行
     openNotifBlocked();                                // 系统框弹过了还不行为 → 给"去设置"
   }
@@ -6896,17 +7017,11 @@
      5) 安全：代码文字字段已被正确转义（见 pc-sim/cdp-test.mjs 的注入回归测试），
         且这条路径完全不碰 screen.code，不存在任意代码执行的问题。 */
   var AI_KEY_STORE = '__bb_ai_key_v1';   // 浏览器兜底（真机走 Native.getAiKey/setAiKey）
-  /* 模型 与 深度思考 是**两个独立的轴**（实测 API 都支持，别把两者绑在一起）：
-       · 模型：deepseek-v4-pro（更强）/ deepseek-flash（更快）
-       · 思考：thinking={type:'enabled'} 就出推理内容，'disabled' 就不推理（v4-pro 能关、flash 能开）
-     所以默认组合是 v4-pro + 思考开，但用户可以把任意一头单独改掉。
+  /* 模型**固定**为 DeepSeek-V4.1 flash（用户 2026-10-28 要求：删掉模型选择器，只用这一个）。
+     深度思考是另一个轴，仍然可以单独开关：thinking={type:'enabled'|'disabled'}。
      注：DeepSeek 把 deepseek-chat 这个名字映射到 flash，所以这里直接写真实模型名。 */
-  var AI_MODELS = [
-    { id: 'deepseek-v4-pro', label: 'v4-pro', desc: '更强' },
-    { id: 'deepseek-flash', label: 'flash', desc: '更快' }
-  ];
-  var AI_DEFAULT_MODEL = 'deepseek-v4-pro';
-  var AI_MODEL_KEY = '__bb_ai_model_v2';    // 换新键名：旧版存的 flash 不该继续把人钉住
+  var AI_MODEL = 'deepseek-flash';
+  var AI_MODEL_LABEL = 'DeepSeek-V4.1 flash';
   var AI_THINK_KEY = '__bb_ai_think_v2';
   /* 用户要求"什么限制都不要设"：额度拉满、超时形同虚设。
      真正的解法是**流式请求**（见 aiChatStream）：只要还有数据在来就不会超时，
@@ -6914,17 +7029,7 @@
   var AI_MAX_TOKENS = 64000;
   var AI_TIMEOUT_MS = 600000;            // 非流式的兜底（10 分钟）
   var AI_STREAM_IDLE_MS = 600000;        // 流式：10 分钟没有任何增量才算卡死
-  function aiModel() {
-    var v = null; try { v = localStorage.getItem(AI_MODEL_KEY); } catch (e) {}
-    for (var i = 0; i < AI_MODELS.length; i++) if (AI_MODELS[i].id === v) return v;
-    return AI_DEFAULT_MODEL;
-  }
-  function aiSetModel(id) {
-    var ok = AI_DEFAULT_MODEL;
-    for (var i = 0; i < AI_MODELS.length; i++) if (AI_MODELS[i].id === id) ok = id;
-    try { localStorage.setItem(AI_MODEL_KEY, ok); } catch (e) {}
-    aiSyncThinkUI();
-  }
+  function aiModel() { return AI_MODEL; }
   function aiThinkOn() {
     var v = null; try { v = localStorage.getItem(AI_THINK_KEY); } catch (e) {}
     return v === null ? true : v === '1';
@@ -6939,9 +7044,9 @@
     return { model: aiModel(), thinking: { type: aiThinkOn() ? 'enabled' : 'disabled' },
              max_tokens: AI_MAX_TOKENS, timeoutMs: AI_TIMEOUT_MS };
   }
-  /** 顶栏/设置里那两处控件都跟着状态走，别出现两处显示不一致 */
+  /** 深度思考按钮跟着状态走（模型固定，不再有第二处显示要同步） */
   function aiSyncThinkUI() {
-    var on = aiThinkOn(), id = aiModel();
+    var on = aiThinkOn();
     var btn = $('aiThink');
     if (btn) {
       btn.classList.toggle('on', on);
@@ -6949,80 +7054,9 @@
       btn.textContent = on ? '🧠' : '💤';
       btn.title = on ? '深度思考：开（会先推理再回答，慢一点但更懂你）' : '深度思考：关（直接回答，快）';
     }
-    // 底部那行"深度思考"的提示文字已随开关一起挪进顶栏，元素不在了（原来这里还有个
-    // var hint = $('aiThinkHint') + if (hint) ...，删掉时必须连用法一起删，否则整个
-    // 编辑器初始化会 ReferenceError，界面全白）
-    ['aiModelTopLabel', 'aiModelLabel'].forEach(function (k) {
-      var l = $(k);
-      if (l) l.textContent = aiModelLabel(id);
-    });
   }
-  function aiModelLabel(id) {
-    for (var i = 0; i < AI_MODELS.length; i++) if (AI_MODELS[i].id === id) return AI_MODELS[i].label;
-    return id;
-  }
+  function aiModelLabel() { return AI_MODEL_LABEL; }
 
-  /* ---- M3 风格的下拉菜单（取代原生 <select>） ----
-     真机上原生 <select> 弹的是系统白底大列表，跟 FAST 的 M3 界面完全不搭（用户截图反馈）。 */
-  var aiOpenMenu = null;
-  function aiCloseModelMenu() {
-    if (aiOpenMenu && aiOpenMenu.parentNode) aiOpenMenu.parentNode.removeChild(aiOpenMenu);
-    aiOpenMenu = null;
-  }
-  function aiOpenModelMenu(anchor, onPick) {
-    aiCloseModelMenu();
-    if (!anchor) return;
-    var cur = aiModel();
-    var m = el('div', 'ai-modelmenu');
-    m.setAttribute('role', 'listbox');
-    AI_MODELS.forEach(function (mm) {
-      var it = el('button', 'it' + (mm.id === cur ? ' on' : ''));
-      it.type = 'button';
-      it.setAttribute('role', 'option');
-      it.appendChild(el('span', 'lb', mm.label + (mm.desc ? '（' + mm.desc + '）' : '')));
-      it.appendChild(el('span', 'ck', mm.id === cur ? '✓' : ''));
-      it.addEventListener('click', function (ev) {
-        ev.stopPropagation();
-        aiCloseModelMenu();
-        onPick(mm.id);
-      });
-      m.appendChild(it);
-    });
-    document.body.appendChild(m);
-    // 贴着按钮展开；下面放不下就翻到上面（和 M3 菜单一个行为）
-    var r = anchor.getBoundingClientRect(), mr = m.getBoundingClientRect();
-    var left = Math.max(8, Math.min(r.left, window.innerWidth - mr.width - 8));
-    var top = r.bottom + 6;
-    if (top + mr.height > window.innerHeight - 8) top = Math.max(8, r.top - mr.height - 6);
-    m.style.left = Math.round(left) + 'px';
-    m.style.top = Math.round(top) + 'px';
-    aiOpenMenu = m;
-  }
-  document.addEventListener('pointerdown', function (e) {
-    if (!aiOpenMenu) return;
-    if (aiOpenMenu.contains(e.target)) return;
-    if (e.target && e.target.closest && e.target.closest('.ai-modelbtn')) return;
-    aiCloseModelMenu();
-  }, true);
-  window.addEventListener('resize', aiCloseModelMenu);
-
-  /** 把两个模型按钮接上（顶栏一个、设置里一个） */
-  function aiWireModelSelects() {
-    [['aiModelTop', null], ['aiModel', null]].forEach(function (pair) {
-      var btn = $(pair[0]);
-      if (!btn || btn.__aiWired) return;
-      btn.__aiWired = true;
-      btn.addEventListener('click', function (ev) {
-        ev.stopPropagation();
-        aiOpenModelMenu(btn, function (id) {
-          aiSetModel(id);
-          var st = $('aiKeyStatus');
-          if (st) st.textContent = '已切换到 ' + aiModelLabel(aiModel());
-        });
-      });
-    });
-    aiSyncThinkUI();
-  }
   var AI_ENDPOINT = 'https://api.deepseek.com/chat/completions';
   var AI_BALL_POS = '__bb_ai_ball_pos_v1';
   var aiCatalogCache = null;
@@ -7228,8 +7262,10 @@
    * 每条历史回复也截个长度上限。目的：别把整段 XML 反复塞回去（省 token）。
    */
   function aiCompressHistory(hist, keep) {
-    keep = keep || 6;
-    var MAX_REPLY = 700;
+    // 预算：最近 4 条（约两轮）原文 + 摘要。系统提示里已经带了整份代码清单（会随新增代码块变长），
+    // 所以这里留的原文不能多 —— 之前是 6 条 × 700 字，加 3 个通用动作块后整包就顶到原文的 82%。
+    keep = keep || 4;
+    var MAX_REPLY = 500;
     var arr = (hist || []).filter(function (m) { return m && (m.role === 'user' || m.role === 'assistant'); });
     var 摘要 = [], out = [];
     arr.forEach(function (m, i) {
@@ -7252,7 +7288,7 @@
   /** 组装发给模型的消息：系统提示 + 最近若干轮历史；动态上下文挂在最后一条用户消息上 */
   function aiBuildMessages(chat) {
     var msgs = [{ role: 'system', content: aiSystemPrompt() }];
-    var hist = aiCompressHistory(chat && chat.messages ? chat.messages : [], 6);
+    var hist = aiCompressHistory(chat && chat.messages ? chat.messages : [], 4);
     hist.forEach(function (m, i) {
       if (m.role !== 'user' && m.role !== 'assistant') return;
       var content = m.content;
@@ -9469,6 +9505,7 @@
   // 早先只放开了内容类，用户让 AI"帮我调一下排版"时它只能回"我没有位置、大小、间距、对齐
   // 这类属性，所以没法帮你调排版"（真机反馈）—— 属性面板里明明有这些字段，这里一并放开。
   var AI_COMP_PROPS = ['name', 'text', 'value', 'hint', 'alt', 'checked', 'min', 'max', 'items', 'url', 'src',
+                       'start', 'end',
                        'x', 'y', 'w', 'h', 'align', 'fs', 'spacing', 'bold', 'color', 'bg', 'radius', 'rot', 'opacity', 'inputType', 'variant', 'caretColor'];
   // 数值型属性的合理区间（设计像素）。null 是合法值，含义是"恢复自动排列 / 自适应"。
   var AI_NUM_RANGE = {
@@ -9481,7 +9518,8 @@
     min: '最小值', max: '最大值', items: '列表项', url: '网址', src: '媒体',
     x: 'X距左', y: 'Y距顶', w: '宽度', h: '高度', align: '对齐', fs: '字号',
     spacing: '字间距', bold: '加粗', color: '文字颜色', bg: '背景颜色', radius: '圆角',
-    rot: '旋转角度', opacity: '透明度', inputType: '输入框类型', variant: '下拉样式', caretColor: '箭头颜色'
+    rot: '旋转角度', opacity: '透明度', inputType: '输入框类型', variant: '下拉样式', caretColor: '箭头颜色',
+    start: '开始日期', end: '结束日期'
   };
 
   // 占位符：模型说"居中"时不用自己算数字（算错就偏，用户真机反馈过"弄得有点偏右"）
@@ -10540,8 +10578,8 @@
       if (b) b.addEventListener('click', function () { aiNewChat(); });
     });
 
-    // 模型下拉（设置里一个、面板顶栏一个）+ 深度思考开关，两处永远同步
-    aiWireModelSelects();
+    // 深度思考开关（模型固定，没有下拉要接了）
+    aiSyncThinkUI();
 
     // 深度思考开关（顶栏那个 🧠）
     var think = $('aiThink');
@@ -10671,7 +10709,6 @@
       });
     },
     __aiModel: function () { return aiModel(); },
-    __aiSetModel: function (m) { aiSetModel(m); },
     /** 深度思考开关：测试用（读状态 / 拨开关） */
     __aiThink: function () { return { 开: aiThinkOn(), 模型: aiModel(), 最大token: aiMaxTokens() }; },
     __aiSetThink: function (on) { aiSetThink(!!on); return aiThinkOn(); },
@@ -13090,6 +13127,21 @@
       setTimeout(同步分段药丸, 80);
     })();
     $('btnLayout').addEventListener('click', openLayout);
+    // 「如何预览」下拉：自动 / 竖屏 / 横屏（只在布局页生效，不改页面自身方向）
+    var lc = $('btnLayoutCaret');
+    if (lc) lc.addEventListener('click', function (e) {
+      e.stopPropagation();
+      syncLayoutOrientMenu();
+      toggleMenu($('layoutOrientMenu'), lc);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#layoutOrientMenu .orient-opt'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        setLayoutOrientMode(b.getAttribute('data-mode'));
+        closeMenus();
+        if (state.inLayout) { applyLayoutOrient(); renderLayout(); requestAnimationFrame(fitStage); }
+      });
+    });
     $('modalCancel').addEventListener('click', hideModal);
     $('btnSettings').addEventListener('click', openSettings);
     $('settingsClose').addEventListener('click', function () { $('settingsMask').classList.add('hidden'); });

@@ -1294,40 +1294,23 @@ await check('滑动过画布之后，自动适应不会再把视角拽走', asyn
   if (偏移 > 4) throw new Error('滑动之后视角又被自动适应拽走了（会"闪一下"）：' + JSON.stringify({ 刚滑完: 刚滑完, 等一会: 等一会 }));
   return { 刚滑完: 刚滑完.scrollX + ',' + 刚滑完.scrollY, 两秒半后: 等一会.scrollX + ',' + 等一会.scrollY };
 });
-await check('模型用 M3 自绘菜单选（不再弹系统白底列表），只在顶栏这一处', async () => {
+// 用户要求（2026-10-28）：删掉模型选择器，模型固定用 DeepSeek-V4.1 flash
+await check('模型固定为 DeepSeek-V4.1 flash（界面里没有模型选择器）', async () => {
   const r = await js(`(function(){
     var head=document.querySelector('#aiPanel .ai-head');
-    var btn=document.getElementById('aiModelTop');
-    var 原生select数 = head ? head.querySelectorAll('select').length : -1;
-    window.EditorApp.__aiSetModel('deepseek-v4-pro');
-    btn.click();
-    var menu=document.querySelector('.ai-modelmenu');
-    var items=menu ? menu.querySelectorAll('.it') : [];
-    var 菜单项=Array.prototype.map.call(items,function(it){return it.textContent.trim();});
-    var 选中项=Array.prototype.filter.call(items,function(it){return it.classList.contains('on');}).length;
-    // 选另一项
-    if (items.length>1) items[1].click();
-    var 切后={ 模型:window.EditorApp.__aiModel(), 菜单还在:!!document.querySelector('.ai-modelmenu'),
-               顶栏文字:(document.getElementById('aiModelTopLabel')||{}).textContent,
-               设置里文字:(document.getElementById('aiModelLabel')||{}).textContent };
-    window.EditorApp.__aiSetModel('deepseek-v4-pro');
-    var 复原={ 顶栏:(document.getElementById('aiModelTopLabel')||{}).textContent,
-               设置里:(document.getElementById('aiModelLabel')||{}).textContent };
-    return { 原生select数:原生select数, 菜单开着:!!menu, 菜单项:菜单项, 选中项数:选中项, 切后:切后, 复原:复原,
-             设置里还有入口: !!document.getElementById('aiModel') };
+    return { 顶栏还有模型按钮: !!document.getElementById('aiModelTop'),
+             设置里还有入口: !!document.getElementById('aiModel'),
+             原生select数: head ? head.querySelectorAll('select').length : -1,
+             浮菜单: !!document.querySelector('.ai-modelmenu'),
+             模型: window.EditorApp.__aiModel(),
+             参数模型: window.EditorApp.__aiParams().model };
   })()`);
-  if (r.原生select数 !== 0) throw new Error('顶栏还在用原生 <select>（真机上是系统白底弹窗）：' + JSON.stringify(r));
-  if (!r.菜单开着) throw new Error('点模型按钮没弹出菜单：' + JSON.stringify(r));
-  if (r.菜单项.length !== 2) throw new Error('菜单项数不对：' + JSON.stringify(r.菜单项));
-  if (!/v4-pro/.test(r.菜单项[0]) || !/flash/.test(r.菜单项[1])) throw new Error('菜单项内容不对：' + JSON.stringify(r.菜单项));
-  if (r.选中项数 !== 1) throw new Error('当前模型没有打勾（或勾了多个）：' + JSON.stringify(r));
-  if (r.切后.模型 !== 'deepseek-flash') throw new Error('点菜单项没切换模型：' + JSON.stringify(r.切后));
-  if (r.切后.菜单还在) throw new Error('选完菜单没收起：' + JSON.stringify(r.切后));
-  // 设置里的模型切换入口已按用户要求删掉，模型只在顶栏这一处
-  if (r.切后.顶栏文字 !== 'flash') throw new Error('顶栏模型名没跟着变：' + JSON.stringify(r.切后));
-  if (r.复原.顶栏 !== 'v4-pro') throw new Error('复原失败：' + JSON.stringify(r.复原));
-  if (r.设置里还有入口) throw new Error('设置里还留着模型切换入口（用户要求删掉）：' + JSON.stringify(r));
-  return { 菜单项: r.菜单项, 切换: r.切后.模型, 顶栏: r.切后.顶栏文字 + ' → ' + r.复原.顶栏 };
+  if (r.顶栏还有模型按钮) throw new Error('顶栏还留着模型选择按钮（用户要求删掉）：' + JSON.stringify(r));
+  if (r.设置里还有入口) throw new Error('设置里还留着模型切换入口：' + JSON.stringify(r));
+  if (r.原生select数 !== 0) throw new Error('顶栏还有原生 <select>：' + JSON.stringify(r));
+  if (r.模型 !== 'deepseek-flash') throw new Error('模型没固定成 flash：' + JSON.stringify(r));
+  if (r.参数模型 !== 'deepseek-flash') throw new Error('请求参数里的模型不是 flash：' + JSON.stringify(r));
+  return { 模型: r.模型, 参数: r.参数模型 };
 });
 
 // 用户反馈："深度思考按钮、加号、关闭按钮没有贴到最右边"
@@ -1342,7 +1325,7 @@ await check('顶栏右侧那组控件贴到面板最右边', async () => {
   })()`);
   if (r.间隙 > 14) throw new Error('关闭按钮离面板右边太远（没贴住）：' + JSON.stringify(r));
   if (Math.abs(r.右侧组右边 - r.关闭钮右边) > 3) throw new Error('关闭按钮不是这一组的最右：' + JSON.stringify(r));
-  if (r.组内按钮数 !== 5) throw new Error('右侧组按钮数不对（看报错/模型/思考/新建/关闭）：' + JSON.stringify(r));
+  if (r.组内按钮数 !== 4) throw new Error('右侧组按钮数不对（看报错/思考/新建/关闭）：' + JSON.stringify(r));
   return r;
 });
 
@@ -1409,49 +1392,34 @@ await check('「应用这些改动」和「打开代码画布」在同一层级�
 
 // 用户要求：拖动时要看到**一堆代码**跟着手指，不是一个提示条
 
-// 用户要求：模型 和 深度思考 必须能**分开**选（不能一个开关同时管两件事），
-// 而且开关要放到面板顶栏。实测 API 支持 thinking 参数，所以两根轴是真独立的。
-await check('模型与深度思考是两个独立的轴，开关在顶栏（且不受旧版脏数据影响）', async () => {
+// 模型固定后，深度思考仍必须能单独开关（用户只要求删模型选择，思考轴不动）
+await check('深度思考可单独开关，模型固定不变', async () => {
   const r = await js(`(function(){
-    localStorage.setItem('__bb_ai_model_v1','deepseek-flash');   // 旧版留下的脏数据，应当被无视
     var head=document.querySelector('#aiPanel .ai-head');
     var foot=document.querySelector('#aiPanel .ai-foot');
-    var btn=document.getElementById('aiThink'), top=document.getElementById('aiModelTop');
-    var 位置={ 开关在顶栏:!!(head&&btn&&head.contains(btn)), 下拉在顶栏:!!(head&&top&&head.contains(top)),
-               开关还在底部:!!(foot&&btn&&foot.contains(btn)) };
-    var 下拉文字 = document.getElementById('aiModelTopLabel') ? document.getElementById('aiModelTopLabel').textContent : '';
-
-    window.EditorApp.__aiSetModel('deepseek-v4-pro'); window.EditorApp.__aiSetThink(true);
+    var btn=document.getElementById('aiThink');
+    var 位置={ 开关在顶栏:!!(head&&btn&&head.contains(btn)), 开关还在底部:!!(foot&&btn&&foot.contains(btn)) };
+    window.EditorApp.__aiSetThink(true);
     var 默认={ 模型:window.EditorApp.__aiModel(), 思考:window.EditorApp.__aiThink().开, 参数:window.EditorApp.__aiParams() };
     window.EditorApp.__aiSetThink(false);                       // 只关思考
-    var 只关思考={ 模型:window.EditorApp.__aiModel(), 思考:window.EditorApp.__aiThink().开, 参数:window.EditorApp.__aiParams() };
-    window.EditorApp.__aiSetModel('deepseek-flash');            // 只换模型
-    var 只换模型={ 模型:window.EditorApp.__aiModel(), 思考:window.EditorApp.__aiThink().开, 参数:window.EditorApp.__aiParams() };
-    window.EditorApp.__aiSetThink(true);                        // flash + 思考开
-    var flash思考开={ 参数:window.EditorApp.__aiParams() };
-    window.EditorApp.__aiSetModel('deepseek-v4-pro'); window.EditorApp.__aiSetThink(true);
-    localStorage.removeItem('__bb_ai_model_v1');
-    return { 位置:位置, 下拉文字:下拉文字, 默认:默认, 只关思考:只关思考, 只换模型:只换模型,
-             flash思考开:flash思考开, 按钮亮着:!!(btn&&btn.classList.contains('on')), 按钮图标:btn?btn.textContent:'' };
+    var 关思考={ 模型:window.EditorApp.__aiModel(), 思考:window.EditorApp.__aiThink().开, 参数:window.EditorApp.__aiParams() };
+    window.EditorApp.__aiSetThink(true);
+    return { 位置:位置, 默认:默认, 关思考:关思考,
+             按钮亮着:!!(btn&&btn.classList.contains('on')), 按钮图标:btn?btn.textContent:'' };
   })()`);
   if (!r || !r.位置.开关在顶栏) throw new Error('深度思考开关没在顶栏：' + JSON.stringify(r.位置));
-  if (!r.位置.下拉在顶栏) throw new Error('模型下拉没在顶栏：' + JSON.stringify(r.位置));
   if (r.位置.开关还在底部) throw new Error('开关还留在底部：' + JSON.stringify(r.位置));
-  if (r.下拉文字 !== 'v4-pro') throw new Error('顶栏模型按钮文字不对：' + JSON.stringify(r.下拉文字));
-  if (r.默认.模型 !== 'deepseek-v4-pro' || !r.默认.思考) throw new Error('默认态不对（旧脏数据把它钉住了？）：' + JSON.stringify(r.默认));
-  if (r.默认.参数.thinking.type !== 'enabled') throw new Error('默认没把 thinking 打开：' + JSON.stringify(r.默认.参数));
-  if (r.只关思考.模型 !== 'deepseek-v4-pro') throw new Error('关掉思考把模型也换了（两根轴没拆开）：' + JSON.stringify(r.只关思考));
-  if (r.只关思考.参数.thinking.type !== 'disabled') throw new Error('关掉思考后 thinking 没关：' + JSON.stringify(r.只关思考.参数));
-  if (r.只换模型.思考 !== false) throw new Error('换模型把思考状态带走了：' + JSON.stringify(r.只换模型));
-  if (r.只换模型.参数.model !== 'deepseek-flash') throw new Error('换模型没生效：' + JSON.stringify(r.只换模型.参数));
-  if (r.flash思考开.参数.model !== 'deepseek-flash' || r.flash思考开.参数.thinking.type !== 'enabled') {
-    throw new Error('flash + 思考开 这格不对：' + JSON.stringify(r.flash思考开.参数));
+  if (r.默认.模型 !== 'deepseek-flash' || r.默认.参数.model !== 'deepseek-flash') {
+    throw new Error('模型不是固定 flash：' + JSON.stringify(r.默认));
   }
+  if (!r.默认.思考 || r.默认.参数.thinking.type !== 'enabled') throw new Error('默认没把 thinking 打开：' + JSON.stringify(r.默认.参数));
+  if (r.关思考.模型 !== 'deepseek-flash') throw new Error('关掉思考把模型也换了：' + JSON.stringify(r.关思考));
+  if (r.关思考.参数.thinking.type !== 'disabled') throw new Error('关掉思考后 thinking 没关：' + JSON.stringify(r.关思考.参数));
   if (!(r.默认.参数.max_tokens >= 32000)) throw new Error('推理额度太小（用户要求不设上限）：' + JSON.stringify(r.默认.参数));
   if (!(r.默认.参数.timeoutMs >= 180000)) throw new Error('超时太短，长推理会被掐：' + JSON.stringify(r.默认.参数));
   if (!r.按钮亮着 || !/🧠/.test(r.按钮图标)) throw new Error('开关外观不对：' + JSON.stringify(r));
-  return { 位置: '顶栏', 默认: r.默认.参数.model + '+思考开', 只关思考: r.只关思考.模型 + '+思考关',
-           只换模型: r.只换模型.模型 + '+思考关', 额度: r.默认.参数.max_tokens, 超时: r.默认.参数.timeoutMs };
+  return { 位置: '顶栏', 模型: r.默认.参数.model, 思考开: r.默认.参数.thinking.type,
+           思考关: r.关思考.参数.thinking.type, 额度: r.默认.参数.max_tokens, 超时: r.默认.参数.timeoutMs };
 });
 
 // 用户要的：对话框能按住**顶部**拖动，位置要记住
@@ -1465,7 +1433,7 @@ await check('面板能按住顶栏拖动、位置会记住（双击归位已按�
     }
   })()`);
   await sleep(800);
-  await shot('t15-AI面板顶栏');   // 留一张图：顶栏上的模型下拉 + 🧠 开关
+  await shot('t15-AI面板顶栏');   // 留一张图：顶栏上的 🧠 思考开关（模型已固定，没有下拉）
   const drag = await js(`(function(){
     var p=document.getElementById('aiPanel'), head=p.querySelector('.ai-head');
     var b0=p.getBoundingClientRect();
@@ -1771,7 +1739,7 @@ await check('助手标题（𝑭𝒍𝒖𝒙）旁边不再有那行说明字', 
   })()`);
   if (r.有aiSub) throw new Error('标题旁边那行字还在：' + JSON.stringify(r));
   if (!/𝑭𝒍𝒖𝒙/.test(r.顶栏文字)) throw new Error('顶栏标题没了（应为 𝑭𝒍𝒖𝒙）：' + JSON.stringify(r));
-  if (r.按钮数 !== 6) throw new Error('顶栏控件数不对（☰ + 看报错 + 模型下拉 + 思考 + 新建 + 关闭）：' + JSON.stringify(r));
+  if (r.按钮数 !== 5) throw new Error('顶栏控件数不对（☰ + 看报错 + 思考 + 新建 + 关闭；模型已固定无下拉）：' + JSON.stringify(r));
   return r;
 });
 
@@ -1948,6 +1916,132 @@ await check('布局页：能进去、能渲染出组件、位置与数据一致'
   if (!out.回去了) throw new Error('点返回没回到编辑器');
   return { 舞台: info.舞台逻辑.join('x') + '（视觉 ' + info.舞台视觉.join('x') + '）', 设计: info.设计.join('x'),
            条目数: info.条目数, 返回键: '可用', 页面按钮: info.页面按钮文字 };
+});
+
+// 用户要求（2026-10-28）：布局预览加「如何预览」下拉（自动/竖屏/横屏），
+// 且修 bug：横屏预览状态下切到竖屏页面，预览必须跟着回到竖屏（以前会横着展示竖屏内容）。
+await check('布局预览方向：自动跟随页面（换页重算），也能强制竖/横', async () => {
+  // 造场景：原页临时设横屏，再新建一个竖屏页；测完全部还原（方向、页面、design 都还原）
+  const 场景 = await js(`(function(){
+    var App = window.EditorApp, p = App.__proj();
+    if (!p || !p.screens || !p.screens.length) return { 错误: '没有打开的工程' };
+    var 原页 = p.screens[0].id;
+    var 原向 = p.screens[0].orientation || 'portrait';
+    var 原设计 = p.design ? JSON.parse(JSON.stringify(p.design)) : null;
+    p.screens[0].orientation = 'landscape';
+    var 竖页 = App.__aiAddScreen();          // 新页面默认竖屏
+    App.__aiSwitchScreen(原页);
+    try { localStorage.removeItem('__bb_layout_orient'); } catch (e) {}   // 默认「自动」
+    return { 横页: 原页, 竖页: 竖页, 原向: 原向, 原设计: 原设计 };
+  })()`);
+  if (场景.错误) throw new Error(场景.错误);
+
+  const 量 = () => js(`(function(){
+    var s = document.getElementById('layStage');
+    if (!s) return { 没有舞台: true };
+    return { 类: s.className, 宽: s.offsetWidth, 高: s.offsetHeight };
+  })()`);
+
+  // ①「自动」+ 横屏页面 → 横屏预览
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1400);
+  const 自动横 = await 量();
+  if (!/landscape/.test(自动横.类) || !(自动横.宽 > 自动横.高)) {
+    throw new Error('「自动」时应跟页面走（横屏页 → 横屏预览），实际：' + JSON.stringify(自动横));
+  }
+
+  // ② 用户报的 bug：换到竖屏页面，预览必须回到竖屏（带 portrait 类、宽 390）
+  await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.竖页)})`);
+  await sleep(900);
+  const 换竖 = await 量();
+  if (!/portrait/.test(换竖.类) || !(换竖.高 > 换竖.宽)) {
+    throw new Error('换到竖屏页面后预览没回到竖屏（还是横着展示竖屏）：' + JSON.stringify(换竖));
+  }
+  if (Math.abs(换竖.宽 - 390) > 2) throw new Error('竖屏预览的舞台宽度应为 390，实际 ' + 换竖.宽);
+
+  // ③ 再换回横屏页面，方向同样要跟回去
+  await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.横页)})`);
+  await sleep(900);
+  const 换横 = await 量();
+  if (!/landscape/.test(换横.类) || !(换横.宽 > 换横.高)) {
+    throw new Error('换回横屏页面后预览没回到横屏：' + JSON.stringify(换横));
+  }
+
+  // ④ 退出布局页，检查顶栏「如何预览」下拉：三项、默认勾「自动」
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
+  const 菜单 = await js(`(function(){
+    var b = document.getElementById('btnLayoutCaret'); if (!b) return { 没有箭头按钮: true };
+    b.click();
+    var m = document.getElementById('layoutOrientMenu');
+    return { 显示: !m.classList.contains('hidden'),
+             标题: (m.querySelector('.lay-orient-title') || {}).textContent || '',
+             项: Array.prototype.map.call(m.querySelectorAll('.orient-opt'), function (x) {
+               return { 模式: x.getAttribute('data-mode'), 勾选: x.classList.contains('on') };
+             }) };
+  })()`);
+  if (菜单.没有箭头按钮) throw new Error('顶栏没有「如何预览」下拉箭头');
+  if (!菜单.显示) throw new Error('点箭头后「如何预览」菜单没弹出');
+  if (!/如何预览/.test(菜单.标题)) throw new Error('菜单标题不对：' + JSON.stringify(菜单));
+  const 模式们 = 菜单.项.map(function (x) { return x.模式; }).join(',');
+  if (模式们 !== 'auto,portrait,landscape') throw new Error('「如何预览」应为 自动/竖屏/横屏，实际：' + 模式们);
+  const 默认勾 = 菜单.项.filter(function (x) { return x.勾选; }).map(function (x) { return x.模式; }).join(',');
+  if (默认勾 !== 'auto') throw new Error('默认应勾「自动」，实际勾的是：' + 默认勾);
+
+  // ⑤ 竖屏页面 + 强制横屏 → 必须横着预览，且不能改页面自身方向
+  await js(`document.getElementById('layoutOrientMenu').querySelector('[data-mode="landscape"]').click()`);
+  await sleep(300);
+  await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.竖页)})`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1400);
+  const 强制横 = await 量();
+  if (!/landscape/.test(强制横.类) || !(强制横.宽 > 强制横.高)) {
+    throw new Error('选了「横屏」后，竖屏页面也必须横着预览：' + JSON.stringify(强制横));
+  }
+  const 页向 = await js(`(function(){
+    var p = window.EditorApp.__proj();
+    var s = p.screens.filter(function (x) { return x.id === ${JSON.stringify(场景.竖页)}; })[0];
+    return (s && s.orientation) || '';
+  })()`);
+  if (页向 === 'landscape') throw new Error('「如何预览」不该改页面自身的横竖屏设置');
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
+
+  // ⑥ 横屏页面 + 强制竖屏 → 必须竖着预览
+  await js(`(function(){
+    document.getElementById('btnLayoutCaret').click();
+    document.getElementById('layoutOrientMenu').querySelector('[data-mode="portrait"]').click();
+  })()`);
+  await sleep(300);
+  await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.横页)})`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1400);
+  const 强制竖 = await 量();
+  if (!/portrait/.test(强制竖.类) || !(强制竖.高 > 强制竖.宽)) {
+    throw new Error('选了「竖屏」后，横屏页面也必须竖着预览：' + JSON.stringify(强制竖));
+  }
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
+
+  // ⑦ 还原：预览模式回「自动」、页面方向/设计尺寸还原、删掉临时页
+  await js(`(function(){
+    var App = window.EditorApp, p = App.__proj();
+    try { localStorage.removeItem('__bb_layout_orient'); } catch (e) {}
+    p.screens.forEach(function (s) {
+      if (s.id === ${JSON.stringify(场景.横页)}) s.orientation = ${JSON.stringify(场景.原向)};
+    });
+    p.screens = p.screens.filter(function (s) { return s.id !== ${JSON.stringify(场景.竖页)}; });
+    p.design = ${JSON.stringify(场景.原设计)};
+    App.__aiSwitchScreen(${JSON.stringify(场景.横页)});
+  })()`);
+  const 还原 = await js(`window.EditorApp.__aiScreens().length`);
+  if (还原 !== 1) throw new Error('临时页面没清理干净，剩 ' + 还原 + ' 个页面');
+
+  return { 自动: '横页→横屏、竖页→竖屏 ✓', 换页方向: '跟随 ✓',
+           菜单: '自动/竖屏/横屏，默认自动 ✓',
+           强制横: 强制横.宽 + 'x' + 强制横.高, 强制竖: 强制竖.宽 + 'x' + 强制竖.高 };
 });
 
 // 用户反馈："设置横屏，运行时先竖屏再横屏"。
@@ -2406,6 +2500,46 @@ await check('【所见即所得】布局页里摆的位置，运行时（导出�
     ' 布局缩放=' + 布局量.缩放 + ' 运行缩放=' + 运行量.缩放);
   return { 组件数: prep.组件.length, 布局缩放: 布局量.缩放.toFixed(3), 运行缩放: 运行量.缩放.toFixed(3),
            运行画布: 运行量.画布.join('x'), 设计: prep.导出.设计 };
+});
+
+// 补缺的三个数据代码（列表去重 / 解析 JSON / 生成 JSON）都是纯数据计算，不碰界面，
+// 所以直接进运行时页调 RT 的方法断言结果即可（只进一次，两类各断言一遍）。
+await js(`location.href='runtime.html?v=' + Date.now()`);
+if (!(await waitFor(`!!window.RT`, 15000))) {
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  throw new Error('运行时页没加载出来，数据代码用例没跑成（已切回编辑器）');
+}
+const 数据代码 = await js(`(function(){
+  var R = window.RT;
+  return {
+    去重: R.listUnique([1, 2, 1, 'a', 'a', 2]),
+    去重空: R.listUnique([]),
+    解析: R.jsonParse('{"name":"小明","age":12}').name,
+    解析坏格式: R.jsonParse('{不是 json'),
+    生成: R.jsonStringify({ a: 1 })
+  };
+})()`);
+await js(`location.href='editor.html'`);
+await waitFor(`!!window.EditorApp`, 15000);
+await sleep(600);
+
+await check('【数据代码】列表：去重保留第一次出现的顺序', async () => {
+  if (JSON.stringify(数据代码.去重) !== JSON.stringify([1, 2, 'a'])) {
+    throw new Error('去重：期望 ' + JSON.stringify([1, 2, 'a']) + '，实际 ' + JSON.stringify(数据代码.去重));
+  }
+  if (JSON.stringify(数据代码.去重空) !== JSON.stringify([])) {
+    throw new Error('空列表去重应返回空列表，实际 ' + JSON.stringify(数据代码.去重空));
+  }
+  return { 去重: 数据代码.去重 };
+});
+
+await check('【数据代码】JSON：解析 / 生成（格式不对不崩）', async () => {
+  if (数据代码.解析 !== '小明') throw new Error('解析 JSON 后取字段失败：' + JSON.stringify(数据代码.解析));
+  if (数据代码.解析坏格式 !== null) throw new Error('坏格式应该返回 null（不抛错），实际 ' + JSON.stringify(数据代码.解析坏格式));
+  if (数据代码.生成 !== '{"a":1}') throw new Error('生成 JSON 文字不对：' + JSON.stringify(数据代码.生成));
+  return { 解析: 数据代码.解析, 生成: 数据代码.生成 };
 });
 
 // 用户反馈：布局页点右下角按钮弹出右侧面板、再关掉，画布就缩成一小块了
@@ -3123,6 +3257,366 @@ await check('新增控件在运行时（导出后）能渲染出真实的表单�
   if (缺.length) throw new Error('运行时缺少这些控件：' + JSON.stringify({ 缺: 缺, 明细: r }));
   return { 全部渲染: Object.keys(r).length - 1 + ' 种', 元素总数: r.总量 };
 });
+// 阶段 2 第一批控件：标签页 / 折叠面板 / 评分 / 进度环
+// 验收口径 = 设计页能建、布局页有预览（且和运行时同一套结构）、运行时能点能读能写。
+await check('新控件①：标签页/折叠面板/评分/进度环 三处渲染一致，运行时能交互', async () => {
+  // 上一条用例最后跳回了 editor.html（停在首页），这里先确保真有工程打开。
+  // 注意不要用 ensureProject()：它依赖的 __ensureSeq 在本文件后面才声明，提前调用会踩 TDZ。
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    // 直接走「创建新 App」（和 t02 同一条路，最稳）；重名会被按钮拦下，所以名字带时间戳
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '新控件测试' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+  const 加的 = await js(`(function(){
+    var App = window.EditorApp;
+    var 配置 = [
+      { type:'tabs',     props:{ x:24,  y:520, w:300, h:48,  items:['甲','乙','丙'], value:1 } },
+      { type:'collapse', props:{ x:24,  y:580, w:300, h:96,  text:'更多', body:'内容在此', open:false } },
+      { type:'rating',   props:{ x:24,  y:690, w:180, h:44,  value:2, max:5 } },
+      { type:'ring',     props:{ x:260, y:690, w:104, h:104, value:30, max:100 } }
+    ];
+    var 加的 = [];
+    配置.forEach(function (one) {
+      var before = App.__aiComps().length;
+      App.__aiApplyComponents([{ op:'add', type:one.type, props:one.props }]);
+      var cs = App.__aiComps();
+      if (cs.length <= before) return;
+      // __aiComps() 新的在最前面
+      加的.push({ type: one.type, id: cs[0].id });
+    });
+    return 加的;
+  })()`);
+  await sleep(300);
+  if (加的.length !== 4) throw new Error('有控件没建出来：' + JSON.stringify(加的));
+
+  // 布局页：每种控件都要有自己的 lv-* 子元素（不是空白卡片）
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1500);
+  const 布局 = await js(`(function(){
+    var stage = document.getElementById('layStage');
+    var pick = function (t) { return stage.querySelector('.litem.t-' + t); };
+    var 页签 = pick('tabs'), 折叠 = pick('collapse'), 评分 = pick('rating'), 环 = pick('ring');
+    var 有 = function (n) { return !!n; };
+    return {
+      页签: 有(页签) ? 页签.querySelectorAll('.lv-tab').length : 0,
+      页签选中: 有(页签) ? Array.prototype.indexOf.call(页签.querySelectorAll('.lv-tab'), 页签.querySelector('.lv-tab.on')) : -1,
+      折叠头: 有(折叠) && !!折叠.querySelector('.lv-collapse-h'),
+      折叠箭: 有(折叠) && !!折叠.querySelector('.lv-collapse-a'),
+      星数: 有(评分) ? 评分.querySelectorAll('.lv-star').length : 0,
+      星亮: 有(评分) ? 评分.querySelectorAll('.lv-star.on').length : 0,
+      环: 有(环) && !!环.querySelector('.lv-ring'),
+      环字: 有(环) && 环.querySelector('.lv-ring-t') ? 环.querySelector('.lv-ring-t').textContent : ''
+    };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (布局.页签 !== 3 || 布局.页签选中 !== 1) throw new Error('布局页标签页不对：' + JSON.stringify(布局));
+  if (!布局.折叠头 || !布局.折叠箭) throw new Error('布局页折叠面板不对：' + JSON.stringify(布局));
+  if (布局.星数 !== 5 || 布局.星亮 !== 2) throw new Error('布局页评分不对：' + JSON.stringify(布局));
+  if (!布局.环 || 布局.环字 !== '30%') throw new Error('布局页进度环不对：' + JSON.stringify(布局));
+
+  // 运行时：同一份结构 + 真交互
+  const exp = await js(`(function(){ return window.EditorApp.__exportPreview(); })()`);
+  if (!exp) throw new Error('导出预览失败');
+  await js(`location.href='runtime.html?v=' + Date.now()`);
+  const 就绪 = await waitFor(`!!document.querySelector('#screen .comp.tabs .rt-tab')`, 15000);
+  if (!就绪) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没有渲染出标签页（已切回编辑器）');
+  }
+  const 运行 = await js(`(function(){
+    var 页签 = document.querySelector('#screen .comp.tabs');
+    var 折叠 = document.querySelector('#screen .comp.collapse');
+    var 评分 = document.querySelector('#screen .comp.rating');
+    var 环 = document.querySelector('#screen .comp.ring');
+    var 报 = [];
+    var v0 = window.RT.getValue(document.querySelector('#screen .comp.tabs').getAttribute('data-id') || '');
+
+    var 页钮 = 页签 ? 页签.querySelectorAll('.rt-tab') : [];
+    if (页钮.length !== 3) 报.push('页签数 ' + 页钮.length);
+    if (页钮[2]) 页钮[2].click();
+    if (页钮[2] && !页钮[2].classList.contains('on')) 报.push('点第三个页签没选中');
+    var 页值 = window.RT.getValue(页签.getAttribute('data-id'));
+
+    var 折头 = 折叠 ? 折叠.querySelector('.rt-collapse-h') : null;
+    if (!折头) 报.push('没有折叠头');
+    else {
+      折头.click();
+      if (!折叠.querySelector('.rt-collapse').classList.contains('open')) 报.push('点了没展开');
+      if (window.RT.getValue(折叠.getAttribute('data-id')) !== true) 报.push('展开后取值不是 true');
+    }
+
+    var 星 = 评分 ? 评分.querySelectorAll('.rt-star') : [];
+    if (星.length !== 5) 报.push('星数 ' + 星.length);
+    if (星[4]) 星[4].click();
+    if (window.RT.getValue(评分.getAttribute('data-id')) !== 5) 报.push('点第五颗星取值不是 5');
+
+    if (!环 || !环.querySelector('.rt-ring-fill')) 报.push('没有进度环');
+    else {
+      window.RT.setProgress(环.getAttribute('data-id'), 75);
+      var 字 = 环.querySelector('.rt-ring-t');
+      if (!字 || 字.textContent !== '75%') 报.push('设 75 后显示 ' + (字 && 字.textContent));
+      if (window.RT.getProgress(环.getAttribute('data-id')) !== 75) 报.push('读回不是 75');
+    }
+    return { 报: 报, 初始页签值: v0, 点后页签值: 页值 };
+  })()`);
+  await shot('t25b-新控件第一批运行时');
+  // 先判断言：后面回编辑器只是收尾，收尾失败不能把上面的结论吞掉
+  if (运行.报.length) throw new Error('运行时交互有问题：' + JSON.stringify(运行));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  // 尽力清理：本用例是新建的独立工程，编辑器重载后可能停在首页（没工程就没法删控件），
+  // 删不掉也不影响别的用例，所以只尽力而为、不抛错。
+  await js(`(function(){
+    try {
+      var App = window.EditorApp;
+      App.__aiApplyComponents(${JSON.stringify(加的.map(c => ({ op:'remove', id: c.id })))});
+      return App.__aiComps().length;
+    } catch (e) { return 'skip: ' + e.message; }
+  })()`);
+  return { 控件: '4 种', 布局页: '结构齐全 ✓', 运行时: '切页签/展开/打分/设进度 ✓', 初始页签值: 运行.初始页签值 };
+});
+
+// 阶段 3 第一批控件：多选下拉 / 日期范围 / 颜色选择器
+// 验收口径与上一批一致：设计页能建、布局页有预览、运行时能点能读能写。
+await check('新控件②：多选下拉/日期范围/颜色选择器 三处渲染一致，运行时能交互', async () => {
+  // 上一条用例最后跳回了 editor.html；没有工程就先建一个（不要用 ensureProject()，它会踩 TDZ）
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '新控件测试' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+  const 加的 = await js(`(function(){
+    var App = window.EditorApp;
+    var 配置 = [
+      { type:'multiSelect', props:{ x:24, y:60,  w:260, h:48, items:['苹果','香蕉','橙子'], value:['苹果'] } },
+      { type:'dateRange',   props:{ x:24, y:130, w:300, h:52, start:'2025-01-01', end:'2025-01-31' } },
+      { type:'colorPicker', props:{ x:24, y:210, w:200, h:48, value:'#1565c0' } }
+    ];
+    var 加的 = [];
+    配置.forEach(function (one) {
+      var before = App.__aiComps().length;
+      App.__aiApplyComponents([{ op:'add', type:one.type, props:one.props }]);
+      var cs = App.__aiComps();
+      if (cs.length <= before) return;
+      加的.push({ type: one.type, id: cs[0].id });
+    });
+    return 加的;
+  })()`);
+  await sleep(300);
+  if (加的.length !== 3) throw new Error('有控件没建出来：' + JSON.stringify(加的));
+
+  // 布局页：每种控件都要有自己的一套预览结构
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1500);
+  const 布局 = await js(`(function(){
+    var stage = document.getElementById('layStage');
+    var pick = function (t) { return stage.querySelector('.litem.t-' + t); };
+    var 多选 = pick('multiSelect'), 范围 = pick('dateRange'), 颜色 = pick('colorPicker');
+    var 有 = function (n) { return !!n; };
+    var 色块 = 有(颜色) ? 颜色.querySelector('.lv-color-sw') : null;
+    // 舞台只搬 layVisual 的子元素，视觉根节点的 class 会丢（和标签页同一套做法），
+    // 所以这里断言的是子元素结构，不是 lv-multi / lv-color 本身。
+    return {
+      多选字: 有(多选) && 多选.querySelector('.lv-label') ? 多选.querySelector('.lv-label').textContent : '',
+      多选箭: 有(多选) && !!多选.querySelector('.lv-caret'),
+      日期段: 有(范围) ? 范围.querySelectorAll('.lv-date').length : 0,
+      日期隔: 有(范围) && 范围.querySelector('.lv-dr-sep') ? 范围.querySelector('.lv-dr-sep').textContent : '',
+      色块: !!色块,
+      颜色字: 有(颜色) && 颜色.querySelector('.lv-label') ? 颜色.querySelector('.lv-label').textContent : '',
+      颜色箭: 有(颜色) && !!颜色.querySelector('.lv-caret')
+    };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (布局.多选字 !== '苹果' || !布局.多选箭) throw new Error('布局页多选下拉不对：' + JSON.stringify(布局));
+  if (布局.日期段 !== 2 || 布局.日期隔 !== '至') throw new Error('布局页日期范围不对：' + JSON.stringify(布局));
+  if (!布局.色块 || 布局.颜色字 !== '#1565c0' || !布局.颜色箭) throw new Error('布局页颜色选择器不对：' + JSON.stringify(布局));
+
+  // 运行时：同一份结构 + 真交互 + 读写
+  const exp = await js(`(function(){ return window.EditorApp.__exportPreview(); })()`);
+  if (!exp || exp.错误) throw new Error('导出预览失败：' + JSON.stringify(exp));
+  let 就绪 = false;
+  for (let attempt = 0; attempt < 2 && !就绪; attempt++) {
+    await js(`location.href='runtime.html?v=' + Date.now()`);
+    就绪 = await waitFor(`!!document.querySelector('#screen .comp.multiSelect .rt-select')`, 15000);
+    if (!就绪) await sleep(700);
+  }
+  if (!就绪) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没有渲染出多选下拉（已切回编辑器）');
+  }
+  const 运行 = await js(`(function(){
+    var 报 = [];
+    var ms = document.querySelector('#screen .comp.multiSelect');
+    var dr = document.querySelector('#screen .comp.dateRange');
+    var cp = document.querySelector('#screen .comp.colorPicker');
+    var msId = ms && ms.getAttribute('data-id'), drId = dr && dr.getAttribute('data-id'), cpId = cp && cp.getAttribute('data-id');
+
+    // 多选：点开 → 3 项 → 再点第二项应连选；读回是数组
+    var 多箱 = ms ? ms.querySelector('.rt-select') : null;
+    if (!多箱) 报.push('没有多选框');
+    else {
+      if (!Array.isArray(window.RT.getValue(msId)) || window.RT.getValue(msId).join(',') !== '苹果') 报.push('初始值 ' + JSON.stringify(window.RT.getValue(msId)));
+      多箱.click();
+      var 单 = ms.querySelector('.rt-multi-menu');
+      if (!单 || !单.classList.contains('open')) 报.push('菜单没打开');
+      var 行 = ms.querySelectorAll('.rt-multi-item');
+      if (行.length !== 3) 报.push('选项数 ' + 行.length);
+      if (行[1]) 行[1].click();
+      var v = window.RT.getValue(msId);
+      if (!Array.isArray(v) || v.join(',') !== '苹果,香蕉') 报.push('点第二项后 ' + JSON.stringify(v));
+      var lab = ms.querySelector('.rt-select-v');
+      if (!lab || lab.textContent !== '苹果、香蕉') 报.push('显示文案 ' + (lab && lab.textContent));
+      window.RT.setComponent(msId, '橙子');
+      v = window.RT.getValue(msId);
+      if (!Array.isArray(v) || v.join(',') !== '橙子') 报.push('设单值后 ' + JSON.stringify(v));
+      if (ms.querySelectorAll('.rt-multi-item.on').length !== 1) 报.push('设单值后勾选数不对');
+      var 文字 = lab ? lab.textContent : '';
+      if (文字 !== '橙子') 报.push('设单值后文案 ' + 文字);
+    }
+
+    // 日期范围：改两个日期 → "开始~结束"；再整体设一次
+    var 日 = dr ? dr.querySelectorAll('input.rt-date') : [];
+    if (日.length !== 2) 报.push('日期框数 ' + 日.length);
+    else {
+      // 两个框分开改：改完一个，控件会把另一个框的值写回去，所以要按顺序来
+      日[0].value = '2025-03-01'; 日[0].dispatchEvent(new Event('change', { bubbles: true }));
+      日[1].value = '2025-03-09'; 日[1].dispatchEvent(new Event('change', { bubbles: true }));
+      var rv = window.RT.getValue(drId);
+      if (rv !== '2025-03-01~2025-03-09') 报.push('改日期后 ' + JSON.stringify(rv));
+      window.RT.setComponent(drId, '2025-05-01~2025-05-20');
+      if (window.RT.getValue(drId) !== '2025-05-01~2025-05-20') 报.push('整段设后 ' + JSON.stringify(window.RT.getValue(drId)));
+      if (日[0].value !== '2025-05-01' || 日[1].value !== '2025-05-20') 报.push('整段设后输入框 ' + 日[0].value + '/' + 日[1].value);
+    }
+
+    // 颜色选择器：点开调色板 → 12 个色点 → 点一个 → 值变成那个色；再代码设色
+    var 色箱 = cp ? cp.querySelector('.rt-color') : null;
+    if (!色箱 || !cp.querySelector('.rt-color-sw')) 报.push('没有颜色选择器');
+    else {
+      if (window.RT.getValue(cpId) !== '#1565c0') 报.push('初始色 ' + window.RT.getValue(cpId));
+      色箱.click();
+      var 板 = cp.querySelector('.rt-color-menu');
+      if (!板 || !板.classList.contains('open')) 报.push('色板没打开');
+      var 点 = cp.querySelectorAll('.rt-color-dot');
+      if (点.length !== 12) 报.push('色点数 ' + 点.length);
+      var 目标 = null;
+      Array.prototype.forEach.call(点, function (d) { if (d.getAttribute('data-c') === '#b3261e') 目标 = d; });
+      if (!目标) 报.push('没找到目标色点');
+      else {
+        目标.click();
+        if (window.RT.getValue(cpId) !== '#b3261e') 报.push('点色后 ' + window.RT.getValue(cpId));
+        var tx = cp.querySelector('.rt-color-t');
+        if (!tx || tx.textContent !== '#b3261e') 报.push('点色后文字 ' + (tx && tx.textContent));
+      }
+      window.RT.setComponent(cpId, '#2e7d32');
+      if (window.RT.getValue(cpId) !== '#2e7d32') 报.push('代码设色后 ' + window.RT.getValue(cpId));
+      if (cp.querySelector('.rt-color-sw').style.background.indexOf('46, 125, 50') < 0) 报.push('色块没跟着变 ' + cp.querySelector('.rt-color-sw').style.background);
+    }
+    return { 报: 报 };
+  })()`);
+  await shot('t25c-新控件第二批运行时');
+  // 先判断言：后面回编辑器只是收尾，收尾失败不能把上面的结论吞掉
+  if (运行.报.length) throw new Error('运行时交互有问题：' + JSON.stringify(运行));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  await js(`(function(){
+    try {
+      var App = window.EditorApp;
+      App.__aiApplyComponents(${JSON.stringify(加的.map(c => ({ op:'remove', id: c.id })))});
+      return App.__aiComps().length;
+    } catch (e) { return 'skip: ' + e.message; }
+  })()`);
+  return { 控件: '3 种', 布局页: '结构齐全 ✓', 运行时: '连选/改日期/挑颜色 + 代码读写 ✓' };
+});
+
+// 阶段 3 第二批动作块：位置 / 大小 / 选项（运行时生效：RT.setPos / setSize / setOptions）
+await check('动作块②：设置位置/大小/选项 运行时生效并写回数据', async () => {
+  const 工程 = {
+    appName: '动作块测试', startScreen: 's1', design: { w: 390, h: 844 },
+    screens: [{
+      id: 's1', title: '页面1', orientation: 'portrait', showStatusBar: true, code: '',
+      components: [
+        { id: 'btnP', type: 'button', text: '按钮', x: 30, y: 40, w: 120, h: 48 },
+        { id: 'selP', type: 'select', x: 30, y: 130, w: 200, h: 48, items: ['一号', '二号'], value: '一号' }
+      ]
+    }]
+  };
+  await js(`localStorage.setItem('__previewProject', ${JSON.stringify(JSON.stringify(工程))})`);
+  let ok = false;
+  for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+    await js(`location.href='runtime.html?v=' + Date.now()`);
+    ok = await waitFor(`!!document.querySelector('#screen [data-id="btnP"]')`, 15000);
+    if (!ok) await sleep(700);
+  }
+  if (!ok) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没有渲染出按钮（已切回编辑器）');
+  }
+  const 结果 = await js(`(function(){
+    var 报 = [];
+    var b = document.querySelector('[data-id="btnP"]');
+    window.RT.setPos('btnP', 66, 208);
+    if (!b) 报.push('按钮没找到');
+    else {
+      if (b.style.left !== '66px' || b.style.top !== '208px') 报.push('位置 ' + b.style.left + '/' + b.style.top);
+      if (b.style.position !== 'absolute') 报.push('没有转为自由定位');
+      if (!b.__c || b.__c.x !== 66 || b.__c.y !== 208 || b.__c.cx) 报.push('位置没写回数据');
+    }
+    window.RT.setSize('btnP', 180, 64);
+    if (b) {
+      if (b.style.width !== '180px' || b.style.height !== '64px') 报.push('大小 ' + b.style.width + '/' + b.style.height);
+      if (!b.__c || b.__c.w !== 180 || b.__c.h !== 64) 报.push('大小没写回数据');
+    }
+    window.RT.setOptions('selP', '苹果,香蕉,橙子');
+    var s = document.querySelector('[data-id="selP"]');
+    if (!s) 报.push('下拉没找到');
+    else {
+      if (window.RT.getValue('selP') !== '苹果') 报.push('换选项后选中值 ' + JSON.stringify(window.RT.getValue('selP')));
+      var 箱 = s.querySelector('.rt-select');
+      if (!箱) 报.push('下拉结构没了');
+      else {
+        箱.click();
+        var 项 = s.querySelectorAll('.rt-select-item');
+        if (项.length !== 3) 报.push('选项数 ' + 项.length);
+        if (项[1]) 项[1].click();
+        if (window.RT.getValue('selP') !== '香蕉') 报.push('点第二项后 ' + JSON.stringify(window.RT.getValue('selP')));
+      }
+    }
+    return { 报: 报 };
+  })()`);
+  await shot('t25d-动作块第二批');
+  if (结果.报.length) throw new Error('动作块运行时有问题：' + JSON.stringify(结果));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(400);
+  return { 位置: '66,208 ✓', 大小: '180×64 ✓', 选项: '换成 3 项 / 点选生效 ✓' };
+});
+
 // 用户反馈（附截图）：下拉选择框点开后弹的是系统原生列表（白底 + 圆圈单选），样式完全改不了。
 // 改成自绘列表后：展开的选项列表也要有样式（默认 M3）、能记住选中项、点空白能关掉。
 await check('下拉选择框改为自绘列表（不再是系统弹窗，选项列表也有样式）', async () => {
@@ -3942,7 +4436,7 @@ await check('AI 助手已改名 𝑭𝒍𝒖𝒙（悬浮球 / 面板标题 / �
   return { 球: r.球, 标题: r.标题, 设置: r.设置.slice(0, 30) };
 });
 // 用户要求：添加组件按「控件类型 ⬇️」分组收纳
-await check('添加组件已按类型分组收纳（点标题展开/收起，23 个控件 + 容器都在）', async () => {
+await check('添加组件已按类型分组收纳（点标题展开/收起，全部控件都在）', async () => {
   const r = await js(`(function(){
     var 组 = Array.prototype.slice.call(document.querySelectorAll('.addgroups .addgroup'));
     var 名 = 组.map(function (g) { return g.querySelector('.addgroup-t').textContent; });
@@ -3956,10 +4450,12 @@ await check('添加组件已按类型分组收纳（点标题展开/收起，23 
     // 再点一次：收起
     第二组标题.click();
     var 再点后展开数 = 组.filter(function (g) { return g.classList.contains('open'); }).length;
-    return { 组数: 组.length, 组名: 名, 按钮数: 全部按钮, 默认展开: 默认展开, 点后展开: 点后展开, 再点后: 再点后展开数 };
+    var 类型数 = Object.keys(window.EditorApp.__aiTypeMeta()).length;
+    return { 组数: 组.length, 组名: 名, 按钮数: 全部按钮, 类型数: 类型数, 默认展开: 默认展开, 点后展开: 点后展开, 再点后: 再点后展开数 };
   })()`);
   if (r.组数 < 3) throw new Error('分组太少：' + JSON.stringify(r));
-  if (r.按钮数 !== 26) throw new Error('按钮数不对（应有 26 个，含容器/表格/图表）：' + JSON.stringify(r));
+  // 按注册表实际控件数比对（加控件时不用再改这条用例）
+  if (r.按钮数 !== r.类型数) throw new Error('按钮数不对（应有 ' + r.类型数 + ' 个，含容器/表格/图表/新控件）：' + JSON.stringify(r));
   if (r.默认展开.length !== 1) throw new Error('默认不是只展开一组：' + JSON.stringify(r));
   if (r.点后展开.length !== 1 || r.点后展开[0] === r.默认展开[0]) throw new Error('点标题没有切换展开组：' + JSON.stringify(r));
   if (r.再点后 !== 0) throw new Error('再点一次没有收起：' + JSON.stringify(r));
@@ -4015,6 +4511,57 @@ async function ensureProject() {
   await sleep(1200);
   return await waitFor(探测, 15000);
 }
+
+// 阶段 3 第二批动作块：位置 / 大小 / 选项 —— 三个通用块（「控件」分类），不按控件类型拆块。
+// 放在这里：需要工程已打开（控件下拉要读当前页面的控件），上面的运行时用例则自己造工程。
+await check('动作块②：位置/大小/选项 三块在「控件」分类、生成代码正确', async () => {
+  if (!(await ensureProject())) throw new Error('工程没打开，没法测通用动作块');
+  const r = await js(`(function(){
+    var App = window.EditorApp;
+    var ids = App.__aiComps().map(function (c) { return c.id; });
+    if (!ids.length) return { err: '工程里没有控件' };
+    var 类型 = ['act_set_pos', 'act_set_size', 'act_set_options'];
+    var xmlText = String(window.buildToolboxXml(null));
+    var ws = new Blockly.Workspace();
+    try {
+      Blockly.JavaScript.init(ws);
+      function 生成(t, ins, txtIn) {
+        var b = ws.newBlock(t);
+        b.setFieldValue(ids[0], 'COMP');
+        Object.keys(ins).forEach(function (k) {
+          var n = ws.newBlock('math_number'); n.setFieldValue(String(ins[k]), 'NUM');
+          n.outputConnection.connect(b.getInput(k).connection);
+        });
+        if (txtIn) {
+          var s = ws.newBlock('text'); s.setFieldValue(txtIn, 'TEXT');
+          s.outputConnection.connect(b.getInput('TEXT').connection);
+        }
+        var c = Blockly.JavaScript.blockToCode(b);
+        return String(Array.isArray(c) ? c[0] : c).trim();
+      }
+      return {
+        代码: {
+          位置: 生成('act_set_pos', { X: 66, Y: 208 }),
+          大小: 生成('act_set_size', { W: 180, H: 64 }),
+          选项: 生成('act_set_options', {}, '苹果,香蕉')
+        },
+        定义: 类型.filter(function (t) { return !!Blockly.Blocks[t] && typeof Blockly.JavaScript.forBlock[t] === 'function'; }),
+        工具箱: 类型.filter(function (t) { return xmlText.indexOf('"' + t + '"') >= 0; }),
+        分类栏: ((window.BB_GROUPS || {}).general || []).indexOf('控件') >= 0,
+        帮助: ((window.BB_HELP || {}).general || []).some(function (g) { return g.cat === '控件' && (g.blocks || []).length === 3; })
+      };
+    } finally { try { ws.dispose(); } catch (e) {} }
+  })()`);
+  if (r && r.err) throw new Error(r.err);
+  if (3 - r.定义.length) throw new Error('有块没有定义/生成器：' + JSON.stringify(r.定义));
+  if (r.工具箱.length !== 3) throw new Error('工具箱「控件」分类缺块：' + JSON.stringify(r.工具箱));
+  if (!r.分类栏) throw new Error('分类栏 BB_GROUPS 里没有「控件」');
+  if (!r.帮助) throw new Error('帮助页没有「控件」分类（应 3 条）');
+  if (!/^RT\.setPos\(/.test(r.代码.位置) || !/, 66, 208\)/.test(r.代码.位置)) throw new Error('位置代码不对：' + r.代码.位置);
+  if (!/^RT\.setSize\(/.test(r.代码.大小) || !/, 180, 64\)/.test(r.代码.大小)) throw new Error('大小代码不对：' + r.代码.大小);
+  if (!/^RT\.setOptions\(/.test(r.代码.选项) || r.代码.选项.indexOf('苹果,香蕉') < 0) throw new Error('选项代码不对：' + r.代码.选项);
+  return { 位置: r.代码.位置.replace(/\\n$/, ''), 大小: r.代码.大小.replace(/\\n$/, ''), 选项: r.代码.选项.replace(/\\n$/, '') };
+});
 
 // 用户反馈：积木列表（代码页分类栏）长按不能换位 —— 现在可以长按拖着换位置，顺序还会记住
 await check('积木列表长按可以换位（拖动顺畅 / 顺序记住 / 不误展开分类）', async () => {

@@ -454,6 +454,375 @@
      旧版 localStorage 里的作品在新包里读不到（Android 按包名隔离数据），老用户只能先导出作品再重装。
   2. OPPO 后台要按新包名 `com.fast.app` 建档，软著名称仍须与 `android:label`（当前还是 `𝑭𝑨𝑺𝑻`）一致 ——
      P0-2 改名还没做。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.120.apk`（1822041 字节，
+  sha256 `2BCCF920F54AEB47C76E661AF2F9303CEBFF63A1600B3E770BEDF1150E66FA85`）。
+  - 「更新」表第 12 行 `1.0.116.120（26.10.28.11:17）`（row `ckNCiQzQQrSy_fMfkiWkAQ`）+ `程序` 附件；
+  - 「工程」表第 12 行 `1.0.116.120`（row `NHh8FSdeQOOwzT3AafXhww`）：`文件` = `FAST-full-1.0.116.120.zip`
+    （21,276,184B，1028 条目），`备份` = 120 APK；
+  - App 实际走的 `/api/download?path=files/2026-10/FAST_v1.0.116.120.apk&u=<更新库uuid>` 实测 200，
+    下载哈希与本地一致。
+- 公开库 `dashen9178/fast` 提交 `076be3ea`（含删除旧路径 `src/com/doubao/` 与 `pc-sim/com/doubao/`）。
+- **遗留（只影响网页 `/dl/` 短链，不影响 App 内更新）**：`/dl/FAST_v1.0.116.120.apk` 仍返回 117 的包
+  （1817945B / `047856F1…`）。`s deploy` 这次又卡死（node 进程 CPU 满载 5 分钟、零输出，与 119 那轮同一症状），
+  已 kill；`pc-sim/fc-deploy-sdk.mjs` 需要明文 AK/SK，而 `~/.s/access.yaml` 里存的是 64 字符密文，
+  取不出明文，所以 SDK 通道也不通。**下次要么在 FC 控制台手动上传 `code/`（index.py + fast.apk），
+  要么先修好 `s`。**
+- **2026-10-28 用户决定：目前没有任何外部用户，公网 `/dl/` 短链与公开库同步都不用再弄**，
+  日后不要再为这条花时间；App 内更新走 SeaTable 附件（`/api/download`）即可。
+
+## 6.11 2026-10-28 阶段 0：控件注册表收敛（APK 1.0.116.121，回归 156/156）
+
+**为什么做**：同一个控件的信息原本散在 5 个地方（`TYPE_META` / `COMPONENT_DEFAULTS` / `naturalSize` /
+`defaultSize` / runtime `defaultBox`），已经跑偏过两次 —— audio 编辑器 44、运行时 40；
+container/table/chart 在运行时缺项，兜底成 220×40。以后每加一个控件都要改 5 处，必然再错。
+
+**做了什么**（对应 `新增代码块与控件规划.md` 阶段 0）：
+- 新增 [comp-spec.js](file:///d:/DSH工作/Fast/fast_project_v2/assets/www/comp-spec.js)：26 个控件的
+  `label/ico/desc`、`size`（兜底尺寸）、`nat`（新增时的紧凑尺寸，`mode:'text'` 时按文字实测宽）、`def`（默认属性）。
+  导出 `window.FAST_COMPONENTS` 与 `window.FAST_COMP = {sizeOf, defaultsOf, naturalOf, types}`。
+- `editor.js`：`TYPE_META` 改为派生；`COMPONENT_DEFAULTS` 改为从 `def` 压平（保留 `input2: {}` 兼容旧数据）；
+  `naturalSize` 改为读 `nat`（switch/checkbox/button/text 的字号·内边距·最小宽都在表里）；
+  `defaultSize` → `FAST_COMP.sizeOf(c.type)`。
+- `runtime.js`：`defaultBox` → `FAST_COMP.sizeOf(c.type)`。**从此设计页与运行时不可能再对不上。**
+- `editor.html`、`runtime.html`：`comp-spec.js` 必须先于 `blocks.js` / `runtime.js` 加载。
+- `build.ps1` 第 77 行：导出壳复制清单加上 `comp-spec.js`（**这条最容易漏**，漏了导出作品运行时白屏）。
+- `blankProject()` 写入 `fmt: 2`（工程数据格式版本；本次不做旧数据迁移，用户已确认没有外部用户）。
+- 新增单测 [unit-comp-spec.mjs](file:///d:/DSH工作/Fast/fast_project_v2/pc-sim/unit-comp-spec.mjs)（19 项）：
+  校验字段齐全/尺寸正整数/兜底行为、编辑器与运行时确实接了注册表、两个页面加载顺序、build.ps1 清单、
+  以及「每个 type 都要在 editor.js 与 runtime.js 里出现」—— 这条是给后面加控件用的，漏写渲染分支会立刻红。
+
+**验证**：
+- `node --check` 三个 js 通过；`node pc-sim/unit-comp-spec.mjs` **19/19**；
+- 全量回归 `pc-sim\run-ui-test.ps1` **156/156**，JS 报错 0；
+- `pc-sim\run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）；
+- 打包：`aapt2 dump badging` → `package: name='com.fast.app' versionCode='237' versionName='1.0.116.121'`；
+  `stage\shell.apk` 的 `assets/www/` 里确认有 `comp-spec.js`。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.121.apk`（1826206 字节，
+  sha256 `CAD4D225DEE2AA6F7F9C82DB213534D1EF51796853F6218B01AC4CA48AB11E19`）。
+  按用户要求**不发 SeaTable、不传公开库、不碰 `/dl/`**。
+
+**下一步**：阶段 1 —— 块第一批 7 个（文字/运算/列表/JSON），每块一条用例。
+
+## 6.12 2026-10-28 试运行体验修正（APK 1.0.116.122，回归 156/156）
+
+用户反馈两件事，都在这一轮修掉：
+
+1. **点运行先说明怎么结束 + 关掉侧滑返回**
+   - `editor.js` 的 `onRun()` 改为先走 `运行前提示(mode)`：弹 M3 对话框「点击运行后，若要结束请下滑停止栏，
+     点击终止即可。」，下面带 **不再提示** 勾选（`localStorage.__bb_runTipNever_v1 = '1'`，勾过以后不再弹）。
+     只有在**真机有通知卡片**（`Native.startRunNotice`）时才弹；电脑/浏览器里没有通知栏，弹了是干扰，
+     而且 UI 回归会因此多一步点击。
+   - `runtime.js` 的 `window.__rtSystemBack()`：预览时若通知卡片可用，**直接吃掉返回**（返回 true），
+     所以侧滑返回 / 返回键都不再关掉运行；结束只剩通知栏卡片的「终止运行」（`__nativeStopRun`）。
+     电脑预览没有卡片，保留返回，避免退不出去。
+2. **横屏运行不显示 / 要等好几秒**
+   - 根因：方向口径在两处不一致。`loadProject` 请求的是 `startSc.orientation || 'portrait'`，
+     而方向门 `aiOrientGate` 比较的是 `project.orientation`。起始页方向是横屏、项目方向是竖屏时：
+     运行时会先把屏幕转回竖屏 → 门一直等不到 → 直到 2 秒兜底才画（期间 `#screen` 是空的）。
+   - 修法：`loadProject` 先算 `startOrient = 起始页方向 || 项目方向 || portrait`，**请求方向与方向门都用它**；
+     门改成 `aiOrientGate(want, fn)`，兜底从 2000ms 收到 1200ms（`setTimeout` 也同步改 1200）；
+     没有 `Native.setOrientation`（电脑/浏览器）时**不进门**、直接画 —— 那种环境屏幕根本不会转，干等没意义。
+   - 顺手把 `runtime.js` 顶部注释里"2 秒后兜底"一起改成 1.2 秒。
+
+**验证**：`node --check` 两个 js 通过；`unit-comp-spec.mjs` 19/19；全量回归 **156/156**，JS 报错 0；
+`aapt2 dump badging` → `package: name='com.fast.app' versionCode='238' versionName='1.0.116.122'`。
+**本轮机器上没有连接安卓设备**（`adb devices` 为空），侧滑/通知栏/横屏这三项需要在真机上复验：
+点运行看提示框 → 勾不再提示 → 再点运行不再弹 → 运行中左/右边缘侧滑不复位 → 下滑通知栏点终止能回编辑器；
+另建一个横屏作品，点运行应当立刻是横屏画面（不再空白等待）。
+
+交付：`D:\DSH工作\fastapk\FAST_v1.0.116.122.apk`（1830302 字节）。
+
+## 6.13 2026-10-28 阶段 1 修正：只补真正缺的 3 个数据代码（APK 1.0.116.124，回归 158/158）
+
+规划文档里的块第一批最初做成了 16 个“一句话 + 空槽”的取值代码，当天被用户指出：
+**其中 12 个跟 Blockly 自带分类重复**（转大小写/去空格/取子串/查找/替换、四舍五入/取整/绝对值、
+排序/求和/随机取、随机整数本来就有），属于把已有功能换个说法又摆一遍，只会让工具箱变长、更难找。
+按“方案 1”删掉那 12 个，只留 3 个真缺的：
+
+| 分类 | 保留的代码（type） | 说明 |
+| --- | --- | --- |
+| 数据列表 | 列表去重 `val_list_unique` | 自带分类没有；保留第一次出现的顺序 |
+| 数据列表 | 解析 JSON `val_json_parse` | JSON 文字 → 能取字段的数据；坏格式返回 null，不抛错 |
+| 数据列表 | 生成 JSON `val_json_stringify` | 数据 → JSON 文字 |
+
+- 三个块都走 `C_VAL` 青色，排在「数据列表」分类最前面；帮助页对应 3 条带 `t` 的真积木条目。
+- `runtime.js` 只留 `listUnique / jsonParse / jsonStringify` 三个 RT 方法，外加 `rtText / rtList` 两个兜底工具。
+- 删干净了：`val_str_*`、`val_num_*`、`val_list_sort/sum/random` 及其 RT 方法、工具箱项、帮助条目
+  （全局 grep 只剩文档里的历史引用）。
+- **教训（同时写进规划文档 2.4）**：加块前先翻一遍自带工具箱，按“能力”列清单，别按“分类名”列。
+
+**验证**：
+- `node --check` 通过；`node pc-sim/unit-comp-spec.mjs` **19/19**；
+- 全量回归 `pc-sim\run-ui-test.ps1` **158/158**（新增 2 条：列表去重、JSON 解析/生成），JS 报错 0；
+  工具箱代码块 **308 种**。
+- `pc-sim\run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）。
+- 打包：`aapt2 dump badging` → `package: name='com.fast.app' versionCode='240' versionName='1.0.116.124'`。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.124.apk`（1834398 字节）。
+- **已发布到「更新」库**（用户纠正：只不许碰 `/dl/`，SeaTable 更新库照常发）：
+  「更新」表第 13 行 `1.0.116.124（26.10.28.15:13）`，`程序` 附件 = `FAST_v1.0.116.124.apk`（1834398 字节），
+  row_id `SU_G0imiSLmNDyqOZL_yzA`，附件地址
+  `/workspace/600134/asset/5ded0202-…/files/2026-10/FAST_v1.0.116.124.apk`；
+  App 实际走的 `/api/download?path=files/2026-10/FAST_v1.0.116.124.apk&u=<更新库uuid>` 实测 **200**、字节一致。
+- **发布链路两个坑（都记进 6.8 那条教训旁边）**：
+  1. `POST /api` 的中转只从 **JSON 体**取 `p`（`_relay_api`），把 `p` 放在 URL 上会 403 `path not allowed`；
+     写行必须照 App 的 `打包中转请求()` 发 `{p,m,q,b}`。
+  2. 中转环境变量里的「更新」库令牌是**只读**的，写行回
+     `You don't have permission to perform this operation on this base.` —— 写行改用可读写令牌
+     `5ada09e1…` 直接打 SeaTable 网关；读/附件仍走中转。
+  3. 文件列必须传**对象数组** `[{name,size,type,url}]`，只传 `[url]` 字符串会被静默忽略（行插进去但附件为空）。
+  4. 每次跑生成的时间戳不同 → 满表找“同版本行”会漏；本次首跑插了一行空附件（`ME6JSCO1…`），已删除，表内只剩 1 行 124。
+- 遗留：`files/2026-10/` 里有一份上传失败重试产生的 `FAST_v1.0.116.124 (1).apk` 孤儿文件（没被任何行引用），不影响更新。
+
+**下一步**：阶段 2 —— 控件第一批 4 个（标签页、折叠面板、评分、进度环）。
+开工前先按 3.1 的 12 个触点核对，并**先确认这些控件是不是本来就有**（别重犯这次的错）。
+真机复验项仍挂着 6.12 那三条（运行提示框/不再提示、侧滑不复位、横屏立即出画面）。
+
+## 6.14 2026-10-28 阶段 2：控件第一批 4 个（APK 1.0.116.125，回归 159/159）
+
+按规划文档第 5 节做第一批：**标签页 `tabs` / 折叠面板 `collapse` / 评分 `rating` / 进度环 `ring`**。
+开工前先核对过：这四个**本来没有**（`FAST_COMPONENTS` 26 种里确实没有），不是重复造轮子。
+
+- 注册表 `comp-spec.js` 26 → **30 种**；`editor.html`「展示」组补 4 个添加按钮；设计页卡片说明走 `compDesc`。
+- 运行时 `runtime.js`：4 个 `renderComp` 分支 + `.rt-*` 样式；点页签/星星/折叠头都改 `wrap.__val` 并触发 change 事件；
+  新增 `RT.setTabs / setRating / setCollapse`，`setProgress` 兼容圆环（改 `stroke-dashoffset` 与中间文字）；
+  `setComponent` 按 `r.className` 分流（`tabs / collapse / rating / ring`，都排在 `input` 分支之前）。
+- 布局页 `layVisual`：4 个 `lv-*` 分支。**坑**：布局页只搬 `layVisual` 返回根节点的子元素，
+  所以容器型控件（tabs/collapse/rating）的样式要另写 `.litem.t-xxx`；环的尺寸写死像素。
+- 代码块 `blocks.js`：4 个专属分类（显/隐/透明度/旋转/启用/禁用；不放 change 变体，`change` 不在事件帽白名单），
+  头尾块用通用真事件帽 `ev_change`；`act_set_progress` / `val_get_progress` 的过滤放宽到 `progress|ring`。
+- **本轮唯一真 bug**：AI 建的控件属性会过 `aiCleanProp()`，`value` 不在数值白名单里 → 被 `String(v)` 成字符串；
+  布局页 `validN('30')` 判 false → 环显示 0%、评分初始 0 星，与运行时不一致。
+  修法：`ring` / `rating` 在**渲染侧**统一 `Number()` 归一化（`runtime.js` + `editor.js` 各一处）。
+
+**验证**：
+- `node pc-sim/unit-comp-spec.mjs` 19/19（含"控件类型数量为 30"）。
+- 全量回归 `pc-sim\run-ui-test.ps1` **159/159**、失败 0、JS 报错 0；新增用例
+  「新控件①：标签页/折叠面板/评分/进度环 三处渲染一致，运行时能交互」。
+- `pc-sim\run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）。
+- 打包：`package: name='com.fast.app' versionCode='241' versionName='1.0.116.125'`，入口 `com.fast.app.MainActivity`。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.125.apk`（1,842,590 字节，
+  sha256 `6A50CF0879B23ED32BA47C2D3A7F258814794B489042A6BDB4415D7F5C1DF6DA`）。
+- **已发布到「更新」库**：「更新」表第 14 行 `1.0.116.125（26.10.28.16:17）`，
+  row_id `BU354uy8S1u4MdPRx9-rZw`，`程序` 附件 = `FAST_v1.0.116.125.apk`；
+  `/api/download?path=files/2026-10/FAST_v1.0.116.125.apk&u=<更新库uuid>` 实测 **200**，
+  1,842,590 字节、sha256 与本地**完全一致**。
+- **「工程」表同步**：新增 `1.0.116.125`（row `fi0lDRvyTaGNAp--jrgfiw`），
+  `文件` = `FAST-full-1.0.116.125.zip`（21,301,881B，1031 条目，排除 `node_modules` / `.wrangler` / `stage` / `out` / `keys`），
+  `备份` = 125 APK；两条下载链路均实测 200、字节一致。
+- 发布链路的坑再补两条：
+  1. 附件下载接口**必须带 `X-App-Token`**，不带会回 401 `{"error":"未授权：X-App-Token 不正确"}`（46 字节），
+     别误判成"文件没传上去"。
+  2. 同一 `parent_dir` + `relative_path` 再传同名文件时，SeaTable 会自动改名成 `xxx (1).apk`
+     （行里引用的是原文件，仍有效）；`files/2026-10/` 因此多一份 125 的 `(1)` 孤儿副本，不影响更新。
+- 版本号已自增到 `242 / 1.0.116.125`（下次打包出 1.0.116.126）。
+
+**下一步**：阶段 2 余下控件（规划文档 3.2 候选里挑），或先做真机复验 ——
+6.12 那三条（运行提示框/不再提示、侧滑不复位、横屏立即出画面）+ 本轮 4 个控件在真机上的点击手感。
+
+## 6.15 2026-10-28 阶段 3 第一批：控件第二批 3 个（APK 1.0.116.126，回归 160/160）
+
+按规划文档阶段 3 做交互控件第一批：**多选下拉 `multiSelect` / 日期范围 `dateRange` / 颜色选择器 `colorPicker`**。
+开工前核对过：这三个**本来没有**，不是重复造轮子（和 6.14 一样先查再动手）。
+
+- 注册表 `comp-spec.js` 30 → **33 种**；单测断言同步改成 33；`editor.html`「输入与选择」组补 3 个添加按钮。
+- 运行时 `runtime.js`：
+  - `multiSelect`：自绘下拉（`.rt-select.rt-multi` + `.rt-multi-menu/.rt-multi-item/.rt-multi-box`），
+    `wrap.__val` 存**字符串数组**；`多变数组()` 兼容 AI 传过来的数组或 `,，、\n` 分隔串。点选项切换勾选并触发 change。
+  - `dateRange`：两个 `input.rt-date` + `.rt-dr-sep`，各自记 `__start` / `__end`，`拼范围()` 回写 `__val="开始~结束"`。
+  - `colorPicker`：`.rt-color` + `.rt-color-sw`（色块）+ `.rt-color-t`（色值文字）+ 12 色 `.rt-color-dot` 调色板；
+    点色块开合、点色点选色，都改 `__val` 并触发 change。
+  - 新增 `RT.setMultiSelect / setDateRange / setColorPicker`；`setComponent` 最前面插 3 个分支
+    （**必须排在 `select` / `date` 之前**，否则 `dateRange` 会被 `date` 分支截走）。
+- 布局页 `editor.js`：`layVisual` 3 个分支 + `editor.css` 的 `lv-*`；
+  **容器型控件**（多选/颜色）另写 `.litem.t-multiSelect / .t-colorPicker / .t-dateRange`。
+  属性面板补 3 段（多选 items + 默认选中多行；日期起止两列；颜色 `colorInput`）；
+  `AI_COMP_PROPS` 加 `'start','end'`，`AI_PROP_LABEL` 加中文名。
+- 代码块 `blocks.js`：3 个专属分类 + 示例（`ev_change` 头 + `val_comp_value` / `act_comp_set`）。
+  `change` 形状不在事件帽白名单，别为它单独做帽子。
+
+**验证**：
+- 4 个 JS 文件 `node --check` 全过；`node pc-sim/unit-comp-spec.mjs` **19/19**（含"控件类型数量为 33"）。
+- 全量回归 `pc-sim\run-ui-test.ps1` **160/160**、失败 0、JS 报错 0；新增用例
+  「新控件②：多选下拉/日期范围/颜色选择器 三处渲染一致，运行时能交互」。
+- `pc-sim\run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）。
+- 打包：`versionCode='242' versionName='1.0.116.126'`；
+  产物 `D:\DSH工作\fastapk\FAST_v1.0.116.126.apk`（**1,850,782 字节**，
+  sha256 `9162810A568B635A036B8A5240591CFAB6CFE1B78E296EF9FA88A991564CA407`，v2/v3 签名 OK）。
+- **「更新」表**：第 15 行 `1.0.116.126（26.10.28.17:36）`，row_id `XQ2a8hzwT9y_NC0OvWREMQ`，
+  `程序` 附件 = `FAST_v1.0.116.126.apk`；`/api/download` **带 `X-App-Token`** 实测 **200**、1,850,782 字节、哈希与本地一致。
+- **「工程」表**：新增 `1.0.116.126`（row_id `WbcojN4iQg69_cglucLI9g`），
+  `文件` = `FAST-full-1.0.116.126.zip`（**21,309,237B / 1031 条目**），`备份` = 126 APK
+  （SeaTable 自动改名成 `FAST_v1.0.116.126 (1).apk`，行内引用仍有效）。
+  两个附件都已实测 200：zip 21,309,237B（sha256 `DFBDE817…BD184C`）、APK 1,850,782B（`9162810A…4CA407`）。
+- 版本号已自增到 `243 / 1.0.116.126`（下次打包出 1.0.116.127）。
+
+**三条教训（下次别再踩）**：
+1. **布局页断言只能看子元素，不能断言视觉根 class**：布局页只搬 `layVisual` 返回根节点的**子元素**，
+   `lv-multi` / `lv-color` 这个根节点的 class 到了舞台上是丢的（和标签页 6.14 同一套做法）。
+   断言要写 `.lv-label` / `.lv-caret` / `.lv-color-sw` 这类**子元素**。
+2. **模板字符串（含注释）里绝不能出现反引号**：`cdp-test.mjs` 里我把 `.lv-multi` 写成带反引号的形式塞进注释，
+   反引号提前终止了 Node 的模板字面量 → 浏览器表达式被截断成残缺 JS → 报 `multi is not defined`，
+   连查两轮才定位。写测试表达式时**只用单/双引号**。
+3. 日期范围断言要"改一个、dispatch、再改另一个"：两个 input 一起赋值再 dispatch，
+   第一次 change 的 `拼范围()` 会把第二个框回写成旧值（`2025-03-01~2025-01-31` 就是这么来的）。
+
+**下一步**：阶段 3 剩余 —— 动作块第二批；真机复验项仍挂 6.12 那三条 + 新控件点击手感（当前无真机，不主动 adb）。
+
+## 6.16 2026-10-28 阶段 3 第二批：动作块 3 个 + 两处 UI 修正（APK 1.0.116.127，回归 162/162）
+
+**做了什么**
+- **文案修正**（用户报写错）：点击运行后的提示框由「下滑停止栏」改成「下滑通知栏」
+  （`assets/www/editor.js` 的运行提示 + 上方注释同步）。
+- **代码栏灰底板**（用户报的"点了弹一个灰块然后消失"）：`.blocklyFlyoutBackground` 改成
+  `fill: var(--surface); fill-opacity: 1` —— 底板留着（不能删，删了画布代码会从浮层下透上来重叠），
+  但颜色和画布一致，所以看不见了。
+- **动作块第二批**：新增 3 个**通用块**，放进新通用分类「控件」（紫色 `#8E24AA`，图标 `⊞`）：
+  - `act_set_pos` → `RT.setPos(id, x, y)`（X/Y 数值；自动排列的控件执行后转自由定位，`cx` 锁解除）
+  - `act_set_size` → `RT.setSize(id, w, h)`
+  - `act_set_options` → `RT.setOptions(id, 文本)`（逗号/顿号/换行分隔；下拉/单选/多选/标签页）
+  - 运行时 API 早在 `runtime.js` 里就绪；这次补上 `renderComp` 的 `wrap.__c = c`（改数据能写回）
+    + `RT.setOptions` 会就地重绘并校正选中值（select/radio 落第一项，tabs 越界归 0）。
+  - 同步：工具箱示例（带 shadow 数值/文本）、`BB_GROUPS.general`、`BB_CAT_ICON`、`BB_HELP.general`
+    新增「控件」组（3 条，带 `t` 可跳到真积木）、`块名表`（帮助配图的兜底名字）。
+- **上下文预算重调**（见教训 1）：`aiCompressHistory` 由「最近 6 条 × 700 字」收到「最近 4 条 × 500 字」，
+  `aiBuildMessages` 同步传 4。压缩用例从 82% 回到 **78%**（上限 80%）。
+
+**验证**
+- `node --check` editor/blocks/runtime/cdp-test 全过；`unit-comp-spec.mjs` **19/19**（33 类型）。
+- 全量回归 **162/162**、失败 0、JS 报错 0；新增 2 条用例：
+  - 「动作块②：位置/大小/选项 三块在「控件」分类、生成代码正确」——
+    断言块定义/生成器都在、工具箱有 3 个块、分类栏/帮助有「控件」组，
+    并用**无头 Workspace** 生成 `RT.setPos("select1", 66, 208);` / `RT.setSize(..., 180, 64);` /
+    `RT.setOptions(..., '苹果,香蕉');`（不污染主画布）。
+  - 「动作块②：设置位置/大小/选项 运行时生效并写回数据」——
+    自造工程进 runtime，断言 DOM `left/top/width/height`、`__c` 写回、选项换 3 项后点选生效。
+- `pc-sim\run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）。
+- `node pc-sim\audit.mjs`：无新增问题（同名函数/凭据那几条是老的，未动）。
+- 打包：`versionCode='243' versionName='1.0.116.127'`；
+  产物 `D:\DSH工作\fastapk\FAST_v1.0.116.127.apk`（**1,854,878 字节**，
+  sha256 `55D720D4EA0C58D9E5FE9DD829516AA77E8A7D1AAAE55945786E37AE18FA3B88`，v2/v3 签名 OK）。
+- **「更新」表**：第 16 行 `1.0.116.127（26.10.28.21:22）`，row_id `f7LXlnD9QX6zL5ZHnDcl4w`；
+  `/api/download` **带 `X-App-Token`** 实测 **200**、1,854,878 字节、哈希与本地一致。
+- **「工程」表**：新增 `1.0.116.127`（row_id `Goe7Tt6zS5alT-TQcvrPJg`），
+  `文件` = `FAST-full-1.0.116.127.zip`（**21,314,763B / 1031 条目**），`备份` = 127 APK
+  （SeaTable 自动改名成 `FAST_v1.0.116.127 (1).apk`，行内引用仍有效）。
+- 版本号已自增到 `244 / 1.0.116.127`（下次打包出 1.0.116.128）。
+
+**三条教训（下次别再踩）**
+1. **加代码块前先估 AI 代码清单体积**：这次最初按控件类型拆 `v_<控件>_pos/size`（+66 块）并给 4 类加
+   `options`，工具箱代码块从 350 涨到 **420**，`aiCatalog()` 从约 21.6k 涨到 35.7k 字节，
+   「上下文压缩」用例直接 121% 爆掉。改成 3 个**通用块**后只 +3（353 种 / 21,639 字节）。
+   结论：**能力优先做成通用块，别按控件类型复制**；顺带把压缩预算收到 4 条 × 500 字留出余量。
+2. **测试里造块要先确保工程已打开**：控件下拉 `compField()` 在 block 初始化时就会调
+   `__compOptions()` → 读 `state.project.screens`；工程没开时直接 `Cannot read properties of null`。
+   这个用例所以放在 `ensureProject()` 之后；运行时用例则自造 `__previewProject`，互不依赖。
+3. **工具箱里带 shadow 的示例块才会进 AI 代码清单**：`aiCatalog()` 是序列化工具箱 XML 去重的结果，
+   想让 AI 会用新块，示例必须写进 `buildToolboxXml`（否则 AI 只能瞎猜块名）。
+
+**下一步**：阶段 3 剩余（规划文档里动作块后续项）+ 真机复验（6.12 那三条、新控件点击手感、动作块拖拽手感）；
+当前无真机，不主动 adb。
+
+
+## 6.17 2026-10-28 分类行按下灰底（6.16 那次改错了）+ APK 1.0.116.128
+
+**先说 6.16 的错**：用户说的「灰块」**不是浮层底板**（`.blocklyFlyoutBackground`），改了之后用户回
+「怎么还在／你是不是理解错了」。真正的灰块是**分类行自己的按下态**。
+
+**定位（有实测，不是猜）**：在分类条里先选中「设备」，再按「控件」——
+`pointerdown` 那一瞬间，控件那一行的 `background-color` = `rgb(234,233,237)`（`#EAE9EE` = `--c-high`），
+`pointerup` 后清掉，再接着紫色滑块（`rgb(231,221,248)`，`--secondary-c`）从 y=286 滑到 y=245。
+也就是用户看到的：**灰块出现 → 灰块消失 → 紫块才滑动**。
+（取证脚本：临时 `%TEMP%\fast-probe-gray.mjs` + `.ps1`，无头 Edge 真下发 pointerdown/up。）
+
+**改了什么**（`assets/www/editor.css`）
+- `.bb-cat.按住` 由 `background: var(--c-high)` 改成 `transparent`；`.acct-item.按住` 保持原样
+  （账号页没报这个问题，不动）。选中表达只由滑块承担。
+- 改完复验：按下「控件」时该行底色 = `rgba(0,0,0,0)`，滑块仍从「设备」正常滑上去（+30ms y=267 → +130ms y=245）。
+
+**验证**
+- 全量回归 **162/162**、失败 0、JS 报错 0（`run-ui-test.ps1`）。
+- `run-export-test.ps1` 全绿；`audit.mjs` 无新增问题（同名函数/硬编码口令是老的）。
+- 打包：`versionCode='244' versionName='1.0.116.128'`；
+  `D:\DSH工作\fastapk\FAST_v1.0.116.128.apk`（**1,854,878 字节**，
+  sha256 `3082DF6A701FFF4BCC40FBD346154CB2A9A271818FB81D995CBE1E27D89F83B9`，v2/v3 签名 OK）。
+- **「更新」表**：`1.0.116.128（26.10.28.21:50）`，row_id `Js8ixFE7Ta-WGQG_tRijOA`；
+  `/api/download` 带 `X-App-Token` 实测 **200**、1,854,878 字节、哈希一致。
+- **「工程」表**：新增 `1.0.116.128`（row_id `BwericwFSVK1w4GzwhkHdw`），
+  `文件` = `FAST-full-1.0.116.128.zip`（**21,316,836B / 1031 条目**），`备份` = 128 APK
+  （自动改名 `FAST_v1.0.116.128 (1).apk`）。
+- 版本号已自增到 `245 / 1.0.116.128`。
+
+**教训**
+1. **用户说"灰块/底板"时，先量再说**：分类行这类"按下反馈"和浮层底板长得完全不一样，
+   靠猜会改错地方（这次白改了一版 CSS 还多发了一个 APK）。
+   量法固定：`pointerdown` 后立刻读 `getComputedStyle(行).backgroundColor`，别靠肉眼截图。
+2. 需要真机手感的问题（按下反馈、点按灵敏度）**在 PC 无头环境只能验"颜色/几何"**，
+   "看着还闪不闪"最终还得用户看一眼——所以这类改动要尽量小、要给出明确的"改前/改后"数值。
+
+**下一步**：阶段 3 剩余（规划文档里动作块后续项）+ 真机复验（6.12 那三条、新控件点击手感、动作块拖拽手感、本次灰底）；当前无真机，不主动 adb。
+
+
+## 6.18 2026-10-28 AI 模型固定 + 布局「如何预览」+ 换页方向 bug（APK 1.0.116.129，回归 163/163）
+
+**1. AI 模型选择器删掉，固定 DeepSeek-V4.1 flash**
+- `editor.html`：AI 面板顶栏的 `#aiModelTop` 按钮删除（顶栏右侧只剩 看报错 / 🧠 / ＋ / ✕ 共 4 个）；
+  设置页原来那句「模型切换只在面板顶栏提供」的注释同步改掉。**密钥输入框保留**。
+- `editor.js`：删掉 `AI_MODELS` / `AI_DEFAULT_MODEL` / `aiSetModel` / 模型下拉整套
+  （`aiOpenModelMenu` / `aiCloseModelMenu` / 全局 pointerdown 关菜单 / `aiWireModelSelects`），
+  只留 `AI_MODEL = 'deepseek-flash'`、`AI_MODEL_LABEL = 'DeepSeek-V4.1 flash'`，`aiModel()` 恒返回它。
+  深度思考仍是**另一根独立的轴**（`thinking: enabled/disabled`），🧠 开关不受影响。
+- 导出 API 去掉 `__aiSetModel`；`__aiModel` / `__aiThink` / `__aiSetThink` / `__aiParams` 保留。
+- 回归用例改写：「模型固定为 DeepSeek-V4.1 flash（界面里没有模型选择器）」「深度思考可单独开关，模型固定不变」；
+  两处按钮数量断言同步：「AI 顶栏控件数」6 → **5**（☰ + 看报错 + 🧠 + ＋ + ✕），右侧组保持 **4**（看报错/🧠/＋/✕）。
+
+**2. 布局预览加「如何预览」下拉（自动 / 竖屏 / 横屏）**
+- 顶栏「布局」右侧加窄箭头 `#btnLayoutCaret`（`.layout-split`，箭头 26px）；
+  菜单 `#layoutOrientMenu`：标题「如何预览？」+ 三项，当前项高亮并带 ✓，存
+  `localStorage.__bb_layout_orient`（跨工程记住，默认 `auto`）。
+- 语义：**自动** = 跟当前页面自己的 `orientation`；**竖屏/横屏** = 强制，即使页面设的是另一边。
+  只影响**布局页预览**，不改页面方向、不影响运行/导出。
+- `layoutOrient()/applyLayoutOrient()`：方向没变不重复下发 `Native.setOrientation`；
+  `openLayout()` 每次把 `state.layoutOriented` 置空，进来按当前模式重定一次。
+- `fitStage()` 的舞台类名与设计尺寸改用 `layoutOrient()`；`captureDesign()` 仍用 `curOrient()`，
+  **物理方向 ≠ 页面方向时不捕获**，避免强制预览把 `project.design` 写成错方向的尺寸。
+
+**3. bug：横屏预览下切到竖屏页面，画面还是横的**
+- 根因：`switchScreen()` 只换控件/代码，**完全没管布局页的方向与舞台**，于是停在上一页的横屏。
+- 修法：`switchScreen()` 末尾若 `state.inLayout` → `applyLayoutOrient()` + `renderLayout()` + `requestAnimationFrame(fitStage)`；
+  物理旋转是异步的，后续 resize 监听还会再补一次 fit。
+
+**验证**
+- `node --check editor.js` / `cdp-test.mjs` 通过；`audit.mjs` 无新增问题。
+- 全量回归 **163/163**、失败 0、JS 报错 0；新增用例
+  「布局预览方向：自动跟随页面（换页重算），也能强制竖/横」——造「横屏页 + 新建竖屏页」，
+  断言 `#layStage` 在换页后 `portrait` 类、宽 390；再换回横屏；退出后检查下拉三项/默认勾「自动」；
+  强制竖/横各验一次，并断言**页面自身 orientation 未被改**；结束时还原页面、design、临时页。
+- `run-export-test.ps1` 全绿（`com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`）。
+- 打包：`versionCode='246' versionName='1.0.116.129'`；
+  `D:\DSH工作\fastapk\FAST_v1.0.116.129.apk`（**1,854,878 字节**，
+  sha256 `B25BF0EFC184791CA44B941150AFA11589FAA385AD109D1040BAB0CADCFC597C`，v2/v3 签名 OK）。
+- **「更新」表**：`1.0.116.129（26.10.28.22:29）`，row_id `fD035iCVQsWIn-quO9B5iw`；
+  `/api/download` 带 `X-App-Token` 实测 **200**、1,854,878 字节、哈希一致。
+- **「工程」表**：新增 `1.0.116.129`（row_id `FMu3PQ6AQrmZPHobODyLoA`），
+  `文件` = `FAST-full-1.0.116.129.zip`（**21,319,010B / 1031 条目**），`备份` = 129 APK
+  （自动改名 `FAST_v1.0.116.129 (1).apk`）。
+- **GitHub 公开库提供安装包**（用户本轮要求；与 6.17 之前"不用再弄公开库"的说法不冲突，只发安装包、不同步源码）：
+  在 `dashen9178/fast` 建 Release **v1.0.116.129**，资产 `FAST_v1.0.116.129.apk`；
+  公网下载实测 **200**、1,854,878 字节、sha256 与本地一致：
+  <https://github.com/dashen9178/fast/releases/download/v1.0.116.129/FAST_v1.0.116.129.apk>
+- 版本号已自增到 `247 / 1.0.116.129`（下次打包出 1.0.116.130）。
+
+**三条教训**
+1. **"预览方向"和"设计画布尺寸"是两件事**：舞台可以按强制方向摆，但 `project.design` 必须只按页面自身方向捕获
+   （否则强制竖屏会把横屏页面写坏，运行/导出跟着错）。所以 `fitStage` 用 `layoutOrient()`、`captureDesign` 用 `curOrient()`，
+   两个函数**不能合并**。
+2. **换页路径要逐个收口**：这个 bug 不是方向算错，而是 `switchScreen()` 根本没通知布局页。
+   凡是"全屏子页 + 全局状态"的组合（布局页、运行页），换页后都要显式重算并重排，不能指望 resize 兜底。
+3. **删功能要连测试里的"数量断言"一起改**：删模型下拉后两处「顶栏按钮数」还停在旧值，
+   第一次全绿跑出 **162 通过 / 1 失败** 就是它；这类硬编码计数在增删按钮时最容易漏。
+
+**下一步**：阶段 3 剩余（规划文档里动作块后续项）+ 真机复验（6.12 那三条、新控件点击手感、动作块拖拽手感、本次灰底、布局预览方向）。
+
 
 ## 7. 新会话怎么开口（给用户的话）
 > 读 `D:\DSH工作\Fast\fast_project_v2\NEXT.md`，然后接着干：<你要做的事>

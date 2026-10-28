@@ -522,8 +522,11 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 /* 按下态：**不用 `:active`** —— 安卓 WebView 上它经常"粘住"不清，
    用户点分类取消选中后那一条会留一层灰底（实测取色 #EAE9EE = --c-high）。
    改由 JS 加/删 `.按住`，pointerup/pointercancel 都会清（见 editor.js 顶部「清按住」）。
-   覆盖所有带选中滑块的轨道：积木栏分类 + 账号页窄列表。 */
-.bb-cat.按住, .acct-item.按住 { background: var(--c-high); }
+
+   2026-10-28 用户反馈：从「设备」点「控件」时，**控件那一格会先闪一块灰底板再消失**，
+   然后紫色滑块才滑过去 —— 说的就是这层 `--c-high` 灰底（#EAE9EE）。
+   所以积木栏分类、账号页窄列表都**不再铺任何按下底色**，选中只由滑块表达。 */
+.bb-cat.按住, .acct-item.按住 { background: transparent; }
 .bb-cat-ico {
   flex: 0 0 auto; width: 32px; height: 22px; border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
@@ -733,6 +736,13 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .mbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 22px; }
 .mbtns .tb { min-width: 84px; height: 40px; }
 
+/* 运行前的「怎么结束」提示：一行说明 + 一个"不再提示"勾选（2026-10-28） */
+.run-tip { display: flex; flex-direction: column; gap: 16px; }
+.run-tip-line { color: var(--on-surface); line-height: 1.65; }
+.run-tip-never { display: flex; align-items: center; gap: 8px; font-size: 14px;
+  color: var(--on-surface-var); cursor: pointer; user-select: none; }
+.run-tip-never input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+
 /* 单屏弹窗：纵向 flex，正文超高时仅正文滚动，底部按钮常驻可见，绝不需要下滑才点到 */
 .sheet-modal { display: flex; flex-direction: column; max-height: 88vh; max-height: 88dvh; overflow: hidden; padding: 22px; }
 .sheet-modal .mbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -916,6 +926,13 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 /* ================= 顶栏下拉菜单（popover） ================= */
 .tb.caret { font-size: 18px; }
 .screen-menu { min-width: 116px; padding: 0 18px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+/* 布局 + 「如何预览」下拉（2026-10-28）：按钮和箭头分两段，箭头窄一点，整组往左让出运行区 */
+.layout-split { flex: 0 0 auto; display: flex; align-items: stretch; gap: 4px; }
+.layout-split .layout-caret { width: 26px; padding: 0; font-size: 15px; }
+.lay-orient-title {
+  flex: 0 0 auto; padding: 8px 14px 6px; font-size: 12px; font-weight: 600;
+  color: var(--on-surface-var);
+}
 .popover {
   position: fixed; z-index: 900; min-width: 200px; max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px);
@@ -989,7 +1006,8 @@ button.small#btnReset, .pp-field .small { height: 34px; }
   display: flex; flex-direction: column; gap: 14px; padding: 16px; }
 .lmirror { box-sizing: border-box; }
 /* 镜像根若带 lv-* 布局类，其 height:100% 在 flex 测量层里会被异常拉高，强制回到内容高度 */
-.lmirror.lv-row, .lmirror.lv-rng-wrap, .lmirror.lv-prog-wrap { height: auto; min-height: 0; }
+.lmirror.lv-row, .lmirror.lv-rng-wrap, .lmirror.lv-prog-wrap,
+.lmirror.lv-tabs, .lmirror.lv-collapse, .lmirror.lv-rating, .lmirror.lv-ring-wrap { height: auto; min-height: 0; }
 /* 列表测量镜像：行高/分隔线与 runtime.css 的 .list .li(48px) 完全一致，保证自动流 Y 坐标对齐 */
 .lmirror.t-list { background: #f3edf7; border-radius: 12px; overflow: hidden; }
 .lmirror.t-list .li-row {
@@ -1052,6 +1070,58 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .lv-prog-wrap { width: 100%; height: 100%; display: flex; align-items: center; }
 .lv-prog { width: 100%; height: 12px; border-radius: 6px; background: #e7e3ec; overflow: hidden; }
 .lv-prog-fill { display: block; height: 100%; border-radius: 6px; background: #6750a4; }
+
+/* 标签页 / 折叠面板 / 评分 / 进度环（拖动布局预览）。
+   样式逐条对齐 runtime.css 的 .rt-*，保证“设计=布局=运行时”同一个长相。
+   注意舞台上的绝对定位项只搬 lv-* 容器的**子元素**（容器本身被丢掉），
+   所以“容器型”样式必须再以 .litem.t-xxx 的形式给可拖动项本体补一份。 */
+.lv-tabs { display: flex; align-items: stretch; width: 100%; height: 100%; gap: 2px;
+  border-bottom: 1px solid #e7e0ec; overflow-x: auto; overflow-y: hidden; }
+.lv-tab { flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  padding: 0 14px; min-height: 40px; font-size: 14px; color: #49454f;
+  border-bottom: 2px solid transparent; white-space: nowrap; }
+.lv-tab.on { color: #6750a4; border-bottom-color: #6750a4; font-weight: 600; }
+.litem.t-tabs { align-items: stretch; justify-content: flex-start; gap: 2px;
+  border-bottom: 1px solid #e7e0ec; padding: 0; }
+
+.lv-collapse { display: flex; flex-direction: column; align-items: stretch; width: 100%; height: 100%;
+  border: 1px solid #e0e0e0; border-radius: 12px; background: #fff; overflow: hidden; }
+.lv-collapse-h { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px; font-size: 15px; text-align: left; }
+.lv-collapse-a { flex: 0 0 auto; font-size: 12px; opacity: .7; transition: transform .18s var(--ease); }
+.lv-collapse.open .lv-collapse-a { transform: rotate(180deg); }
+.lv-collapse-b { padding: 0 14px 12px; font-size: 14px; color: #49454f; text-align: left; white-space: pre-wrap; }
+.litem.t-collapse { flex-direction: column; align-items: stretch; justify-content: flex-start;
+  border: 1px solid #e0e0e0; border-radius: 12px; background: #fff; }
+
+.lv-rating { display: flex; align-items: center; justify-content: center; gap: 2px;
+  width: 100%; height: 100%; font-size: 26px; line-height: 1; }
+.lv-star { color: #cac4d0; }
+.lv-star.on { color: var(--star-on, #ffb300); }
+.litem.t-rating { gap: 2px; font-size: 26px; line-height: 1; }
+
+.lv-ring-wrap { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.lv-ring { position: relative; flex: 0 0 auto; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; }
+.lv-ring-in { position: absolute; inset: 15%; border-radius: 50%; background: #fff; }
+.lv-ring-t { position: relative; font-size: 16px; font-weight: 600; color: inherit; }
+
+/* 多选下拉 / 日期范围 / 颜色选择器（拖动布局预览）。样式对齐 runtime.css 的 .rt-* */
+.lv-multi, .lv-daterange, .lv-color { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; }
+.lv-multi { justify-content: space-between; }
+.lv-caret { flex: 0 0 auto; font-size: 12px; opacity: .7; }
+.lv-daterange { gap: 6px; }
+.lv-date { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center;
+  height: 100%; padding: 0 8px; border: 1px solid var(--outline-var); border-radius: 8px;
+  font-size: 13px; color: var(--on-surface-var); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lv-dr-sep { flex: 0 0 auto; font-size: 12px; opacity: .7; }
+.lv-color { justify-content: flex-start; }
+.lv-color-sw { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); }
+.lv-color .lv-label { flex: 1 1 auto; }
+/* 容器型样式：舞台只搬子元素，本体样式必须写给 .litem.t-xxx */
+.litem.t-multiSelect, .litem.t-colorPicker { border: 1px solid var(--outline-var); background: #fff;
+  border-radius: 10px; padding: 0 12px; justify-content: space-between; gap: 8px; }
+.litem.t-dateRange { gap: 6px; }
 
 /* 横屏右侧控制台（侧拉面板，仅点 FAB 展开）。
    用户要求：**悬浮在画布之上，不要挤压画布** —— 所以这里不再给舞台让位（原来的

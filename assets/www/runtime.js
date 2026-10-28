@@ -131,7 +131,12 @@ var timers = {}, canvasMap = {};
     if (isPreview && previewStart && screenById(previewStart)) startId = previewStart;
     try { localStorage.removeItem('__previewStartScreen'); } catch (e) {}
     var startSc = screenById(startId);
-    if (window.Native && Native.setOrientation) Native.setOrientation((startSc && startSc.orientation) || 'portrait');
+    /* 起始方向只有一处口径：起始页方向 → 回退项目方向。
+       以前这里写的是 `startSc.orientation || 'portrait'`，而下面的方向门看的是 project.orientation ——
+       两者不一致时，运行时会先把屏幕转回竖屏、再等方向门等到超时才画，表现就是
+       「选了横屏，点运行不显示/要等好几秒」（用户 2026-10-28 报的）。 */
+    var startOrient = (startSc && startSc.orientation) || (project && project.orientation) || 'portrait';
+    if (window.Native && Native.setOrientation) Native.setOrientation(startOrient);
     if (window.Native && Native.setStatusBar) Native.setStatusBar(!startSc || startSc.showStatusBar !== false);
     fitScreen();
     setTimeout(fitScreen, 120); setTimeout(fitScreen, 400);   // 物理旋转是异步的，旋转后再校准
@@ -141,7 +146,7 @@ var timers = {}, canvasMap = {};
       window.__runNoticeName = String((project && project.appName) || '作品');   // 排错/测试可见：通知卡片上的作品名
       try { if (window.Native && Native.startRunNotice) Native.startRunNotice(window.__runNoticeName); } catch (e) {}
     }
-    aiOrientGate(function () { navigate(startId, true); });
+    aiOrientGate(startOrient, function () { navigate(startId, true); });
   }
 
   /**
@@ -150,13 +155,19 @@ var timers = {}, canvasMap = {};
    * 原来的毛病：点「运行」后页面立刻按当时的窗口方向渲染一帧，原生旋转随后才生效，
    * 于是横屏项目会先按竖屏排一次版、再"啪"地转到横屏（用户："致命问题，先竖屏再横屏"）。
    * 现在方向不对就先不画（#screen 空着，底色与画布同色，看不出跳变），
-   * 方向一到就画；万一设备/模拟器一直转不过去，2 秒后兜底照画（不能让页面卡住）。
+   * 方向一到就画；万一设备/模拟器一直转不过去，1.2 秒后兜底照画（不能让页面卡住）。
+   *
+   * 电脑/浏览器里没有 setOrientation，屏幕根本不会转 —— 那种情况下干等是没有意义的，
+   * 直接画（以前横屏工程在网页预览里必卡满 2 秒）。
    */
   var aiFirstPaintDone = false;
-  function aiOrientGate(fn) {
+  function aiOrientGate(want, fn) {
     if (aiFirstPaintDone) { fn(); return; }
-    var want = (current && current.orientation) || (project && project.orientation) || 'portrait';
-    var deadline = Date.now() + 2000;
+    want = want || (project && project.orientation) || 'portrait';
+    var 能转向 = false;
+    try { 能转向 = !!(window.Native && Native.setOrientation); } catch (e) {}
+    if (!能转向) { aiFirstPaintDone = true; fn(); return; }
+    var deadline = Date.now() + 1200;
     var finished = false;
     function ok() {
       var land = window.innerWidth > window.innerHeight;
@@ -176,7 +187,7 @@ var timers = {}, canvasMap = {};
     window.addEventListener('orientationchange', tryPaint);
     setTimeout(tryPaint, 60);
     setTimeout(tryPaint, 400);
-    setTimeout(tryPaint, 2000);      // 兜底：一直转不过去也得把画面画出来
+    setTimeout(tryPaint, 1200);      // 兜底：一直转不过去也得把画面画出来（与 deadline 一致）
   }
 
   /* 滑屏检测（用户要求）：在画布区域上按下→抬起，位移超过阈值就判定为一次滑动，
@@ -281,34 +292,9 @@ var timers = {}, canvasMap = {};
   function validNum(v) { return typeof v === 'number' && isFinite(v); }
   function px(v) { return validNum(v) ? (v + 'px') : null; }
 
-  /* 绝对定位且未填宽高时的默认尺寸（必须与编辑器拖动布局的 defaultSize 完全一致，保证所见即所得） */
+  /* 绝对定位且未填宽高时的默认尺寸：与编辑器取同一份 comp-spec.js，保证所见即所得 */
   function defaultBox(c) {
-    switch (c.type) {
-      case 'button': return { w: 220, h: 48 };
-      case 'input': return { w: 220, h: 52 };
-      case 'list': return { w: 240, h: 170 };
-      case 'image': return { w: 160, h: 120 };
-      case 'switch': return { w: 220, h: 40 };
-      case 'checkbox': return { w: 220, h: 40 };
-      case 'slider': return { w: 220, h: 40 };
-      case 'progress': return { w: 220, h: 12 };
-      case 'video': return { w: 240, h: 135 };
-      case 'audio': return { w: 280, h: 40 };
-      case 'web': return { w: 320, h: 240 };
-    case 'select': return { w: 220, h: 48 };
-    case 'radio': return { w: 220, h: 96 };
-    case 'date': return { w: 200, h: 48 };
-    case 'time': return { w: 160, h: 48 };
-    case 'stepper': return { w: 200, h: 48 };
-    case 'imgbtn': return { w: 160, h: 120 };
-    case 'timer': return { w: 160, h: 44 };
-    case 'canvas': return { w: 300, h: 200 };
-    case 'card': return { w: 300, h: 120 };
-    case 'divider': return { w: 280, h: 8 };
-    case 'spacer': return { w: 280, h: 24 };
-      case 'text':
-      default: return { w: 220, h: 40 };
-    }
+    return FAST_COMP.sizeOf(c.type);
   }
 
   /* 把编辑器里设置的位置/大小落到节点上：每个参数独立生效，留空的轴自动处理 */
@@ -493,6 +479,7 @@ var timers = {}, canvasMap = {};
 
   function renderComp(c) {    var wrap = el('div', 'comp ' + c.type);
     wrap.setAttribute('data-id', c.id);
+    wrap.__c = c;                 // 运行时改位置/大小/选项时，同步写回组件数据
     applyLayout(wrap, c);
     var abs = wrap.classList.contains('absolute');
     // 初始可见性 / 透明度
@@ -766,6 +753,242 @@ var timers = {}, canvasMap = {};
       var sp = el('div', 'rt-spacer');
       if (validNum(c.h)) sp.style.height = px(c.h);
       wrap.appendChild(sp);
+    } else if (c.type === 'tabs') {
+      // 标签页：一排页签，点哪个就把 __val 记成那个序号（0 开始），并触发「值变了」
+      var 页签们 = (c.items && c.items.length) ? c.items : ['页签一', '页签二'];
+      var 页签条 = el('div', 'rt-tabs');
+      var 页签钮 = [];
+      wrap.__val = Math.max(0, Math.min(页签们.length - 1, Number(c.value) || 0));
+      function 画页签() {
+        页签钮.forEach(function (b, i) { b.classList.toggle('on', i === wrap.__val); });
+      }
+      页签们.forEach(function (it, i) {
+        var b = el('button', 'rt-tab', String(it == null ? '' : it));
+        b.type = 'button';
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (wrap.__val === i) return;
+          wrap.__val = i; 画页签();
+          runHandlers(changeMap[c.id]);
+        });
+        页签钮.push(b); 页签条.appendChild(b);
+      });
+      if (validNum(c.fs)) 页签条.style.fontSize = px(c.fs);
+      if (c.color) 页签条.style.color = c.color;
+      if (c.bg) 页签条.style.background = c.bg;
+      if (validNum(c.radius)) 页签条.style.borderRadius = px(c.radius);
+      画页签();
+      wrap.appendChild(页签条);
+    } else if (c.type === 'collapse') {
+      // 折叠面板：点标题展开/收起，__val = 是否展开
+      var 折盒 = el('div', 'rt-collapse' + (c.open ? ' open' : ''));
+      var 折头 = el('div', 'rt-collapse-h');
+      var 折题 = el('span', 'rt-collapse-t', c.text || '点我展开');
+      var 折箭 = el('span', 'rt-collapse-a', '▾');
+      折头.appendChild(折题); 折头.appendChild(折箭);
+      var 折身 = el('div', 'rt-collapse-b', c.body || '');
+      if (c.color) { 折题.style.color = c.color; 折身.style.color = c.color; }
+      if (c.bg) 折盒.style.background = c.bg;
+      if (validNum(c.radius)) 折盒.style.borderRadius = px(c.radius);
+      if (validNum(c.fs)) { 折题.style.fontSize = px(c.fs); 折身.style.fontSize = px(c.fs); }
+      wrap.__val = !!c.open;
+      折头.addEventListener('click', function (e) {
+        e.stopPropagation();
+        wrap.__val = !wrap.__val;
+        折盒.classList.toggle('open', wrap.__val);
+        runHandlers(changeMap[c.id]);
+      });
+      折盒.appendChild(折头); 折盒.appendChild(折身);
+      wrap.appendChild(折盒);
+    } else if (c.type === 'rating') {
+      // 评分：点第 N 颗星就把分数记成 N；__val = 分数
+      var 星数 = Math.max(1, Number(c.max) || 5);
+      var 星条 = el('div', 'rt-rating');
+      var 星钮 = [];
+      wrap.__val = Math.max(0, Math.min(星数, Math.round(Number(c.value) || 0)));
+      function 画星() {
+        星钮.forEach(function (s, i) { s.classList.toggle('on', i < wrap.__val); });
+      }
+      for (var 星 = 0; 星 < 星数; 星++) {
+        (function (i) {
+          var s = el('button', 'rt-star', '★'); s.type = 'button';
+          s.addEventListener('click', function (e) {
+            e.stopPropagation();
+            wrap.__val = i + 1; 画星();
+            runHandlers(changeMap[c.id]);
+          });
+          星钮.push(s); 星条.appendChild(s);
+        })(星);
+      }
+      if (c.color) 星条.style.setProperty('--star-on', c.color);
+      if (validNum(c.fs)) 星条.style.fontSize = px(c.fs);
+      画星();
+      wrap.appendChild(星条);
+    } else if (c.type === 'ring') {
+      // 进度环：SVG 圆环 + 中间百分比；__val / __max 与进度条同一套读写
+      // 注意：AI 建的控件里 value/max 可能是字符串（属性清单统一转字符串），这里按数字洗一遍
+      var 环最大 = Math.max(1, Number(c.max) || 100);
+      var 环值 = Math.max(0, Math.min(环最大, Number(c.value) || 0));
+      var 环半径 = 42, 环周长 = 2 * Math.PI * 环半径;
+      var 环盒 = el('div', 'rt-ring');
+      环盒.innerHTML = '<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">'
+        + '<circle class="rt-ring-track" cx="50" cy="50" r="' + 环半径 + '" stroke-width="10"></circle>'
+        + '<circle class="rt-ring-fill" cx="50" cy="50" r="' + 环半径 + '" stroke-width="10"'
+        + ' stroke-dasharray="' + 环周长 + '" stroke-dashoffset="' + (环周长 * (1 - (环最大 ? 环值 / 环最大 : 0))) + '"></circle>'
+        + '</svg>';
+      var 环字 = el('span', 'rt-ring-t', Math.round(环最大 ? (环值 / 环最大 * 100) : 0) + '%');
+      var 环线 = 环盒.querySelector('.rt-ring-fill');
+      if (环线 && c.bg) 环线.style.stroke = c.bg;
+      if (c.color) 环字.style.color = c.color;
+      if (validNum(c.fs)) 环字.style.fontSize = px(c.fs);
+      环盒.appendChild(环字);
+      wrap.__val = 环值; wrap.__max = 环最大;
+      wrap.appendChild(环盒);
+    } else if (c.type === 'multiSelect') {
+      // 多选下拉：自绘列表，点一行切换一行（可以连选多项）；__val = 选中的值数组
+      function 多变数组(v) {
+        if (Array.isArray(v)) return v.map(function (x) { return String(x); });
+        return String(v == null ? '' : v).split(/[,，、\n]/).map(function (s) { return s.trim(); })
+          .filter(function (s) { return s !== ''; });
+      }
+      var 多箱 = el('div', 'rt-select rt-multi');
+      var 多值 = el('span', 'rt-select-v');
+      var 多箭 = el('span', 'rt-select-a', '▾');
+      多箱.appendChild(多值); 多箱.appendChild(多箭);
+      if (validNum(c.fs)) 多箱.style.fontSize = px(c.fs);
+      if (c.color) 多箱.style.color = c.color;
+      if (c.bg) 多箱.style.background = c.bg;
+      if (validNum(c.radius)) 多箱.style.borderRadius = px(c.radius);
+      if (validNum(c.h)) 多箱.style.height = px(c.h);
+      if (c.caretColor) 多箭.style.color = c.caretColor;
+      applySkin(多箱, c);
+      wrap.__val = 多变数组(c.value);
+      var 多单 = el('div', 'rt-select-menu rt-multi-menu');
+      var 画多值 = function () {
+        多值.textContent = wrap.__val.length ? wrap.__val.join('、') : '请选择';
+        多箱.classList.toggle('has-val', !!wrap.__val.length);
+      };
+      var 画多单 = function () {
+        多单.innerHTML = '';
+        (c.items || []).forEach(function (it) {
+          it = String(it == null ? '' : it);
+          var on = wrap.__val.indexOf(it) >= 0;
+          var row = el('div', 'rt-select-item rt-multi-item' + (on ? ' on' : ''));
+          row.appendChild(el('span', 'rt-select-item-t', it));
+          row.appendChild(el('span', 'rt-select-item-c rt-multi-box', on ? '✓' : ''));
+          row.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var at = wrap.__val.indexOf(it);
+            if (at >= 0) wrap.__val.splice(at, 1); else wrap.__val.push(it);
+            画多值(); 画多单();
+            runHandlers(changeMap[c.id]);
+          });
+          多单.appendChild(row);
+        });
+        if (c.color) 多单.style.color = c.color;
+      };
+      var 关多单 = function () { 多单.classList.remove('open'); 多单.classList.remove('up'); 多箱.classList.remove('open'); };
+      var 开多单 = function () {
+        画多单();
+        var root = wrap.parentNode;
+        if (root) {
+          var om = root.querySelectorAll('.rt-select-menu.open');
+          for (var oi = 0; oi < om.length; oi++) om[oi].classList.remove('open');
+          var ob = root.querySelectorAll('.rt-select.open');
+          for (var bi = 0; bi < ob.length; bi++) ob[bi].classList.remove('open');
+        }
+        多单.classList.remove('up'); 多单.classList.add('open'); 多箱.classList.add('open');
+        var r = 多箱.getBoundingClientRect();
+        var vh = window.innerHeight || 800;
+        if (r.bottom + 多单.offsetHeight + 8 > vh && r.top > 多单.offsetHeight + 8) 多单.classList.add('up');
+        document.removeEventListener('click', 关多单);
+        setTimeout(function () { document.addEventListener('click', 关多单, { once: true }); }, 0);
+      };
+      画多值();
+      多箱.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (多单.classList.contains('open')) 关多单(); else 开多单();
+      });
+      wrap.appendChild(多箱); wrap.appendChild(多单);
+    } else if (c.type === 'dateRange') {
+      // 日期范围：起止两个日期，__val = "开始~结束"（同时保留 __start/__end 供代码读取）
+      var 日盒 = el('div', 'rt-daterange');
+      var 起日 = el('input'); 起日.type = 'date'; 起日.className = 'rt-date';
+      var 止日 = el('input'); 止日.type = 'date'; 止日.className = 'rt-date';
+      var 至字 = el('span', 'rt-dr-sep', '至');
+      wrap.__start = String(c.start == null ? '' : c.start);
+      wrap.__end = String(c.end == null ? '' : c.end);
+      var 拼范围 = function () {
+        wrap.__val = (wrap.__start || wrap.__end) ? (wrap.__start + '~' + wrap.__end) : '';
+        起日.value = wrap.__start; 止日.value = wrap.__end;
+      };
+      if (validNum(c.fs)) { 起日.style.fontSize = px(c.fs); 止日.style.fontSize = px(c.fs); }
+      if (c.color) { 起日.style.color = c.color; 止日.style.color = c.color; }
+      if (c.bg) { 起日.style.background = c.bg; 止日.style.background = c.bg; }
+      if (validNum(c.radius)) { 起日.style.borderRadius = px(c.radius); 止日.style.borderRadius = px(c.radius); }
+      起日.addEventListener('change', function () { wrap.__start = 起日.value; 拼范围(); runHandlers(changeMap[c.id]); });
+      止日.addEventListener('change', function () { wrap.__end = 止日.value; 拼范围(); runHandlers(changeMap[c.id]); });
+      拼范围();
+      日盒.appendChild(起日); 日盒.appendChild(至字); 日盒.appendChild(止日);
+      wrap.appendChild(日盒);
+    } else if (c.type === 'colorPicker') {
+      // 颜色选择器：点开调色板挑颜色，__val = #rrggbb
+      var 色箱 = el('div', 'rt-color');
+      var 色块 = el('span', 'rt-color-sw');
+      var 色字 = el('span', 'rt-color-t');
+      var 色箭 = el('span', 'rt-select-a', '▾');
+      色箱.appendChild(色块); 色箱.appendChild(色字); 色箱.appendChild(色箭);
+      if (validNum(c.h)) 色箱.style.height = px(c.h);
+      if (validNum(c.fs)) 色字.style.fontSize = px(c.fs);
+      if (c.color) 色字.style.color = c.color;
+      if (validNum(c.radius)) 色箱.style.borderRadius = px(c.radius);
+      wrap.__val = String(c.value || '#6750a4');
+      色块.style.background = wrap.__val;
+      色字.textContent = wrap.__val;
+      var 色板 = ['#6750a4', '#7d5260', '#b3261e', '#ef6c00', '#f9a825', '#2e7d32',
+                 '#00838f', '#1565c0', '#4527a0', '#795548', '#000000', '#ffffff'];
+      var 色单 = el('div', 'rt-select-menu rt-color-menu');
+      var 设色 = function (hex) {
+        wrap.__val = String(hex);
+        色块.style.background = wrap.__val;
+        色字.textContent = wrap.__val;
+      };
+      var 关色单 = function () { 色单.classList.remove('open'); 色单.classList.remove('up'); 色箱.classList.remove('open'); };
+      var 画色单 = function () {
+        色单.innerHTML = '';
+        色板.forEach(function (hex) {
+          var dot = el('span', 'rt-color-dot' + (String(hex).toLowerCase() === String(wrap.__val).toLowerCase() ? ' on' : ''));
+          dot.setAttribute('data-c', hex);
+          dot.style.background = hex;
+          dot.addEventListener('click', function (e) {
+            e.stopPropagation();
+            设色(hex); 关色单();
+            runHandlers(changeMap[c.id]);
+          });
+          色单.appendChild(dot);
+        });
+      };
+      var 开色单 = function () {
+        画色单();
+        var root = wrap.parentNode;
+        if (root) {
+          var om = root.querySelectorAll('.rt-select-menu.open');
+          for (var oi = 0; oi < om.length; oi++) om[oi].classList.remove('open');
+          var ob = root.querySelectorAll('.rt-select.open');
+          for (var bi = 0; bi < ob.length; bi++) ob[bi].classList.remove('open');
+        }
+        色单.classList.remove('up'); 色单.classList.add('open'); 色箱.classList.add('open');
+        var r = 色箱.getBoundingClientRect();
+        var vh = window.innerHeight || 800;
+        if (r.bottom + 色单.offsetHeight + 8 > vh && r.top > 色单.offsetHeight + 8) 色单.classList.add('up');
+        document.removeEventListener('click', 关色单);
+        setTimeout(function () { document.addEventListener('click', 关色单, { once: true }); }, 0);
+      };
+      色箱.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (色单.classList.contains('open')) 关色单(); else 开色单();
+      });
+      wrap.appendChild(色箱); wrap.appendChild(色单);
     } else if (c.type === 'switch') {
       var srow = el('div', 'ctl-row sw-row');
       var slab = el('span', 'v-text', c.text || '开关'); applyTextStyle(slab, c);
@@ -1006,6 +1229,16 @@ var timers = {}, canvasMap = {};
     userGesture();
     list.forEach(function (fn) { safe(fn); });
   }
+  /* 数据代码用的小工具：把任意值安全地变成文字 / 列表。
+     代码块的槽里可能是空、数字、null、甚至一整个列表，这里统一兜住，别让运行时抛错。 */
+  function rtText(v) { return (v === null || v === undefined) ? '' : String(v); }
+  function rtList(v) {
+    if (Array.isArray(v)) return v.slice();
+    if (v === null || v === undefined || v === '') return [];
+    if (typeof v === 'string') { try { var a = JSON.parse(v); if (Array.isArray(a)) return a; } catch (e) {} }
+    return [v];
+  }
+
   var RT = {
     on: function (evt, fn) {
       if (evt === 'start') startHandlers.push(fn);
@@ -1191,6 +1424,32 @@ var timers = {}, canvasMap = {};
       var r = compRoot(id);
       return !!(r && (r.classList.contains('rt-disabled') || r.style.pointerEvents === 'none'));
     },
+    /* 位置 / 大小：改 DOM 的同时写回组件数据，同一页面内切回来也不会丢 */
+    setPos: function (id, x, y) {
+      var r = compRoot(id); if (!r) return;
+      var nx = Number(x), ny = Number(y);
+      var 有X = isFinite(nx), 有Y = isFinite(ny);
+      if (!有X && !有Y) return;
+      var c = r.__c; if (!c) return;
+      if (有X) c.x = nx;
+      if (有Y) c.y = ny;
+      c.cx = false;                                  // 手动定位优先于“居中锁”
+      r.classList.add('absolute');
+      r.style.position = 'absolute';
+      if (有X) r.style.left = nx + 'px';
+      if (有Y) r.style.top = ny + 'px';
+      // 自动排列的控件本来没有宽高，改成自由定位后要补上默认尺寸，否则会缩成一条
+      var db = defaultBox(c.type);
+      if (!validNum(c.w)) { c.w = db.w; r.style.width = px(db.w); }
+      if (!validNum(c.h)) { c.h = db.h; r.style.height = px(db.h); }
+    },
+    setSize: function (id, w, h) {
+      var r = compRoot(id); if (!r) return;
+      var c = r.__c; if (!c) return;
+      var nw = Number(w), nh = Number(h);
+      if (isFinite(nw) && nw >= 0) { c.w = nw; r.style.width = nw + 'px'; }
+      if (isFinite(nh) && nh >= 0) { c.h = nh; r.style.height = nh + 'px'; }
+    },
     /* 透明度 0~100 */
     setOpacity: function (id, v) {
       var r = compRoot(id); if (!r) return;
@@ -1261,13 +1520,92 @@ var timers = {}, canvasMap = {};
       n.value = num; r.__val = Number(n.value);
     },
     getSlider: function (id) { var r = compRoot(id); return r ? Number(r.__val || 0) : 0; },
-    /* 进度条：设置与读取进度（按最大值自动钳制） */
+    /* 进度条 / 进度环：设置与读取进度（按最大值自动钳制） */
     setProgress: function (id, v) {
-      var r = compRoot(id), f = r && r.querySelector('.prog-fill'); if (!f) return;
+      var r = compRoot(id); if (!r) return;
       var mx = r.__max || 100, n = Math.max(0, Math.min(mx, Number(v) || 0));
-      r.__val = n; f.style.width = (mx ? (n / mx * 100) : 0) + '%';
+      r.__val = n;
+      var f = r.querySelector('.prog-fill');
+      if (f) { f.style.width = (mx ? (n / mx * 100) : 0) + '%'; return; }
+      var 环线 = r.querySelector('.rt-ring-fill');       // 进度环走 SVG 描边
+      if (环线) {
+        var 周长 = 2 * Math.PI * 42;
+        环线.setAttribute('stroke-dashoffset', String(周长 * (1 - (mx ? n / mx : 0))));
+        var 环字 = r.querySelector('.rt-ring-t');
+        if (环字) 环字.textContent = Math.round(mx ? (n / mx * 100) : 0) + '%';
+      }
     },
     getProgress: function (id) { var r = compRoot(id); return r ? Number(r.__val || 0) : 0; },
+    /* 标签页 / 评分 / 折叠面板：用代码改值 */
+    setTabs: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var 钮 = r.querySelectorAll('.rt-tab'); if (!钮.length) return;
+      var n = Math.floor(Number(v)); if (!isFinite(n)) return;
+      n = Math.max(0, Math.min(钮.length - 1, n));
+      r.__val = n;
+      Array.prototype.forEach.call(钮, function (b, i) { b.classList.toggle('on', i === n); });
+    },
+    setRating: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var 钮 = r.querySelectorAll('.rt-star'); if (!钮.length) return;
+      var n = Math.round(Number(v)); if (!isFinite(n)) return;
+      n = Math.max(0, Math.min(钮.length, n));
+      r.__val = n;
+      Array.prototype.forEach.call(钮, function (s, i) { s.classList.toggle('on', i < n); });
+    },
+    setCollapse: function (id, open) {
+      var r = compRoot(id); if (!r) return;
+      var 盒 = r.querySelector('.rt-collapse'); if (!盒) return;
+      r.__val = !!open;
+      盒.classList.toggle('open', !!open);
+    },
+    /* 多选下拉 / 日期范围 / 颜色选择器：用代码读写 */
+    setMultiSelect: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var arr = Array.isArray(v) ? v.map(function (x) { return String(x); })
+        : String(v == null ? '' : v).split(/[,，、\n]/).map(function (s) { return s.trim(); })
+          .filter(function (s) { return s !== ''; });
+      r.__val = arr;
+      var lab = r.querySelector('.rt-select-v');
+      if (lab) lab.textContent = arr.length ? arr.join('、') : '请选择';
+      var rows = r.querySelectorAll('.rt-multi-item');
+      Array.prototype.forEach.call(rows, function (row) {
+        var t = row.querySelector('.rt-select-item-t');
+        var on = t && arr.indexOf(String(t.textContent)) >= 0;
+        row.classList.toggle('on', !!on);
+        var c2 = row.querySelector('.rt-multi-box');
+        if (c2) c2.textContent = on ? '✓' : '';
+      });
+    },
+    setDateRange: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var ins = r.querySelectorAll('input'); if (!ins.length) return;
+      var s = '', e = '';
+      if (Array.isArray(v)) { s = String(v[0] == null ? '' : v[0]); e = String(v[1] == null ? '' : v[1]); }
+      else {
+        var 段 = String(v == null ? '' : v).split(/[~～至,，]/);
+        s = String(段[0] == null ? '' : 段[0]).trim();
+        e = String(段[1] == null ? '' : 段[1]).trim();
+      }
+      r.__start = s; r.__end = e;
+      r.__val = (s || e) ? (s + '~' + e) : '';
+      if (ins[0]) ins[0].value = s;
+      if (ins[1]) ins[1].value = e;
+    },
+    setColorPicker: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var hex = String(v == null ? '' : v).trim();
+      if (!hex) return;
+      r.__val = hex;
+      var sw = r.querySelector('.rt-color-sw');
+      if (sw) sw.style.background = hex;
+      var tx = r.querySelector('.rt-color-t');
+      if (tx) tx.textContent = hex;
+      var dots = r.querySelectorAll('.rt-color-dot');
+      Array.prototype.forEach.call(dots, function (d) {
+        d.classList.toggle('on', String(d.getAttribute('data-c') || '').toLowerCase() === hex.toLowerCase());
+      });
+    },
     /* ---- 新增控件的取值 / 赋值 ---- */
     getValue: function (id) { var r = compRoot(id); return r && r.__val != null ? r.__val : ''; },
     getNumber: function (id) { var r = compRoot(id); var n = Number(r && r.__val); return isFinite(n) ? n : 0; },
@@ -1277,6 +1615,29 @@ var timers = {}, canvasMap = {};
       var lab = r.querySelector('.rt-select-v');
       if (lab) lab.textContent = v;
       r.__val = v;
+    },
+    /* 替换下拉/单选/多选/标签页的可选项：文字按逗号或换行分隔。
+       改完数据后原位重画这一个控件，选项列表/选中态/点击回调一起更新。 */
+    setOptions: function (id, text) {
+      var r = compRoot(id); if (!r) return;
+      var c = r.__c; if (!c) return;
+      var arr = (Array.isArray(text) ? text.map(function (x) { return String(x); })
+        : String(text == null ? '' : text).split(/[,，、\n]/))
+        .map(function (s) { return String(s).trim(); })
+        .filter(function (s) { return s !== ''; });
+      c.items = arr;
+      if (c.type === 'select' || c.type === 'radio') {
+        if (arr.indexOf(String(c.value)) < 0) c.value = arr[0] || '';
+      } else if (c.type === 'multiSelect') {
+        var 已选 = Array.isArray(c.value) ? c.value : String(c.value == null ? '' : c.value).split(/[,，、\n]/);
+        c.value = 已选.map(function (x) { return String(x).trim(); })
+          .filter(function (x) { return arr.indexOf(x) >= 0; });
+      } else if (c.type === 'tabs') {
+        var 序 = Number(c.value) || 0;
+        if (序 < 0 || 序 >= arr.length) c.value = 0;
+      }
+      var 新 = renderComp(c);
+      if (r.parentNode) r.parentNode.replaceChild(新, r);
     },
     setRadio: function (id, v) {
       var r = compRoot(id); if (!r) return;
@@ -1298,6 +1659,9 @@ var timers = {}, canvasMap = {};
     setComponent: function (id, v) {
       var r = compRoot(id); if (!r) return;
       var cls = r.className || '';
+      if (cls.indexOf('multiSelect') >= 0) return RT.setMultiSelect(id, v);
+      if (cls.indexOf('dateRange') >= 0) return RT.setDateRange(id, v);
+      if (cls.indexOf('colorPicker') >= 0) return RT.setColorPicker(id, v);
       if (cls.indexOf('select') >= 0) return RT.setSelect(id, v);
       if (cls.indexOf('radio') >= 0) return RT.setRadio(id, v);
       if (cls.indexOf('date') >= 0 || cls.indexOf('time') >= 0) return RT.setDate(id, v);
@@ -1305,6 +1669,10 @@ var timers = {}, canvasMap = {};
       if (cls.indexOf('switch') >= 0 || cls.indexOf('checkbox') >= 0) return RT.setChecked(id, !!v);
       if (cls.indexOf('slider') >= 0) return RT.setSlider(id, v);
       if (cls.indexOf('progress') >= 0) return RT.setProgress(id, v);
+      if (cls.indexOf('ring') >= 0) return RT.setProgress(id, v);
+      if (cls.indexOf('tabs') >= 0) return RT.setTabs(id, v);
+      if (cls.indexOf('rating') >= 0) return RT.setRating(id, v);
+      if (cls.indexOf('collapse') >= 0) return RT.setCollapse(id, v);
       if (cls.indexOf('input') >= 0) return RT.setText(id, v);
       if (cls.indexOf('timer') >= 0 || cls.indexOf('text') >= 0) return RT.setText(id, v);
     },
@@ -1520,6 +1888,32 @@ var timers = {}, canvasMap = {};
       if (!cloudLegacy.cfg.uuid || !cloudLegacy.cfg.token) throw new Error('云列表缺少 UUID 或 API 密钥');
       await cloudAuth(cloudLegacy, true);
     },
+    /* ---------------- 只补 Blockly 自带分类里没有的 3 个数据代码 ----------------
+       列表去重 / 解析 JSON / 生成 JSON；纯数据计算，不碰界面，
+       试运行和导出后结果一致。参数兜底（空槽 → 空列表 / 空文字），漏填也不报错。 */
+    /** 去重：保留第一次出现的顺序 */
+    listUnique: function (v) {
+      var seen = Object.create(null), out = [];
+      rtList(v).forEach(function (x) {
+        var k = (typeof x) + '|' + rtText(x);
+        if (seen[k]) return;
+        seen[k] = 1; out.push(x);
+      });
+      return out;
+    },
+    /** 解析 JSON 文字：格式不对返回 null（不抛错，免得整段代码停住） */
+    jsonParse: function (v) {
+      if (typeof v !== 'string') return v;
+      var s = v.trim(); if (!s) return v;
+      try { return JSON.parse(s); } catch (e) { return null; }
+    },
+    /** 生成 JSON 文字 */
+    jsonStringify: function (v) {
+      try {
+        var s = JSON.stringify(v);
+        return (s === undefined || s === null) ? '' : s;
+      } catch (e) { return ''; }
+    },
     // 从一行数据（对象或 JSON 字符串）里取某字段的值
     jsonGet: function (obj, key) {
       if (obj == null) return '';
@@ -1635,10 +2029,19 @@ function runCode(sc) {
     clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove('show'); }, ms);
   }
 
-  /* 系统返回键：能出栈就出栈；预览时返回编辑器；否则交给原生退出 */
+  /* 系统返回键：能出栈就出栈；运行时页面不响应返回/侧滑返回；否则交给原生退出 */
   window.__rtSystemBack = function () {
     if (goBack()) return true;
-    if (isPreview) { RT.restoreDisplay(); history.back(); return true; }
+    if (isPreview) {
+      /* 2026-10-28 用户要求：试运行期间**关掉侧滑关闭运行**。
+         侧滑返回在系统里就是「返回」，所以这里直接吃掉这次返回，页面不动。
+         结束方式统一成通知栏卡片里的「终止运行」（原生回调 __nativeStopRun）。
+         电脑/浏览器预览没有通知卡片，若也吞掉就再也退不出去了 —— 那种情况保留返回。 */
+      var 有通知卡片 = false;
+      try { 有通知卡片 = !!(window.Native && Native.startRunNotice); } catch (e) {}
+      if (有通知卡片) return true;
+      RT.restoreDisplay(); history.back(); return true;
+    }
     return false;
   };
   /* 通知栏卡片里的「终止运行」→ 收掉卡片、恢复屏幕显示设置、回到编辑器 */

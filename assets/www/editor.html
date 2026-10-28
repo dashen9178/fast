@@ -284,9 +284,19 @@
     <input id="appName" class="appname" value="我的应用" maxlength="20">
     <button id="btnScreenMenu" class="tb screen-menu">页面 ▾</button>
     <span class="tb-spacer"></span>
-    <button id="btnLayout" class="tb" title="拖动布局">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg>布局
-    </button>
+    <div class="layout-split">
+      <button id="btnLayout" class="tb" title="拖动布局">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg>布局
+      </button>
+      <!-- 「如何预览」：自动 = 跟着当前页面方向；竖屏/横屏 = 强制（用户要求，2026-10-28） -->
+      <button id="btnLayoutCaret" class="tb layout-caret" title="选择预览方式" aria-haspopup="menu">▾</button>
+    </div>
+    <div id="layoutOrientMenu" class="popover hidden">
+      <div class="lay-orient-title">如何预览？</div>
+      <button class="menu-item orient-opt" data-mode="auto">自动<span class="run-opt-ck">✓</span></button>
+      <button class="menu-item orient-opt" data-mode="portrait">竖屏<span class="run-opt-ck">✓</span></button>
+      <button class="menu-item orient-opt" data-mode="landscape">横屏<span class="run-opt-ck">✓</span></button>
+    </div>
     <div class="run-split" id="runSplit">
       <button id="btnRun" class="tb primary run-main"><span id="runMainIco">⏮</span><span class="run-main-tx">运行</span></button>
       <button id="btnRunCaret" class="tb primary run-caret" title="选择运行方式">▾</button>
@@ -358,6 +368,9 @@
               <button data-add="stepper">步进器</button>
               <button data-add="date">日期</button>
               <button data-add="time">时间</button>
+              <button data-add="dateRange">日期范围</button>
+              <button data-add="multiSelect">多选下拉</button>
+              <button data-add="colorPicker">颜色选择器</button>
             </div>
           </div>
           <div class="addgroup" data-g="show">
@@ -373,6 +386,10 @@
               <button data-add="canvas">画布</button>
               <button data-add="divider">分隔线</button>
               <button data-add="spacer">空白占位</button>
+              <button data-add="tabs">标签页</button>
+              <button data-add="collapse">折叠面板</button>
+              <button data-add="rating">评分</button>
+              <button data-add="ring">进度环</button>
             </div>
           </div>
           <div class="addgroup" data-g="media">
@@ -432,11 +449,7 @@
       <div class="ai-head-ops">
         <!-- 看报错：读运行时日志，让 AI 定位到出错的那一段（放在顶栏，和模型/思考同一排） -->
         <button id="aiDiagBtn" class="ai-diagbtn" aria-label="看报错" title="读运行时日志，定位出错的那一段">看报错</button>
-        <!-- 模型 和 深度思考 是两个独立的轴：可以单独换模型，也可以单独开关思考。
-             模型选择用自绘的 M3 菜单（原生 <select> 在真机上是系统白底弹窗，跟这套设计不搭） -->
-        <button id="aiModelTop" class="ai-modelbtn" aria-haspopup="listbox" title="选择模型">
-          <span id="aiModelTopLabel">v4-pro</span><span class="caret">▾</span>
-        </button>
+        <!-- 深度思考开关（模型固定为 DeepSeek-V4.1 flash，不再提供选择器） -->
         <button id="aiThink" class="ai-iconbtn ai-thinkbtn on" role="switch" aria-checked="true"
                 aria-label="深度思考" title="深度思考">🧠</button>
         <button id="aiNewChat" class="ai-iconbtn" aria-label="新建对话" title="新建对话">＋</button>
@@ -634,7 +647,7 @@
             <button id="aiKeyTest" class="small">测试</button>
           </div>
           <div id="aiKeyStatus" class="ai-key-status"></div>
-          <!-- 模型切换只在 AI 面板顶栏提供（用户要求：设置里不要重复一个切换入口） -->
+          <!-- 模型固定为 DeepSeek-V4.1 flash（用户要求：不再提供模型切换）；这里只配密钥 -->
           <div class="ai-key-hint">
             密钥只存在这台手机上（已排除出云备份），<b>不会</b>随作品分享、也不会打进导出的 App。<br>
             没有的话去 platform.deepseek.com 申请一个，自己按量付费。
@@ -862,6 +875,7 @@
 
 <script src="blockly/blockly.min.js?v=__BUILD__"></script>
 <script src="blockly/zh-hans.js?v=__BUILD__"></script>
+<script src="comp-spec.js?v=__BUILD__"></script>
 <script src="blocks.js?v=__BUILD__"></script>
 <script src="editor.js?v=__BUILD__"></script>
 </body>

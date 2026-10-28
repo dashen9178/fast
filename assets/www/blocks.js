@@ -3,7 +3,7 @@
   'use strict';
   var B = window.Blockly;
   var JS = B.JavaScript; // v10 UMD 中的 JS 生成器单例
-  var C_EVENT = '#FB8C00', C_ACT = '#1565C0', C_VAL = '#00897B';
+  var C_EVENT = '#FB8C00', C_ACT = '#1565C0', C_VAL = '#00897B', C_WIDGET = '#8E24AA';
 
   // 形态统一：半包围代码开口内不再放“执行/否则”等文字标签（D 形细脊柱风格）
   ['CONTROLS_IF_MSG_THEN', 'CONTROLS_REPEAT_INPUT_DO',
@@ -814,7 +814,7 @@
   B.Blocks['act_set_progress'] = {
     init: function () {
       this.appendValueInput('VALUE').setCheck('Number')
-        .appendField('设置进度条').appendField(compField(['progress']), 'COMP').appendField('进度为');
+        .appendField('设置进度条/环').appendField(compField(['progress', 'ring']), 'COMP').appendField('进度为');
       this.setInputsInline(true);
       this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(C_ACT);
     }
@@ -825,7 +825,7 @@
   };
   B.Blocks['val_get_progress'] = {
     init: function () {
-      this.appendDummyInput().appendField('进度条').appendField(compField(['progress']), 'COMP').appendField('的进度');
+      this.appendDummyInput().appendField('进度条/环').appendField(compField(['progress', 'ring']), 'COMP').appendField('的进度');
       this.setOutput(true, 'Number'); this.setColour(C_VAL);
     }
   };
@@ -1128,6 +1128,53 @@
     return ['[' + parts.join(', ') + ']', JS.ORDER_ATOMIC];
   };
 
+  /* ---------------- 补缺的数据代码：列表去重 / 解析 JSON / 生成 JSON ----------------
+     只补 Blockly 自带分类里没有的能力：
+     转大写/转小写/去空格/取子串/查找/替换 → 自带「文本」分类；
+     四舍五入/取整/绝对值/随机数 → 自带「数学」分类；
+     排序/求和/随机取一项 → 自带「数据列表」分类。重复的不再加，免得工具箱变长、难找。
+     全部是取值代码（椭圆形），只能接在别的缺口里，不能单独运行。 */
+  B.Blocks['val_list_unique'] = {
+    init: function () {
+      this.appendValueInput('L').setCheck('Array').appendField('列表');
+      this.appendDummyInput().appendField('去掉重复项');
+      this.setInputsInline(true);
+      this.setOutput(true, 'Array'); this.setColour(C_VAL);
+      this.setTooltip('把列表里重复出现的内容只留第一次，顺序不变');
+    }
+  };
+  JS.forBlock['val_list_unique'] = function (b) {
+    var v = JS.valueToCode(b, 'L', JS.ORDER_ATOMIC) || '[]';
+    return ['RT.listUnique(' + v + ')', JS.ORDER_FUNCTION_CALL];
+  };
+
+  // 数据：解析 JSON / 生成 JSON
+  B.Blocks['val_json_parse'] = {
+    init: function () {
+      this.appendValueInput('T').appendField('解析 JSON 文字');
+      this.setInputsInline(true);
+      this.setOutput(true, null); this.setColour(C_VAL);
+      this.setTooltip('把 JSON 格式的文字变成能取字段的数据；配合“取…的字段”读取里面的内容。格式不对时返回空，不会让程序停下');
+    }
+  };
+  JS.forBlock['val_json_parse'] = function (b) {
+    var v = JS.valueToCode(b, 'T', JS.ORDER_ATOMIC) || "''";
+    return ['RT.jsonParse(' + v + ')', JS.ORDER_FUNCTION_CALL];
+  };
+  B.Blocks['val_json_stringify'] = {
+    init: function () {
+      this.appendValueInput('V').appendField('把');
+      this.appendDummyInput().appendField('转成 JSON 文字');
+      this.setInputsInline(true);
+      this.setOutput(true, 'String'); this.setColour(C_VAL);
+      this.setTooltip('把数据变成 JSON 格式的文字，方便提交给服务器或存起来');
+    }
+  };
+  JS.forBlock['val_json_stringify'] = function (b) {
+    var v = JS.valueToCode(b, 'V', JS.ORDER_ATOMIC) || 'null';
+    return ['RT.jsonStringify(' + v + ')', JS.ORDER_FUNCTION_CALL];
+  };
+
   /* ===== 云列表分类浮层：顶部两个按钮（创建/管理），未创建时只显示提示 ===== */
   window.BB_cloudFlyout = function () {
     var items = [
@@ -1186,7 +1233,14 @@
     { key: 'spacer',   label: '空白占位', types: ['spacer'], colour: '#90A4AE', shapes: ['show', 'hide'] },
     { key: 'container', label: '容器',  types: ['container'], colour: '#546E7A', shapes: ['click', 'show', 'hide', 'opacity', 'setbg', 'rot', 'enable', 'disable'] },
     { key: 'table',    label: '表格',   types: ['table'],    colour: '#3E2723', shapes: ['click', 'show', 'hide', 'opacity', 'setbg', 'setfg', 'rot', 'enable', 'disable'] },
-    { key: 'chart',    label: '图表',   types: ['chart'],    colour: '#3E2723', shapes: ['click', 'show', 'hide', 'opacity', 'setbg', 'rot', 'enable', 'disable'] }
+    { key: 'chart',    label: '图表',   types: ['chart'],    colour: '#3E2723', shapes: ['click', 'show', 'hide', 'opacity', 'setbg', 'rot', 'enable', 'disable'] },
+    { key: 'tabs',     label: '标签页', types: ['tabs'],     colour: '#00695C', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'collapse', label: '折叠面板', types: ['collapse'], colour: '#546E7A', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'rating',   label: '评分',   types: ['rating'],   colour: '#EF6C00', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'ring',     label: '进度环', types: ['ring'],     colour: '#00695C', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'multiSelect', label: '多选下拉', types: ['multiSelect'], colour: '#00695C', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'dateRange', label: '日期范围', types: ['dateRange'], colour: '#4E342E', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'colorPicker', label: '颜色选择器', types: ['colorPicker'], colour: '#AD1457', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] }
   ];
   function prevNext(b) { b.setPreviousStatement(true); b.setNextStatement(true); }
   var SHAPE_BUILD = {
@@ -1281,6 +1335,56 @@
       JS.forBlock[type] = SHAPE_GEN[shape];
     });
   });
+
+  /* ---------------- 通用控件动作：位置 / 大小 / 选项 ----------------
+     不按控件类型拆块（那会让代码清单膨胀几十种），统一放「控件」分类：
+       位置、大小对所有控件通用；选项只列会有多选项的控件（下拉/单选/多选/标签页）。 */
+  B.Blocks['act_set_pos'] = {
+    init: function () {
+      this.appendDummyInput().appendField('把').appendField(compField(), 'COMP');
+      this.appendValueInput('X').setCheck('Number').appendField('移到 X');
+      this.appendValueInput('Y').setCheck('Number').appendField('Y');
+      this.setInputsInline(true);
+      prevNext(this);
+      this.setColour(C_WIDGET);
+      this.setTooltip('把控件移到画布上的指定坐标：左上角是 0,0，单位像素；没接数字按 0 算。自动排列的控件执行后变成自由定位');
+    }
+  };
+  JS.forBlock['act_set_pos'] = function (b) {
+    var x = JS.valueToCode(b, 'X', JS.ORDER_ATOMIC) || '0';
+    var y = JS.valueToCode(b, 'Y', JS.ORDER_ATOMIC) || '0';
+    return 'RT.setPos(' + q(b.getFieldValue('COMP')) + ', ' + x + ', ' + y + ');\n';
+  };
+  B.Blocks['act_set_size'] = {
+    init: function () {
+      this.appendDummyInput().appendField('把').appendField(compField(), 'COMP').appendField('的尺寸设为');
+      this.appendValueInput('W').setCheck('Number').appendField('宽');
+      this.appendValueInput('H').setCheck('Number').appendField('高');
+      this.setInputsInline(true);
+      prevNext(this);
+      this.setColour(C_WIDGET);
+      this.setTooltip('修改控件的宽度和高度，单位像素；没接数字按 0 算');
+    }
+  };
+  JS.forBlock['act_set_size'] = function (b) {
+    var w = JS.valueToCode(b, 'W', JS.ORDER_ATOMIC) || '0';
+    var h = JS.valueToCode(b, 'H', JS.ORDER_ATOMIC) || '0';
+    return 'RT.setSize(' + q(b.getFieldValue('COMP')) + ', ' + w + ', ' + h + ');\n';
+  };
+  B.Blocks['act_set_options'] = {
+    init: function () {
+      this.appendDummyInput().appendField('把').appendField(compField(['select', 'radio', 'multiSelect', 'tabs']), 'COMP').appendField('的选项设为');
+      this.appendValueInput('TEXT');
+      this.setInputsInline(true);
+      prevNext(this);
+      this.setColour(C_WIDGET);
+      this.setTooltip('重新设置可选项：用逗号或换行分隔（如“苹果,香蕉,橙子”），运行时会立即刷新选项，选中值落到第一项');
+    }
+  };
+  JS.forBlock['act_set_options'] = function (b) {
+    var t = JS.valueToCode(b, 'TEXT', JS.ORDER_ATOMIC) || "''";
+    return 'RT.setOptions(' + q(b.getFieldValue('COMP')) + ', ' + t + ');\n';
+  };
 
   /* ---------------- 事件驱动代码生成 ----------------
      规则：只有顶部的“事件帽子块”(ev_*) 是程序入口；只有接在事件帽块下方的代码会执行。
@@ -1378,6 +1482,13 @@
     checkbox: { head: [], tail: ['<block type="act_set_checked">' + boolSh('VALUE', 'TRUE') + '</block>', plain('val_get_checked')] },
     slider: { head: [plain('ev_slider_change')], tail: ['<block type="act_set_slider">' + numSh('VALUE', '50') + '</block>', plain('val_get_slider')] },
     progress: { head: [], tail: ['<block type="act_set_progress">' + numSh('VALUE', '50') + '</block>', plain('val_get_progress')] },
+    tabs: { head: [plain('ev_change')], tail: ['<block type="val_comp_number"/>', '<block type="act_comp_set">' + numSh('VALUE', '1') + '</block>'] },
+    collapse: { head: [plain('ev_change')], tail: ['<block type="act_comp_set">' + boolSh('VALUE', 'TRUE') + '</block>', plain('val_comp_value')] },
+    rating: { head: [plain('ev_change')], tail: ['<block type="val_comp_number"/>', '<block type="act_comp_set">' + numSh('VALUE', '5') + '</block>'] },
+    ring: { head: [], tail: ['<block type="act_set_progress">' + numSh('VALUE', '50') + '</block>', plain('val_get_progress')] },
+    multiSelect: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '选项一,选项二') + '</block>'] },
+    dateRange: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '2025-01-01~2025-01-31') + '</block>'] },
+    colorPicker: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '#6750A4') + '</block>'] },
     video: { head: [], tail: [plain('act_video_play'), plain('act_video_pause'), plain('act_video_seek'), '<block type="act_video_src">' + txtSh('URL', 'https://视频地址.mp4') + '</block>'] },
     audio: { head: [], tail: [plain('act_audio_play'), plain('act_audio_pause'), plain('act_audio_seek'), '<block type="act_audio_src">' + txtSh('URL', 'https://音频地址.mp3') + '</block>'] },
     web: { head: [], tail: ['<block type="act_web_url">' + txtSh('URL', 'https://example.com') + '</block>'] }
@@ -1523,6 +1634,11 @@
     x += '<category name="页面" colour="#0B57D0">'
       + '<block type="act_toast">' + txtSh('MSG', '提示内容') + numSh('DUR', '2') + '</block>'
       + plain('act_goto') + plain('act_back') + '</category>';
+    x += '<category name="控件" colour="#8E24AA">'
+      + '<block type="act_set_pos">' + numSh('X', '20') + numSh('Y', '20') + '</block>'
+      + '<block type="act_set_size">' + numSh('W', '200') + numSh('H', '48') + '</block>'
+      + '<block type="act_set_options">' + txtSh('TEXT', '选项一,选项二,选项三') + '</block>'
+      + '</category>';
     x += '<category name="设备" colour="#546E7A">'
       + plain('val_device_info')
       + '<block type="act_vibrate">' + numSh('MS', '30') + '</block>'
@@ -1554,7 +1670,9 @@
       + plain('text_changeCase') + plain('text_trim') + plain('text_isEmpty')
       + plain('text_indexOf') + plain('text_charAt') + plain('text_getSubstring') + plain('text_replace')
       + plain('val_cast') + '</category>';
-    x += '<category name="数据列表" colour="#9C27B0">' + plain('lists_create_with') + plain('lists_length')
+    x += '<category name="数据列表" colour="#9C27B0">'
+      + plain('val_list_unique') + plain('val_json_parse') + plain('val_json_stringify')
+      + plain('lists_create_with') + plain('lists_length')
       + plain('lists_isEmpty') + plain('lists_repeat') + plain('lists_indexOf')
       + plain('lists_getIndex') + plain('lists_setIndex') + plain('lists_getSublist')
       + plain('lists_sort') + plain('lists_split')
@@ -1579,13 +1697,13 @@
   /* ---------------- 供编辑器构建 M3 分类轨道：分组顺序 + 图标 ---------------- */
   window.BB_GROUPS = {
     widget: CONTROL_GROUPS.map(function (g) { return g.label; }),
-    general: ['事件', '页面', '设备', '控制', '逻辑', '数学', '文本', '数据列表', '网络', '云列表', '颜色', '变量', '函数']
+    general: ['事件', '页面', '控件', '设备', '控制', '逻辑', '数学', '文本', '数据列表', '网络', '云列表', '颜色', '变量', '函数']
   };
   window.BB_CAT_ICON = {
     '按钮': 'Btn', '文字': 'Aa', '输入框': 'In', '列表': 'List', '图片': 'Img',
     '开关': 'Sw', '复选框': '✓', '滑块': 'Sl', '进度条': 'Pr',
     '视频播放器': '▶', '音频播放': '♪', '网页': 'W',
-    '事件': '▶', '页面': '⇄', '设备': 'Dev', '控制': 'Ctl', '逻辑': '&',
+    '事件': '▶', '页面': '⇄', '控件': '⊞', '设备': 'Dev', '控制': 'Ctl', '逻辑': '&',
     '数学': '∑', '文本': 'T', '数据列表': '[ ]', '网络': '⇅', '云列表': '☁', '颜色': '●', '变量': 'x'
   };
 
@@ -1669,6 +1787,12 @@
         { sig: '跳转到页面 ▾', desc: '切换到本 App 的另一个页面。', use: '点下拉选择目标页面，常用于按钮点击后翻页。新拖出的代码会自动选一个不是当前页的页面，避免“跳到自己”点了没反应；页面被删除后，指向它的代码会自动改为第一个页面。' },
         { sig: '返回上一页', desc: '回到上一个页面（等同系统返回）。', use: '用于“返回”按钮。注意：写在“当页面启动时”里的自动跳转不会占用返回栈（例如启动页自动进入主页后，按返回不会又被弹回启动页）；只有按钮等手动跳转才会。想做“返回首页”按钮，用这块比“跳转到页面”更合适。' }
       ]},
+      { cat: '控件', colour: '#8E24AA', intro: '不针对某一种控件、所有控件都能用的通用动作：改位置、改大小、换选项。',
+        blocks: [
+        { t: 'act_set_pos', sig: '把〔控件〕移到 X（数）Y（数）', desc: '把控件移动到画布上的指定坐标，左上角是 0,0，单位像素。自动排列的控件执行后会变成自由定位。', use: '两个缺口接数字；只改横向就把 Y 接当前值。常用于做拖拽、按条件挪动。' },
+        { t: 'act_set_size', sig: '把〔控件〕的尺寸设为 宽（数）高（数）', desc: '修改控件的宽度和高度，单位像素。', use: '可配合滑块让界面在运行时缩放。' },
+        { t: 'act_set_options', sig: '把〔控件〕的选项设为（文本）', desc: '替换下拉选择框、单选组、多选下拉、标签页的可选项，文字里用逗号或换行分隔每一项。', use: '适合运行时按数据动态生成选项；选中值会自动落到第一项（标签页回到第一页）。' }
+      ]},
       { cat: '设备', colour: '#546E7A', blocks: [
         { sig: '设备 ▾（当前帧率/CPU/内存/电量/温度/网络…）', desc: '取值代码，下拉选择要读取的设备信息：当前帧率(FPS)、屏幕刷新率、CPU 核数/占用率、GPU 占用率、内存占用/总量/可用、电量、是否充电、电池/设备温度、网络类型、是否联网、亮度、屏幕宽高、型号、安卓版本、语言等。', use: '接到“弹出提示”“设置文本”等缺口显示，或接到“如果”做判断。帧率为 App 实际渲染帧率；CPU/GPU 占用、温度为实时采样，个别机型不支持 GPU 占用时返回 -1。' },
         { sig: '震动 毫秒（数值）', desc: '让手机震动指定毫秒数。', use: '缺口接数字，如 30 表示短震动。' },
@@ -1705,6 +1829,9 @@
         { sig: '转换为 文本/数字/布尔值（值）', desc: '把任意值转换成指定类型。', use: '数字拼成提示文本前先转文本；文本数字参与计算前先转数字。' }
       ]},
       { cat: '数据列表', colour: '#9C27B0', blocks: [
+        { t: 'val_list_unique', sig: '列表（…）去掉重复项', desc: '重复出现的内容只留第一次，顺序不变。', use: '统计“有哪些不同的城市”时先去掉重复。' },
+        { t: 'val_json_parse', sig: '解析 JSON 文字（…）', desc: '把 JSON 格式的文字变成能取字段的数据；格式不对时返回空，不会让程序停下。', use: '接在“读取网址”后面，再用“取…的字段”读取返回内容里的某一项。' },
+        { t: 'val_json_stringify', sig: '把（…）转成 JSON 文字', desc: '把数据变成 JSON 格式的文字。', use: '要提交给服务器时，先用它转成文字，再交给“提交到网址”。' },
         { sig: '建立列表（项…）', desc: '创建一个列表，可放多个数据项，点齿轮增减项；留空即为空列表。', use: '整体接到“设置列表数据为”即可批量显示。' },
         { sig: '列表长度（列表）', desc: '返回列表里有多少项。', use: '接列表，返回数字。' },
         { sig: '把 ● ， ● 和 ● 放在一起', desc: '把多个值组合成一个列表，点齿轮增减圆圈数量（最少 2 个）。', use: '和“建立列表”效果相同，适合临时拼一组数据。' }
