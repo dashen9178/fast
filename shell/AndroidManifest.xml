@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.doubao.rt.a00000"
+    package="com.fast.app.rt.a00000"
     android:versionCode="1"
     android:versionName="0.00">
 
@@ -19,7 +19,7 @@
         android:allowBackup="true"
         android:usesCleartextTraffic="true">
         <activity
-            android:name="com.doubao.blockbuilder.MainActivity"
+            android:name="com.fast.app.MainActivity"
             android:exported="true"
             android:screenOrientation="@ORIENTATION@"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|uiMode">

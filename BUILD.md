@@ -25,13 +25,13 @@
 
 ## 一、整体架构（双壳 + 编辑器）
 
-- **编辑器 APK**（包名 `com.doubao.blockbuilder`，恒横屏）：
+- **编辑器 APK**（包名 `com.fast.app`，恒横屏）：
   - 首页「我的 App」：多作品本地管理（新建/打开/复制/删除，localStorage 键 `__bb_projects_v2`）。
   - Blockly 积木编辑器（`assets/www`）。
   - 内嵌两个运行时壳：`assets/shell.apk`（竖屏作品）、`assets/shell-land.apk`（横屏作品）。
   - 内嵌签名密钥（见「二、签名材料」）。
 - **运行时壳**：与编辑器共用同一套 Java/前端；启动发现 `assets/project.json` 即运行该作品。
-  - 清单中包名 `com.doubao.rt.a00000`、应用名 20 个 `X`、版本号 `0.00` 均为待替换值。
+  - 清单中包名 `com.fast.app.rt.a00000`、应用名 20 个 `X`、版本号 `0.00` 均为待替换值。
 - **导出原理**（`Exporter.java`，全部手机本地完成）：
   1. 按作品方向选竖/横壳；
   2. `AxmlRewriter.java` 重建二进制 Manifest 的字符串池，**任意长度**替换包名/应用名/版本号（不再需要等长锚点）；

@@ -1,4 +1,4 @@
-package com.doubao.blockbuilder;
+package com.fast.app;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -16,7 +16,7 @@ import java.io.File;
  */
 public class SimpleFileProvider extends ContentProvider {
 
-    public static final String AUTHORITY = "com.doubao.blockbuilder.fileprovider";
+    public static final String AUTHORITY = "com.fast.app.fileprovider";
 
     public static Uri uriFor(File f) {
         return Uri.parse("content://" + AUTHORITY + "/" + Uri.encode(f.getAbsolutePath(), "/"));

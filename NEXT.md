@@ -346,5 +346,114 @@
   `parent_dir`，`relative_path` 用返回的 `file_relative_path`；填 `/files/2026-10` 会报
   `Parent dir doesn't exist`，填 `/` 会报 `Parent dir doesn't match`。
 
+## 6.7 2026-10-27 第三轮（GitHub 仓库清理：明文凭据 + 历史重写）
+
+- 远端 `dashen9178/Fast` 是 **public**。上一轮只清了 `fast_project_v2`，**漏了根下的旧版 `fast_project/`**：
+  它的 `assets/www/editor.js` 里明文写着两个 SeaTable 全权 Token（账号/社区 + 更新表）。
+- 本轮处理：
+  1. 旧版 `fast_project/assets/www/editor.js` 的两个 Token → `REDACTED-BY-OWNER`；
+  2. `fast_project_v2` 的 `aliyun-fc-mail/README-部署说明.md`、`pc-sim/deploy-func.ps1`、
+     `pc-sim/verify-v5/v7/v9-live.mjs` 里的 App 下载口令 → 改为读 `FAST_APP_TOKEN` 环境变量；
+  3. 历史压平为**单个无父提交**并强推 main（`14de9852`），旧提交不再挂在任何 ref 上。
+- ⚠️ **force push 不等于删除**：GitHub 仍保留不可达对象，按 SHA 直查 API 仍返回明文
+  （已实测 `07223608` / `0fe4d18c` 均 200 且含 token）。彻底根治只有三条路：
+  转 private、删库重建（需 `delete_repo` 授权）、或联系 GitHub Support 清除。
+- 目前仓库里唯一剩下的口令是 `fast_project_v2/assets/www/editor.js` 的 `MAIL_APP_TOKEN`：
+  它是 APK 内置的下载口令（与 APK 一同公开分发），不是数据密钥；若要源码零口令，
+  可改成打包时由 `build.ps1` 从环境变量注入（同 `__BUILD__` 的做法）。
+- **实际处置（用户决定：改名 + 锁门 + 另开公开库）**：
+  - 旧库 `dashen9178/Fast` → 改名 **`dashen9178/fastbeifen`** 并转 **private**（旧历史仍在那里面，只有本人可访问）；
+  - 新建公开库 **`dashen9178/fast`**：只放 `fast_project_v2` 的 235 个文件（平铺到根，无 `fast_project_v2/` 这层），
+    单提交 `1a522cf8`，历史里没有旧令牌；
+  - GitHub 仓库名大小写不敏感 → `github.com/dashen9178/Fast` 现在直接解析到新公开库，旧链接不会失效；
+  - 新库扫描结果：0 个 SeaTable Token / 0 个 SMTP 授权码，仅 `assets/www/editor.js` 的 `MAIL_APP_TOKEN`（APK 内置下载口令）。
+  - ⚠️ 以后同步公开库用 `C:\...\Temp\gh-split.mjs` 的同款思路（Git Data API），**不要再把 v1 旧工程带进去**。
+
+## 6.8 2026-10-28 第四轮（APK 1.0.116.117：社区开源状态不刷新）
+
+- 用户报：发布时选了开源，之后改成不开源再更新，「云列表」里已经是“否”，但社区卡片还挂着“开源”。
+- 根因：`drawCommunity()` 的“内容指纹”只比 `作品iD/作品名/用户名/时间`，**没比「是否开源」和「封面图」**
+  → 判定“内容没变”直接 return，新读回来的行根本没重画（只有重启 App 才会变）。
+- 修复：指纹改为 作品iD + 作品名 + 作者 + 是否开源 + 封面图 + 时间（+ 条数），见 `assets/www/editor.js` `drawCommunity()`。
+- 回归：新增 `pc-sim/verify-comm-open.mjs`（开源→不开源，断言标签 2→0、保存本地按钮禁用 0→2）；
+  反向拿旧指纹跑会 FAIL（证明用例真能抓住这个 bug）；全量 156/156 通过。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.117.apk`（1817945 字节，
+  sha256 `047856F149701422AAE34E64C446EE429D2A29F23047990CA4748D6C5D0F3EF1`），FC `/healthz` = v15，
+  `/dl/…` 与 App 实际走的 `/api/download?path=files/2026-10/…&u=<更新库uuid>` 两条链路都实测 200 且哈希一致。
+- 「更新」表第 9 行 `1.0.116.117（26.10.28.01:04）` 的 `程序` 附件已补上（`/workspace/600134/asset/<uuid>/files/2026-10/FAST_v1.0.116.117.apk`）。
+- **教训**：
+  1. 改行必须用 `updates:[{ row_id, row:{列名:值} }]`（第 4 节早写了）；我这次先试 `_id`、再试把列名平铺在 updates 项上，
+     两种都回 `200 {"success":true}` 但**值根本没写进去** —— PUT 成功 ≠ 写成功，**必须读回核对**。
+  2. 同一张表上存在**两个** API 令牌：只读的那个走写接口一律 403 `You don't have permission…`，
+     别把它当成“权限被改/服务端故障”。用户给的 `5ada09e1…` 才是可读写的那枚。
+- 同步：公开库 `dashen9178/fast` 提交 `10bd5a8d`（`editor.js` + 新用例 + `VERSION`）。
+- 「工程」子表（列：`名称` / `文件` / `备份`）同一轮补齐：
+  - 117 行 → `文件` = `FAST-full-1.0.116.117.zip`（21,257,126B，1026 条目，
+    排除了 `fast-cloud/node_modules`、`fast-cloud/.wrangler`、`stage`、`out`、`keys`——`keys` 里是签名私钥，绝不能进附件）、
+    `备份` = `FAST_v1.0.116.117.apk`；
+  - 116 行 → 只补了 `备份`（APK），`文件` 仍为空：116 发版时没打工程包，没有快照。
+  - 两条下载链路都用 `/api/download?path=files/2026-10/…&u=<更新库uuid>` 验过 200。
+
+## 6.9 2026-10-28 第五轮（APK 1.0.116.119：选图后可裁剪）
+
+- 用户需求：「图片选择器增加裁剪功能，选择图片后可以裁剪」；
+  第二轮补充定调：「裁剪只允许正方形，固定大小的正方形，只能放大缩小图片调整选择范围」。
+- 实现（`assets/www/editor.js`）：`pickImage()` 读到图后不再直接缩，而是 `openCropper(img, cb)`；
+  新增 `openCropper()` —— 动态建 `#cropMask` 弹窗（标题 + 黑底舞台 + **固定正方形方块** + 取消/完成）。
+  - 方块边长 = `round(min(舞台宽, 高) * 0.82)`，**固定不变**；没有可拉角，改不了形状/大小；
+  - 调整方式只有两种：拖动图片平移（`偏`）、双指捏合或滚轮缩放（`倍`，范围 `最小倍 ~ 6×最小倍`）；
+    `最小倍 = max(方/原图宽, 方/原图高)`，保证任何时候图片都盖满方块（不会露黑边）；
+  - 坐标全按**布局像素**算，确认时按 `方 / 倍` 反推原图边长，天然是正方形；
+    出口仍压到 ≤256 的 PNG（工程体积口径不变）；
+  - 框外半透明黑用 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)` 铺（不用四块遮罩，不会露缝）；
+  - 「取消」不回调，调用方什么都不改。
+  - 三处入口自动都生效（图片控件属性面板 / 头像 / 应用图标）——它们本来就都走 `pickImage`。
+- 样式（`assets/www/editor.css`）：`.crop-stage img` 改绝对定位（宽高由 JS 写），新增 `.crop-sq`
+  （固定方块，`pointer-events:none`），删掉上一版的 `.crop-h` 四角手柄。
+- 专项用例 `pc-sim/verify-crop.mjs`：真人路径（导出弹窗 → 给 `#iconFile` 塞 400×200 图 → change）→
+  断言弹窗出现、无角手柄、方块宽=高且等于 `min(舞台)*0.82`、拖图时方块纹丝不动而图片动了、
+  滚轮放大后图片显示变大且裁出来的预览更小（200 → 102）、预览一律正方形且 ≤256、取消不改图。
+- **踩坑（写用例时）**：首页按钮是 `#btnNewApp`（不是 `#btnNew`）、确认建是 `#createGo`（不是 `#createOk`）、
+  名字输入是 `#newAppName`、编辑器视图是 `#viewEditor`（`#editorPage` 这个 id 不存在）。
+- **踩坑（量尺寸时）**：弹窗有 `pop` 进场动画，动画期间 `getBoundingClientRect()` 拿到的是**被 transform 缩过**的尺寸，
+  用它算方块边长会永久偏小（398 vs 407）——量舞台一律用 `clientWidth/clientHeight`。
+- **踩坑（跑脚本时）**：PowerShell 里 `& 'xxx.exe' script.mjs` 这种 GUI 子系统程序**不会等待、输出也丢**，
+  必须加 `| Out-String`（或 `*>&1 | Tee-Object`），否则会看到"退出码 0、什么都没发生"。
+- 回归：全量 `pc-sim\run-ui-test.ps1` **156/156 通过**；裁剪专项 `-Script verify-crop.mjs` 通过。
+- 交付：`D:\DSH工作\fastapk\FAST_v1.0.116.119.apk`（1822041 字节，
+  sha256 `41B314A13FD5B44C8D3CF1335FD2DB9BA319294E475636F5B1CDEBEF72BDE5F2`）。
+- 「更新」表第 11 行 `1.0.116.119（26.10.28.07:49）`（row `OQ6coqMYT7eouV1l4sEYvg`）+ `程序` 附件；
+  「工程」表新增 `1.0.116.119`（row `cPZRYgIYR4GPIbDxCdzQBw`）：
+  `文件` = `FAST-full-1.0.116.119.zip`（21,268,703B，1027 条目），`备份` = 119 APK。
+  附件下载（`/api/download?path=files/2026-10/…&u=<更新库uuid>`）实测 200，APK 哈希与本地一致。
+  （第 10 行 `1.0.116.118` 是"可拖方框"那版，已被用户否掉，留作记录。）
+- 同步：公开库 `dashen9178/fast` 提交 `2ca273a4`（第一版）→ `af55bdd7`（改成固定正方形这版）。
+
+## 6.10 2026-10-28 第六轮（APK 1.0.116.120：包名改为 com.fast.app）
+
+- 起因：`OPPO上架整改清单.md` 的 P0-1 —— 包名 `com.doubao.blockbuilder` 含字节跳动品牌词，商店必驳回。
+  用户决定**这一轮只改包名**，其余 P0/P1 项（应用名、隐私弹窗、安装收敛、targetSdk 等）暂不动。
+- 主包：`com.doubao.blockbuilder` → **`com.fast.app`**
+  - `src/com/doubao/blockbuilder/` 整体移到 `src/com/fast/app/`（6 个 java 的 `package` 行同步）；
+  - `AndroidManifest.xml`：`package`、`activity android:name`、`provider android:name`、`authorities`（→ `com.fast.app.fileprovider`）；
+  - `SimpleFileProvider.AUTHORITY` 常量与清单保持一致。
+- 导出链也一并去掉品牌词（作品壳模板原本是 `com.doubao.rt.a00000`）：
+  - `shell/AndroidManifest.xml` 包名 → `com.fast.app.rt.a00000`，activity 名 → `com.fast.app.MainActivity`；
+  - `Exporter.OLD_PACKAGE` 必须与 shell 模板**一字不差**（AxmlRewriter 靠它做二进制替换基准），
+    同步改成 `com.fast.app.rt.a00000`，`newPackage` 前缀改为 `com.fast.app.rt.`；
+  - `pc-sim/com/doubao/blockbuilder/` 两个模拟类随源码移到 `pc-sim/com/fast/app/`，包名与 `npkg` 同步；
+  - `run-export-test.ps1`、`diag-export.ps1` 的源路径与主类名、`adb-smoke.ps1` 的默认 `-Pkg` 同步。
+- 验证：
+  - `build.ps1` 出 `FAST_v1.0.116.120.apk`（1822041 字节）；`aapt2 dump badging` 显示
+    `package: name='com.fast.app' versionCode='236' versionName='1.0.116.120'`；
+  - `pc-sim\run-export-test.ps1` 全绿：两个作品包名分别为 `com.fast.app.rt.ih8ohd` / `com.fast.app.rt.je8t4k`，
+    说明替换基准没写错（写错的话 AxmlRewriter 会替换不动，成品还是旧包名）；
+  - 全量回归 `pc-sim\run-ui-test.ps1` **156/156 通过**。
+- **必须知道的两件事**：
+  1. 包名变了 = 全新应用，旧版 `com.doubao.blockbuilder` 不会被覆盖，会装成第二个 App；
+     旧版 localStorage 里的作品在新包里读不到（Android 按包名隔离数据），老用户只能先导出作品再重装。
+  2. OPPO 后台要按新包名 `com.fast.app` 建档，软著名称仍须与 `android:label`（当前还是 `𝑭𝑨𝑺𝑻`）一致 ——
+     P0-2 改名还没做。
+
 ## 7. 新会话怎么开口（给用户的话）
 > 读 `D:\DSH工作\Fast\fast_project_v2\NEXT.md`，然后接着干：<你要做的事>

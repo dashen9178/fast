@@ -12,7 +12,7 @@
 # 退出码：0 = 冒烟通过；1 = 发现问题；2 = 环境不具备（没 adb / 没设备）
 param(
   [string]$Apk = '',
-  [string]$Pkg = 'com.doubao.blockbuilder',
+  [string]$Pkg = 'com.fast.app',
   [int]$WaitSec = 6,
   [switch]$DryRun
 )

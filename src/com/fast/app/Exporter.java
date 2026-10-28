@@ -1,4 +1,4 @@
-package com.doubao.blockbuilder;
+package com.fast.app;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -41,7 +41,7 @@ public class Exporter {
 
     static final String SHELL_PORTRAIT = "shell.apk";
     static final String SHELL_LANDSCAPE = "shell-land.apk";
-    static final String OLD_PACKAGE = "com.doubao.rt.a00000";
+    static final String OLD_PACKAGE = "com.fast.app.rt.a00000";
     static final String LABEL_ANCHOR = "XXXXXXXXXXXXXXXXXXXX";
     static final String VERSION_ANCHOR = "0.00";
 
@@ -55,7 +55,7 @@ public class Exporter {
         version = version.replaceAll("[^0-9.]", "").trim();
         if (version.isEmpty() || version.length() > 12) version = "1.0";
 
-        String newPackage = "com.doubao.rt." + stableSuffix(appName);
+        String newPackage = "com.fast.app.rt." + stableSuffix(appName);
         String shellAsset = "landscape".equals(orientation) ? SHELL_LANDSCAPE : SHELL_PORTRAIT;
 
         File work = new File(ctx.getCacheDir(), "shell_in.apk");

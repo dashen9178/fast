@@ -1,4 +1,4 @@
-package com.doubao.blockbuilder;
+package com.fast.app;
 import com.android.apksig.ApkSigner;
 import java.io.*;
 import java.security.*;
@@ -51,7 +51,7 @@ public class ExportSim {
 
   static File build(File shell, String appName, String ver, File out) throws Exception {
     LinkedHashMap<String,byte[]> e=Exporter.readEntries(shell);
-    String npkg="com.doubao.rt."+suffix(appName);
+    String npkg="com.fast.app.rt."+suffix(appName);
     LinkedHashMap<String,String> repl=new LinkedHashMap<>();
     repl.put(Exporter.OLD_PACKAGE,npkg); repl.put(Exporter.LABEL_ANCHOR,appName); repl.put(Exporter.VERSION_ANCHOR,ver);
     e.put("AndroidManifest.xml", AxmlRewriter.replace(e.get("AndroidManifest.xml"),repl));

@@ -43,9 +43,9 @@ $exitCode = 0
 try {
   Write-Host "== [1/4] 准备临时工作目录 =="
   Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
-  New-Item -ItemType Directory -Force "$Work\src\com\doubao\blockbuilder", "$Work\assets", "$Work\classes", "$Work\out" | Out-Null
-  Copy-Item (Join-Path $projDir 'src\com\doubao\blockbuilder\*.java') "$Work\src\com\doubao\blockbuilder\" -Force
-  Copy-Item (Join-Path $PSScriptRoot 'com\doubao\blockbuilder\*.java') "$Work\src\com\doubao\blockbuilder\" -Force
+  New-Item -ItemType Directory -Force "$Work\src\com\fast\app", "$Work\assets", "$Work\classes", "$Work\out" | Out-Null
+  Copy-Item (Join-Path $projDir 'src\com\fast\app\*.java') "$Work\src\com\fast\app\" -Force
+  Copy-Item (Join-Path $PSScriptRoot 'com\fast\app\*.java') "$Work\src\com\fast\app\" -Force
   # 不再需要任何密钥文件：签名身份由被测代码在现场生成（DerX509 + DeviceKey 同一条路径）
   Copy-Item $shellPortrait, $shellLand "$Work\assets\" -Force
 
@@ -60,7 +60,7 @@ try {
   if ($javacExit -ne 0) { throw "javac 编译失败（退出码 $javacExit）" }
 
   Write-Host "== [3/4] 跑导出（改写包名/应用名/版本 -> 重打 ZIP -> 签名） =="
-  & $JAVA -cp "$Work\classes;$APKSIG" com.doubao.blockbuilder.ExportSim "$Work\assets" "$Work\out"
+  & $JAVA -cp "$Work\classes;$APKSIG" com.fast.app.ExportSim "$Work\assets" "$Work\out"
   if ($LASTEXITCODE -ne 0) { throw "导出模拟失败（退出码 $LASTEXITCODE）" }
 
   Write-Host "== [4/4] 逐个校验成品 =="

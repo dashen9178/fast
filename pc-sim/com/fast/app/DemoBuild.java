@@ -1,4 +1,4 @@
-package com.doubao.blockbuilder;
+package com.fast.app;
 import com.android.apksig.ApkSigner;
 import java.io.*;
 import java.security.*;
@@ -68,7 +68,7 @@ public class DemoBuild {
     String ver = a[3];
     File out = new File(a[4]);
 
-    String npkg = "com.doubao.rt." + suffix(appName);
+    String npkg = "com.fast.app.rt." + suffix(appName);
     LinkedHashMap<String, byte[]> e = Exporter.readEntries(shell);
     LinkedHashMap<String, String> repl = new LinkedHashMap<>();
     repl.put(Exporter.OLD_PACKAGE, npkg);

@@ -1,4 +1,4 @@
-package com.doubao.blockbuilder;
+package com.fast.app;
 
 import android.app.Activity;
 import android.app.Notification;

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.doubao.blockbuilder">
+    package="com.fast.app">
     <!-- 版本号不在此写死，统一由 build.sh 从 VERSION 文件读取并传入，保证每次出包递增 -->
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="30" />
@@ -39,7 +39,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:usesCleartextTraffic="true">
         <activity
-            android:name="com.doubao.blockbuilder.MainActivity"
+            android:name="com.fast.app.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="fullSensor"
@@ -50,8 +50,8 @@
             </intent-filter>
         </activity>
         <provider
-            android:name="com.doubao.blockbuilder.SimpleFileProvider"
-            android:authorities="com.doubao.blockbuilder.fileprovider"
+            android:name="com.fast.app.SimpleFileProvider"
+            android:authorities="com.fast.app.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true" />
     </application>
