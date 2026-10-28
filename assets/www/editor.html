@@ -546,8 +546,12 @@
     <div id="layPageMenu" class="popover lay-page-menu hidden"></div>
   </div>
   <div class="lay-stage-wrap">
-    <div id="layStage" class="lay-stage portrait">
-      <div id="layFlow" class="lay-flow"></div>
+    <!-- 「如何预览」：外层 #layShell 是**预览设备**（按所选方向），里面 #layStage 永远是页面自己的设计画布；
+         两者方向不一致时，把页面画面等比缩进设备框里居中显示（横屏页面选竖屏 = 竖框里显示横屏画面） -->
+    <div id="layShell" class="lay-shell">
+      <div id="layStage" class="lay-stage portrait">
+        <div id="layFlow" class="lay-flow"></div>
+      </div>
     </div>
   </div>
   <!-- 控件控制台（横屏=右侧侧拉面板，竖屏=底部上拉抽屉，仅点按钮展开） -->

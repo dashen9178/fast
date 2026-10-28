@@ -5843,33 +5843,48 @@
    *   · dataset.scale 记录真实缩放比，指针坐标换算（getBoundingClientRect 除以 k）依旧成立。
    */
   function fitStage() {
-    var wrap = document.querySelector('#viewLayout .lay-stage-wrap'), stage = $('layStage');
-    if (!wrap || !stage || !state.inLayout) return;
+    var wrap = document.querySelector('#viewLayout .lay-stage-wrap'), stage = $('layStage'), shell = $('layShell');
+    if (!wrap || !stage || !shell || !state.inLayout) return;
     if (wrap.clientWidth < 2 || wrap.clientHeight < 2) return;   // 旋转动画中容器还没好，等 resize
     var changed = captureDesign();                              // 用真机可用区刷新设计画布尺寸
-    var pityO = layoutOrient();                                 // 「如何预览」：自动/强制竖/强制横
-    var landscape = pityO === 'landscape';
-    stage.classList.toggle('portrait', !landscape);
-    stage.classList.toggle('landscape', landscape);
-    var d = designSize(pityO);
-    // 设计尺寸当舞台，等比 contain 缩放到可用区（留一点边距，别贴着边）
+    var pageO = curOrient();                                    // 页面自己的方向 → 决定**画面**怎么排
+    var pityO = layoutOrient();                                 // 「如何预览」→ 决定**预览框**什么方向
+    var frameLand = pityO === 'landscape';
+    shell.classList.toggle('portrait', !frameLand);
+    shell.classList.toggle('landscape', frameLand);
+    shell.classList.toggle('forced', pityO !== pageO);            // 方向不一样才把设备框画出来
+    // 画面方向始终按页面自己标（强制预览不改页面方向，也不改画面排版）
+    stage.classList.toggle('portrait', pageO !== 'landscape');
+    stage.classList.toggle('landscape', pageO === 'landscape');
+    var frame = designSize(pityO);                               // 预览框（设备）尺寸
+    var content = designSize(pageO);                             // 页面设计画布尺寸
+    // 设备框等比 contain 到可用区（留一点边距，别贴着边）
     var pad = 8;
-    var k = Math.min((wrap.clientWidth - pad * 2) / d.w, (wrap.clientHeight - pad * 2) / d.h);
-    if (!(k > 0) || !isFinite(k)) k = 1;
-    k = k * layZoom();     // 「刚好放下」的基准比例 × 用户双指缩放
-    stage.style.width = d.w + 'px';
-    stage.style.height = d.h + 'px';
-    stage.dataset.scale = String(k);
+    var kf = Math.min((wrap.clientWidth - pad * 2) / frame.w, (wrap.clientHeight - pad * 2) / frame.h);
+    if (!(kf > 0) || !isFinite(kf)) kf = 1;
+    kf = kf * layZoom();     // 「刚好放下」的基准比例 × 用户缩放
+    // 画面等比缩进设备框里居中：方向不同（如竖框看横屏页）就上下/左右留边
+    var kc = kf * Math.min(frame.w / content.w, frame.h / content.h);
+    shell.style.width = frame.w + 'px';
+    shell.style.height = frame.h + 'px';
+    shell.dataset.scale = String(kf);
+    shell.style.transformOrigin = 'top left';
+    shell.style.transform = 'scale(' + kf + ')';
+    stage.style.width = content.w + 'px';
+    stage.style.height = content.h + 'px';
+    stage.style.left = Math.round((frame.w - content.w) / 2) + 'px';
+    stage.style.top = Math.round((frame.h - content.h) / 2) + 'px';
+    stage.dataset.scale = String(kc);                            // 指针坐标换算用**画面**缩放比
     stage.style.transformOrigin = 'top left';
-    stage.style.transform = 'scale(' + k + ')';
-    // 缩放后视觉尺寸 = 设计尺寸 × k；先居中，再叠加用户平移（放大到超出可用区时可拖动看别处）
-    var zw = d.w * k, zh = d.h * k;
+    stage.style.transform = 'scale(' + (kc / kf) + ')';
+    // 设备框缩放后视觉尺寸 = 框尺寸 × kf；先居中，再叠加用户平移
+    var zw = frame.w * kf, zh = frame.h * kf;
     var px = Number(state.layPanX) || 0, py = Number(state.layPanY) || 0;
     var left = (wrap.clientWidth - zw) / 2 + px, top = (wrap.clientHeight - zh) / 2 + py;
     left = zw <= wrap.clientWidth ? (wrap.clientWidth - zw) / 2 : Math.max(wrap.clientWidth - zw, Math.min(0, left));
     top = zh <= wrap.clientHeight ? (wrap.clientHeight - zh) / 2 : Math.max(wrap.clientHeight - zh, Math.min(0, top));
-    stage.style.marginLeft = Math.round(left) + 'px';
-    stage.style.marginTop = Math.round(top) + 'px';
+    shell.style.marginLeft = Math.round(left) + 'px';
+    shell.style.marginTop = Math.round(top) + 'px';
     if (changed) renderLayStage();                              // 画布尺寸变化后重新摆放所有组件
   }
   /* ---------------- 布局页：双指缩放 + 单指平移 ----------------

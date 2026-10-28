@@ -1937,33 +1937,42 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   if (场景.错误) throw new Error(场景.错误);
 
   const 量 = () => js(`(function(){
-    var s = document.getElementById('layStage');
-    if (!s) return { 没有舞台: true };
-    return { 类: s.className, 宽: s.offsetWidth, 高: s.offsetHeight };
+    var s = document.getElementById('layStage'), sh = document.getElementById('layShell');
+    if (!s || !sh) return { 没有舞台: true };
+    return { 画面类: s.className, 画面宽: s.offsetWidth, 画面高: s.offsetHeight,
+             框类: sh.className, 框宽: sh.offsetWidth, 框高: sh.offsetHeight,
+             强制: sh.classList.contains('forced') };
   })()`);
 
-  // ①「自动」+ 横屏页面 → 横屏预览
+  // ①「自动」+ 横屏页面 → 横屏框 + 横屏画面
   await js(`document.getElementById('btnLayout').click()`);
   await sleep(1400);
   const 自动横 = await 量();
-  if (!/landscape/.test(自动横.类) || !(自动横.宽 > 自动横.高)) {
-    throw new Error('「自动」时应跟页面走（横屏页 → 横屏预览），实际：' + JSON.stringify(自动横));
+  if (!/landscape/.test(自动横.框类) || !(自动横.框宽 > 自动横.框高)) {
+    throw new Error('「自动」时应跟页面走（横屏页 → 横屏预览框），实际：' + JSON.stringify(自动横));
   }
+  if (!/landscape/.test(自动横.画面类) || !(自动横.画面宽 > 自动横.画面高)) {
+    throw new Error('横屏页面的画面本身应是横的：' + JSON.stringify(自动横));
+  }
+  if (自动横.强制) throw new Error('方向和页面一致时不该显示强制预览框：' + JSON.stringify(自动横));
 
-  // ② 用户报的 bug：换到竖屏页面，预览必须回到竖屏（带 portrait 类、宽 390）
+  // ② 用户报的 bug：换到竖屏页面，预览必须回到竖屏（框和画面都竖）
   await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.竖页)})`);
   await sleep(900);
   const 换竖 = await 量();
-  if (!/portrait/.test(换竖.类) || !(换竖.高 > 换竖.宽)) {
-    throw new Error('换到竖屏页面后预览没回到竖屏（还是横着展示竖屏）：' + JSON.stringify(换竖));
+  if (!/portrait/.test(换竖.框类) || !(换竖.框高 > 换竖.框宽)) {
+    throw new Error('换到竖屏页面后预览框没回到竖屏（还是横着展示竖屏）：' + JSON.stringify(换竖));
   }
-  if (Math.abs(换竖.宽 - 390) > 2) throw new Error('竖屏预览的舞台宽度应为 390，实际 ' + 换竖.宽);
+  if (!/portrait/.test(换竖.画面类) || !(换竖.画面高 > 换竖.画面宽)) {
+    throw new Error('换到竖屏页面后画面还是横的：' + JSON.stringify(换竖));
+  }
+  if (Math.abs(换竖.画面宽 - 390) > 2) throw new Error('竖屏画面的宽度应为 390，实际 ' + 换竖.画面宽);
 
   // ③ 再换回横屏页面，方向同样要跟回去
   await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.横页)})`);
   await sleep(900);
   const 换横 = await 量();
-  if (!/landscape/.test(换横.类) || !(换横.宽 > 换横.高)) {
+  if (!/landscape/.test(换横.框类) || !(换横.框宽 > 换横.框高)) {
     throw new Error('换回横屏页面后预览没回到横屏：' + JSON.stringify(换横));
   }
 
@@ -1988,7 +1997,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   const 默认勾 = 菜单.项.filter(function (x) { return x.勾选; }).map(function (x) { return x.模式; }).join(',');
   if (默认勾 !== 'auto') throw new Error('默认应勾「自动」，实际勾的是：' + 默认勾);
 
-  // ⑤ 竖屏页面 + 强制横屏 → 必须横着预览，且不能改页面自身方向
+  // ⑤ 竖屏页面 + 强制横屏 → 框是横的，画面仍是页面自己的竖屏画面（且不能改页面方向）
   await js(`document.getElementById('layoutOrientMenu').querySelector('[data-mode="landscape"]').click()`);
   await sleep(300);
   await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.竖页)})`);
@@ -1996,9 +2005,13 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   await js(`document.getElementById('btnLayout').click()`);
   await sleep(1400);
   const 强制横 = await 量();
-  if (!/landscape/.test(强制横.类) || !(强制横.宽 > 强制横.高)) {
-    throw new Error('选了「横屏」后，竖屏页面也必须横着预览：' + JSON.stringify(强制横));
+  if (!/landscape/.test(强制横.框类) || !(强制横.框宽 > 强制横.框高) || !强制横.强制) {
+    throw new Error('选了「横屏」后，预览框必须是横的：' + JSON.stringify(强制横));
   }
+  if (!/portrait/.test(强制横.画面类) || !(强制横.画面高 > 强制横.画面宽)) {
+    throw new Error('强制横屏只是换框，竖屏页面的画面本身仍应是竖的：' + JSON.stringify(强制横));
+  }
+  if (Math.abs(强制横.画面宽 - 390) > 2) throw new Error('竖屏页面画面宽度应为 390，实际 ' + 强制横.画面宽);
   const 页向 = await js(`(function(){
     var p = window.EditorApp.__proj();
     var s = p.screens.filter(function (x) { return x.id === ${JSON.stringify(场景.竖页)}; })[0];
@@ -2008,7 +2021,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   await js(`document.getElementById('layBack').click()`);
   await sleep(700);
 
-  // ⑥ 横屏页面 + 强制竖屏 → 必须竖着预览
+  // ⑥ 横屏页面 + 强制竖屏 → 框是竖的，里面装横屏画面（用户要的“竖屏展示横屏的画面”）
   await js(`(function(){
     document.getElementById('btnLayoutCaret').click();
     document.getElementById('layoutOrientMenu').querySelector('[data-mode="portrait"]').click();
@@ -2019,9 +2032,13 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   await js(`document.getElementById('btnLayout').click()`);
   await sleep(1400);
   const 强制竖 = await 量();
-  if (!/portrait/.test(强制竖.类) || !(强制竖.高 > 强制竖.宽)) {
-    throw new Error('选了「竖屏」后，横屏页面也必须竖着预览：' + JSON.stringify(强制竖));
+  if (!/portrait/.test(强制竖.框类) || !(强制竖.框高 > 强制竖.框宽) || !强制竖.强制) {
+    throw new Error('选了「竖屏」后，预览框必须是竖的：' + JSON.stringify(强制竖));
   }
+  if (!/landscape/.test(强制竖.画面类) || !(强制竖.画面宽 > 强制竖.画面高)) {
+    throw new Error('强制竖屏时，横屏页面的画面必须保持横的（竖框里装横画面）：' + JSON.stringify(强制竖));
+  }
+  if (Math.abs(强制竖.框宽 - 390) > 2) throw new Error('竖屏框的宽度应为 390，实际 ' + 强制竖.框宽);
   await js(`document.getElementById('layBack').click()`);
   await sleep(700);
 
@@ -2039,9 +2056,10 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   const 还原 = await js(`window.EditorApp.__aiScreens().length`);
   if (还原 !== 1) throw new Error('临时页面没清理干净，剩 ' + 还原 + ' 个页面');
 
-  return { 自动: '横页→横屏、竖页→竖屏 ✓', 换页方向: '跟随 ✓',
+  return { 自动: '横页→横框、竖页→竖框 ✓', 换页方向: '跟随 ✓',
            菜单: '自动/竖屏/横屏，默认自动 ✓',
-           强制横: 强制横.宽 + 'x' + 强制横.高, 强制竖: 强制竖.宽 + 'x' + 强制竖.高 };
+           强制横: '框 ' + 强制横.框宽 + 'x' + 强制横.框高 + '，画面 ' + 强制横.画面宽 + 'x' + 强制横.画面高,
+           强制竖: '框 ' + 强制竖.框宽 + 'x' + 强制竖.框高 + '，画面 ' + 强制竖.画面宽 + 'x' + 强制竖.画面高 };
 });
 
 // 用户反馈："设置横屏，运行时先竖屏再横屏"。

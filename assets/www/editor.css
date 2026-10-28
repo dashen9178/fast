@@ -993,8 +993,17 @@ button.small#btnReset, .pp-field .small { height: 34px; }
   touch-action: none;   /* 双指缩放自己处理，别让浏览器拿去当页面缩放/滚动 */
   background: var(--c);              /* 比画布底色深一点，衬出"手机屏幕"的边界 */
   transition: margin-right .24s var(--ease); }
+.lay-shell {
+  /* 预览设备框：尺寸/缩放由 fitStage 按「如何预览」算；auto 时和 #layStage 完全重合，不额外显示边框 */
+  position: relative; transform-origin: top left;
+}
+.lay-shell.forced {
+  /* 只有“强制方向和页面自己不一致”时才画出来：外面是竖/横设备，里面是页面本身的画面 */
+  background: var(--c-high); border-radius: 14px;
+  box-shadow: 0 0 0 1px var(--outline-var), 0 8px 26px rgba(0,0,0,.20);
+}
 .lay-stage {
-  position: relative; background: #f7f6fa;
+  position: absolute; left: 0; top: 0; background: #f7f6fa;
   /* 画布边界要看得出来：这就是"手机屏幕"的范围，也是运行时/导出真正会渲染的区域 */
   border: 1px solid var(--outline-var); border-radius: 10px;
   box-shadow: 0 8px 26px rgba(0,0,0,.22);
