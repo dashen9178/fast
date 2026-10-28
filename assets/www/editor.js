@@ -5872,8 +5872,11 @@
     shell.style.transform = 'scale(' + kf + ')';
     stage.style.width = content.w + 'px';
     stage.style.height = content.h + 'px';
-    stage.style.left = Math.round((frame.w - content.w) / 2) + 'px';
-    stage.style.top = Math.round((frame.h - content.h) / 2) + 'px';
+    // 居中必须按**缩放后**的画面尺寸算：画面自己的 transform 是 scale(kc/kf)，
+    // 若仍用 content.w/h 去减（设计像素），强制翻转时会整体偏左上（2026-10-28 用户截图报的）。
+    var cw = content.w * (kc / kf), ch = content.h * (kc / kf);
+    stage.style.left = Math.round((frame.w - cw) / 2) + 'px';
+    stage.style.top = Math.round((frame.h - ch) / 2) + 'px';
     stage.dataset.scale = String(kc);                            // 指针坐标换算用**画面**缩放比
     stage.style.transformOrigin = 'top left';
     stage.style.transform = 'scale(' + (kc / kf) + ')';

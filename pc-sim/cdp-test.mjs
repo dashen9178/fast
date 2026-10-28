@@ -1939,10 +1939,18 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   const 量 = () => js(`(function(){
     var s = document.getElementById('layStage'), sh = document.getElementById('layShell');
     if (!s || !sh) return { 没有舞台: true };
+    var sr = s.getBoundingClientRect(), hr = sh.getBoundingClientRect();
     return { 画面类: s.className, 画面宽: s.offsetWidth, 画面高: s.offsetHeight,
              框类: sh.className, 框宽: sh.offsetWidth, 框高: sh.offsetHeight,
-             强制: sh.classList.contains('forced') };
+             强制: sh.classList.contains('forced'),
+             左距: Math.round(sr.left - hr.left), 右距: Math.round(hr.right - sr.right),
+             上距: Math.round(sr.top - hr.top), 下距: Math.round(hr.bottom - sr.bottom) };
   })()`);
+  const 居中 = (m, 名) => {
+    if (Math.abs(m.左距 - m.右距) > 3 || Math.abs(m.上距 - m.下距) > 3) {
+      throw new Error(名 + '里面画面没有居中（左/右 ' + m.左距 + '/' + m.右距 + '，上/下 ' + m.上距 + '/' + m.下距 + '）');
+    }
+  };
 
   // ①「自动」+ 横屏页面 → 横屏框 + 横屏画面
   await js(`document.getElementById('btnLayout').click()`);
@@ -1955,6 +1963,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     throw new Error('横屏页面的画面本身应是横的：' + JSON.stringify(自动横));
   }
   if (自动横.强制) throw new Error('方向和页面一致时不该显示强制预览框：' + JSON.stringify(自动横));
+  居中(自动横, '自动横屏');
 
   // ② 用户报的 bug：换到竖屏页面，预览必须回到竖屏（框和画面都竖）
   await js(`window.EditorApp.__aiSwitchScreen(${JSON.stringify(场景.竖页)})`);
@@ -2012,6 +2021,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     throw new Error('强制横屏只是换框，竖屏页面的画面本身仍应是竖的：' + JSON.stringify(强制横));
   }
   if (Math.abs(强制横.画面宽 - 390) > 2) throw new Error('竖屏页面画面宽度应为 390，实际 ' + 强制横.画面宽);
+  居中(强制横, '强制横屏');
   const 页向 = await js(`(function(){
     var p = window.EditorApp.__proj();
     var s = p.screens.filter(function (x) { return x.id === ${JSON.stringify(场景.竖页)}; })[0];
@@ -2039,6 +2049,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     throw new Error('强制竖屏时，横屏页面的画面必须保持横的（竖框里装横画面）：' + JSON.stringify(强制竖));
   }
   if (Math.abs(强制竖.框宽 - 390) > 2) throw new Error('竖屏框的宽度应为 390，实际 ' + 强制竖.框宽);
+  居中(强制竖, '强制竖屏');
   await js(`document.getElementById('layBack').click()`);
   await sleep(700);
 
