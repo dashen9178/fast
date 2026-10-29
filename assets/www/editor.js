@@ -2287,9 +2287,13 @@
   }
   function genId(type) {
     var max = 0;
-    state.project.screens.forEach(function (s) { s.components.forEach(function (c) {
+    // 容器里的子控件也要算：只扫顶层的话，把 button1 放进容器后再新建按钮又会叫 button1，
+    // 同一个 id 出现两次 → 运行时代码/事件全串。2026-10-29 回归抓到的。
+    function 扫(c) {
       if (c.id && c.id.indexOf(type) === 0) { var n = parseInt(c.id.slice(type.length), 10); if (!isNaN(n)) max = Math.max(max, n); }
-    }); });
+      if (c.children) { for (var i = 0; i < c.children.length; i++) 扫(c.children[i]); }
+    }
+    state.project.screens.forEach(function (s) { s.components.forEach(function (c) { 扫(c); }); });
     return type + (max + 1);
   }
   // 控件在代码下拉里的“可读名”：优先用户命名，其次控件上实际显示的文案（如按钮文字 A），
@@ -2613,17 +2617,38 @@
   function bindCardReorder(card, compId) {
     var box = $('compList');
     var armTimer = null, dragging = false, startX = 0, startY = 0, grabY = 0, ph = null, fromIdx = -1, edgeDir = 0, edgeRaf = 0;
+    var 落点容器 = null;                       // 松手时如果指在某个容器上，就放进它
     function clearArm() { if (armTimer) { clearTimeout(armTimer); armTimer = null; } }
+    /* 手指指到哪个容器身上了：指容器卡片本身、或指容器里的子卡片，都算落在这个容器上。
+       拖动中的卡片被设了 pointer-events:none，所以这里"摸"到的是它下面的卡片。 */
+    function 拖到哪个容器(x, y) {
+      var n = document.elementFromPoint(x, y);
+      var cc = n && n.closest ? n.closest('.compcard') : null;
+      if (!cc || !cc.dataset.id) return null;
+      if (cc.dataset.id === compId) return null;
+      var 源 = 找控件(cc.dataset.id);
+      if (!源) return null;
+      if (源.parent) return 源.parent;
+      return 是容器(源.c) ? 源.c : null;
+    }
+    function 标容器高亮(容器) {
+      Array.prototype.forEach.call(box.querySelectorAll('.compcard.drop-in'), function (n) { n.classList.remove('drop-in'); });
+      if (!容器) return;
+      var 卡 = box.querySelector('.compcard[data-id="' + 容器.id + '"]');
+      if (卡) 卡.classList.add('drop-in');
+    }
     function beginDrag(downE) {
       var sc = curScreen();
       fromIdx = sc.components.findIndex(function (x) { return x.id === compId; });
       if (fromIdx < 0) return;
       dragging = true; cardReorder.start(compId);
+      落点容器 = null;
       var r = card.getBoundingClientRect();
       grabY = startY - r.top;
       ph = el('div', 'compcard-reph');
       ph.style.height = r.height + 'px';
       card.classList.add('reordering');
+      card.style.pointerEvents = 'none';   // 让下面的卡片能被"摸"到，否则永远只摸到拖着的这张
       card.style.width = r.width + 'px';
       card.style.left = r.left + 'px';
       card.style.top = (downE.clientY - grabY) + 'px';
@@ -2656,6 +2681,14 @@
       }
       e.preventDefault();
       card.style.top = (e.clientY - grabY) + 'px';
+      // 指在容器身上时不排位，只把容器点亮，松手就放进去
+      落点容器 = 拖到哪个容器(e.clientX, e.clientY);
+      标容器高亮(落点容器);
+      if (落点容器) {
+        if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
+        edgeDir = 0;
+        return;
+      }
       var others = Array.prototype.slice.call(box.querySelectorAll('.compcard:not(.reordering)'));
       var target = others.length;
       for (var i = 0; i < others.length; i++) {
@@ -2696,6 +2729,19 @@
       if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
       if (dragging) {
         dragging = false;
+        标容器高亮(null);
+        // 松手时指在容器上 → 放进容器（不走排序）
+        if (落点容器) {
+          var 目标 = 落点容器; 落点容器 = null;
+          if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
+          cardReorder.stop();
+          if (移入容器(compId, 目标.id)) {
+            renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已放进容器');
+          } else {
+            renderCompList();
+          }
+          return;
+        }
         // 松手不再"啪"一下跳回去：让卡片从当前位置滑到落点（占位虚线框那儿），落稳再重排列表
         var 落点 = null;
         try { 落点 = ph ? ph.getBoundingClientRect() : null; } catch (e) {}
@@ -6548,11 +6594,35 @@
   }
   function bindLitemDrag(item, c, 父) {
     var sx = 0, sy = 0, ox = 0, oy = 0, moved = false, active = false, pid = null;
+    var lx = 0, ly = 0;                              // 最后一次指针位置（松手时判落点用）
+    var 落点容器 = null;
     var wasAuto = !(validN(c.x) || validN(c.y));   // 自动排列组件被拖后转绝对定位，但保持当前形状不变
+    /* 指针底下是哪个容器：摸之前先把被拖的这块临时"隐身"，否则永远只摸到自己 */
+    function 指到的容器(x, y) {
+      if (父) return null;                          // 已经在容器里的不搬家
+      item.style.pointerEvents = 'none';
+      var n = document.elementFromPoint(x, y);
+      item.style.pointerEvents = '';
+      var li = n && n.closest ? n.closest('.litem') : null;
+      if (!li || !li.dataset.id || li.dataset.id === c.id) return null;
+      var 源 = 找控件(li.dataset.id);
+      if (!源) return null;
+      if (源.parent) return 源.parent;
+      return 是容器(源.c) ? 源.c : null;
+    }
+    function 高亮容器(容器) {
+      var st = $('layStage');
+      if (!st) return;
+      Array.prototype.forEach.call(st.querySelectorAll('.litem.drop-in'), function (n) { n.classList.remove('drop-in'); });
+      if (!容器) return;
+      var li = st.querySelector('.litem[data-id="' + 容器.id + '"]');
+      if (li) li.classList.add('drop-in');
+    }
     function down(e) {
       if (state.__pinching) return;                       // 缩放中第二根手指不要再启动拖动
       try { item.setPointerCapture(e.pointerId); } catch (err) {}
       pid = e.pointerId; sx = e.clientX; sy = e.clientY;
+      lx = e.clientX; ly = e.clientY; 落点容器 = null;
       ox = parseFloat(item.style.left) || 0; oy = parseFloat(item.style.top) || 0;
       moved = false; active = true; item.classList.add('dragging'); e.preventDefault();
     }
@@ -6597,15 +6667,38 @@
       var nx = Math.max(0, Math.min(sw - item.offsetWidth, ox + dx / k));
       var ny = Math.max(0, Math.min(sh - item.offsetHeight, oy + dy / k));
       item.style.left = Math.round(nx) + 'px'; item.style.top = Math.round(ny) + 'px';
+      lx = e.clientX; ly = e.clientY;
+      // 拖到容器框上就点亮它，松手直接放进去（放进去后坐标由容器接管）
+      落点容器 = 指到的容器(lx, ly);
+      高亮容器(落点容器);
         try { var 手 = $('layStage') && $('layStage').querySelector('.li-rs[data-for="' + c.id + '"]'); if (手) 摆手柄(手, item); } catch (e2) {}
       e.preventDefault();
     }
     function up(e) {
       if (!active || (e && e.pointerId !== pid)) return;
       active = false; pid = null; item.classList.remove('dragging');
+      高亮容器(null);
       if (moved) {
         c.x = Math.round(parseFloat(item.style.left)); c.y = Math.round(parseFloat(item.style.top));
         c.cx = false;        // 手动拖动 = 主动放弃"居中锁"（否则拖完又被拉回中间，像拖不动）
+        // 松手时压在容器框上 → 收进容器，坐标落在手指位置（减容器原点变成相对坐标）
+        var 目标 = 落点容器; 落点容器 = null;
+        if (目标) {
+          var sr = $('layStage').getBoundingClientRect(), k2 = stageScale();
+          var cw = validN(c.w) ? c.w : Math.round(item.offsetWidth / k2);
+          var ch = validN(c.h) ? c.h : Math.round(item.offsetHeight / k2);
+          c.w = cw; c.h = ch;
+          c.x = Math.max(0, Math.round((lx - sr.left) / k2 - cw / 2));
+          c.y = Math.max(0, Math.round((ly - sr.top) / k2 - ch / 2));
+          if (移入容器(c.id, 目标.id)) {
+            state.selectedCompId = c.id;
+            $('layFab').classList.remove('hidden');
+            autosave(); renderLayStage(); renderLaySheet();
+            snack('已放进容器');
+            return;
+          }
+          c.x = Math.round(parseFloat(item.style.left)); c.y = Math.round(parseFloat(item.style.top));
+        }
         state.selectedCompId = c.id;
         $('layFab').classList.remove('hidden');
         autosave();

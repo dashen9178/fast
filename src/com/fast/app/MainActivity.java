@@ -70,6 +70,13 @@ public class MainActivity extends Activity {
     // 代码块「发通知」用的通道与通知 id（和"运行中"卡片分开，互不影响）
     private static final String CH_NOTICE = "fast_notice";
     private static final int NOTICE_ID = 8802;
+    // 记录「通知权限问过一次了」：安卓 13+ 里如果用户拒过（或勾了不再询问），
+    // 系统**不会再弹授权框**，只能引导去设置页。没有这个标记就分不清
+    // "从没问过" 和 "问过但被永久拒绝"，会一直傻等一个永远不出现的弹窗。
+    private static final String PREF_NOTIF = "fast_notif";
+    // 用户正在授权框里选的时候，先把要发的这条通知存下来；允许后补发
+    private String pendingNotifTitle;
+    private String pendingNotifText;
     private String pendingPickCb;                   // 对应的网页回调 id
     private String pendingMediaKind;
 
@@ -366,6 +373,55 @@ public class MainActivity extends Activity {
                 }
             }).start();
         }
+    }
+
+    /**
+     * 通知栏权限的授权结果。用户点了"允许"就把刚才那条没发出去的通知补发一下
+     * （不然用户会看到"允许了却什么都没发生"，还得再点一次）。
+     */
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQ_NOTIF) return;
+        boolean 允许 = grantResults != null && grantResults.length > 0
+                && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (允许) {
+            String t = pendingNotifTitle; pendingNotifTitle = null;
+            String x = pendingNotifText; pendingNotifText = null;
+            if (t != null || x != null) postNotice(t, x);
+        } else {
+            pendingNotifTitle = null; pendingNotifText = null;
+            Toast.makeText(this, "没有通知权限，通知栏不会显示。想开的话去系统设置里打开", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** 真正往通知栏贴一条（权限没给时系统会静默丢掉，所以调用前要自己判断） */
+    private void postNotice(final String title, final String text) {
+        main.post(new Runnable() { @Override public void run() {
+            try {
+                NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (nm == null) return;
+                if (Build.VERSION.SDK_INT >= 26) {
+                    NotificationChannel ch = new NotificationChannel(CH_NOTICE, "作品通知",
+                            NotificationManager.IMPORTANCE_DEFAULT);
+                    nm.createNotificationChannel(ch);
+                }
+                Intent it = new Intent(MainActivity.this, MainActivity.class);
+                it.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+                PendingIntent pi = PendingIntent.getActivity(MainActivity.this, NOTICE_ID, it, flags);
+                String t = (title == null || title.trim().isEmpty()) ? "FAST" : title.trim();
+                Notification.Builder nb = (Build.VERSION.SDK_INT >= 26)
+                        ? new Notification.Builder(MainActivity.this, CH_NOTICE)
+                        : new Notification.Builder(MainActivity.this);
+                nb.setSmallIcon(android.R.drawable.ic_dialog_info)
+                        .setContentTitle(t)
+                        .setContentText(text == null ? "" : text)
+                        .setAutoCancel(true)
+                        .setContentIntent(pi);
+                nm.notify(NOTICE_ID, nb.build());
+            } catch (Exception ignore) {}
+        }});
     }
 
     private static byte[] readAll(InputStream is) throws Exception {
@@ -1160,18 +1216,46 @@ public class MainActivity extends Activity {
             } catch (Exception e) { return true; }
         }
 
-        /** 申请通知栏权限（Android 13+ 弹系统授权框；更低版本直接去设置页） */
+        /**
+         * 申请通知栏权限。返回值告诉网页侧"接下来会发生什么"，网页据此给不同的提示：
+         *   "allowed"  —— 本来就有权限
+         *   "dialog"   —— 系统授权框已经弹出来了（安卓 13+ 第一次问）
+         *   "settings" —— 系统不会再弹框（用户拒过 / 勾了不再询问 / 安卓 13 以下自己关掉的），
+         *                 这里已经帮你把系统设置页打开了
+         */
         @JavascriptInterface
-        public void askNotif() {
-            main.post(new Runnable() { @Override public void run() {
-                try {
-                    if (Build.VERSION.SDK_INT >= 33) {
-                        requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, REQ_NOTIF);
-                    } else {
-                        openNotifSettings();
+        public String askNotif() {
+            try {
+                if (notifAllowed()) return "allowed";
+                boolean 需要系统授权 = false;
+                if (Build.VERSION.SDK_INT >= 33) {
+                    try {
+                        需要系统授权 = checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                                != android.content.pm.PackageManager.PERMISSION_GRANTED;
+                    } catch (Throwable ignore) {}
+                }
+                if (需要系统授权) {
+                    // 安卓的规矩：第一次能弹框；拒过一次后还能再弹一次（可讲理由）；
+                    // 再拒（或勾"不再询问"）之后 shouldShowRequestPermissionRationale 变 false，
+                    // 系统不会再弹 —— 这时候只能去设置页。用本地标记区分"从没问过"和"永久拒绝"。
+                    boolean 问过 = getSharedPreferences(PREF_NOTIF, MODE_PRIVATE).getBoolean("asked", false);
+                    boolean 还能弹框 = !问过 || shouldShowRequestPermissionRationale(
+                            "android.permission.POST_NOTIFICATIONS");
+                    if (还能弹框) {
+                        getSharedPreferences(PREF_NOTIF, MODE_PRIVATE).edit().putBoolean("asked", true).apply();
+                        main.post(new Runnable() { @Override public void run() {
+                            try {
+                                requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, REQ_NOTIF);
+                            } catch (Exception ignore) {}
+                        }});
+                        return "dialog";
                     }
-                } catch (Exception ignore) {}
-            }});
+                }
+                openNotifSettings();
+                return "settings";
+            } catch (Throwable e) {
+                return "settings";
+            }
         }
 
         /** 直接跳到本应用的通知设置页（用户把通知关了时，"去设置"按钮走这里） */
@@ -1240,32 +1324,11 @@ public class MainActivity extends Activity {
         /** 代码块「发通知」：设备通知栏弹一条，点一下回到 App */
         @JavascriptInterface
         public void notify(final String title, final String text) {
-            main.post(new Runnable() { @Override public void run() {
-                try {
-                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                    if (nm == null) return;
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        NotificationChannel ch = new NotificationChannel(CH_NOTICE, "作品通知",
-                                NotificationManager.IMPORTANCE_DEFAULT);
-                        nm.createNotificationChannel(ch);
-                    }
-                    Intent it = new Intent(MainActivity.this, MainActivity.class);
-                    it.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-                    if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
-                    PendingIntent pi = PendingIntent.getActivity(MainActivity.this, NOTICE_ID, it, flags);
-                    String t = (title == null || title.trim().isEmpty()) ? "FAST" : title.trim();
-                    Notification.Builder nb = (Build.VERSION.SDK_INT >= 26)
-                            ? new Notification.Builder(MainActivity.this, CH_NOTICE)
-                            : new Notification.Builder(MainActivity.this);
-                    nb.setSmallIcon(android.R.drawable.ic_dialog_info)
-                            .setContentTitle(t)
-                            .setContentText(text == null ? "" : text)
-                            .setAutoCancel(true)
-                            .setContentIntent(pi);
-                    nm.notify(NOTICE_ID, nb.build());
-                } catch (Exception ignore) {}
-            }});
+            // 权限还没给：先把这条存着，等用户在授权框里点"允许"再补发（Application 侧的回调里发）
+            try {
+                if (!notifAllowed()) { pendingNotifTitle = title; pendingNotifText = text; }
+            } catch (Throwable ignore) {}
+            postNotice(title, text);
         }
 
         /** 流式 HTTP：AI 对话用（实现见 MainActivity.startStream） */

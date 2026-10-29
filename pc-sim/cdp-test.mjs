@@ -3902,13 +3902,155 @@ await check('阶段5：剪贴板/打开网址/发通知 三块定义、生成代
     try { var v = window.RT.readClipboard(); if (typeof v !== 'string') 报.push('readClipboard 没返回文字：' + v); } catch (e) { 报.push('readClipboard 抛错：' + e.message); }
     try { window.RT.notify('提醒', '内容'); } catch (e) { 报.push('notify 抛错：' + e.message); }
     try { window.RT.openUrl('不是网址'); } catch (e) { 报.push('openUrl 抛错：' + e.message); }
-    return { 报: 报 };
+    // 通知权限被关时怎么办：装一个假原生桥，按 askNotif 的三种回执分别验证
+    //   settings —— 系统不会弹框了：**不许**再发通知，应该引导去设置页
+    //   dialog   —— 授权框正在弹：先把通知交给原生存着（允许后补发）
+    //   allowed  —— 已经有权限了：直接发
+    var 呼叫 = [];
+    function 装桥(回执) {
+      window.Native = {
+        notify: function (t) { 呼叫.push(String(t)); },
+        notifAllowed: function () { return false; },
+        askNotif: function () { return 回执; }
+      };
+      呼叫.length = 0;
+    }
+    装桥('settings'); window.RT.notify('标题', '内容');
+    if (呼叫.length) 报.push('权限被永久关掉时不该发通知（应引导去设置页），实际发了 ' + 呼叫.length + ' 次');
+    装桥('dialog'); window.RT.notify('标题', '内容');
+    if (呼叫.length !== 1) 报.push('授权框弹出时没把通知存成待发（实际 ' + 呼叫.length + ' 次）');
+    装桥('allowed'); window.RT.notify('标题', '内容');
+    if (呼叫.length !== 1) 报.push('回执 allowed 时没直接发通知（实际 ' + 呼叫.length + ' 次）');
+    try { window.Native = undefined; } catch (e) {}
+    return { 报: 报, 权限分支: 'settings / dialog / allowed 三种都对 ✓' };
   })()`);
   if (运行.报.length) throw new Error('运行时设备块有问题：' + JSON.stringify(运行));
   await js(`location.href='editor.html'`);
   await waitFor(`!!window.EditorApp`, 15000);
   await sleep(600);
   return { 代码: r.代码.网址.replace(/\n$/, ''), 工具箱: '3 块 ✓', 帮助: r.帮助 + ' 条', 运行时: '原生优先 + 网页回退 ✓' };
+});
+
+// 拖拽进容器（用户 2026-10-29 要求）：设计页长按卡片拖到容器卡片上、布局页拖控件到容器框上
+/** 用真实鼠标事件走一遍"按下 → 等长按 → 移动 → 松开"（CDP 的鼠标事件会合成 pointer 事件） */
+async function 鼠标拖(from, to, 按住毫秒 = 430) {
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1, buttons: 1 });
+  await sleep(按住毫秒);
+  const 步 = 8;
+  for (let i = 1; i <= 步; i++) {
+    await send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: Math.round(from.x + (to.x - from.x) * i / 步),
+      y: Math.round(from.y + (to.y - from.y) * i / 步),
+      button: 'left', buttons: 1
+    });
+    await sleep(35);
+  }
+  await sleep(140);
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0 });
+}
+
+await check('拖拽进容器：设计页拖卡片、布局页拖控件都能直接放进容器', async () => {
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    // 上一条用例最后重载了页面，会回到首页：先新建一个工程再测
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '拖拽测试' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+
+  const 初始 = await js(`(function(){
+    var App = window.EditorApp;
+    document.getElementById('tabDesign').click();
+    var ids = App.__aiComps().map(function (c) { return c.id; });
+    if (ids.length) App.__aiApplyComponents(ids.map(function (id) { return { op:'remove', id: id }; }));
+    document.querySelector('[data-add="container"]').click();
+    document.querySelector('[data-add="button"]').click();
+    var 后 = App.__aiComps();
+    return { 顶层数: 后.length, 类型: 后.map(function (c) { return c.type; }) };
+  })()`);
+  if (初始.顶层数 !== 2) throw new Error('准备控件失败：' + JSON.stringify(初始));
+  await sleep(250);
+
+  // —— 设计页：把按钮卡片长按拖到容器卡片上 ——
+  const 位 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 钮 = 全.filter(function (c) { return c.type === 'button'; })[0];
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    return { 钮: 钮.id, 容: 容.id,
+             从: 中(document.querySelector('#compList .compcard[data-id="' + 钮.id + '"]')),
+             到: 中(document.querySelector('#compList .compcard[data-id="' + 容.id + '"]')) };
+  })()`);
+  await 鼠标拖(位.从, 位.到);
+  await sleep(600);
+  const 设计 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    return { 顶层数: 全.length, 子数: 容 && 容.children ? 容.children.length : 0,
+             高亮残留: document.querySelectorAll('#compList .compcard.drop-in').length };
+  })()`);
+  if (设计.顶层数 !== 1 || 设计.子数 !== 1) throw new Error('设计页拖进容器没成功：' + JSON.stringify(设计));
+  if (设计.高亮残留) throw new Error('松手后容器高亮没清掉：' + JSON.stringify(设计));
+
+  // —— 布局页：再加一个普通控件，拖到容器框上 ——
+  await js(`document.querySelector('[data-add="text"]').click()`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1600);
+  const 布位 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 文 = 全.filter(function (c) { return c.type === 'text'; })[0];
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    var 文块 = 文 ? document.querySelector('#layStage .litem[data-id="' + 文.id + '"]') : null;
+    var 容块 = 容 ? document.querySelector('#layStage .litem[data-id="' + 容.id + '"]') : null;
+    if (!文块 || !容块) return { 有块: false };
+    return { 有块: true, 文: 文.id, 容: 容.id, 从: 中(文块), 到: 中(容块) };
+  })()`);
+  if (!布位.有块) throw new Error('布局页没画出文字/容器：' + JSON.stringify(布位));
+  await 鼠标拖(布位.从, 布位.到, 200);
+  await sleep(700);
+  const 布局 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    var 子 = 容 && 容.children ? 容.children : [];
+    var 文子 = 子.filter(function (k) { return k.type === 'text'; })[0];
+    return { 顶层数: 全.length, 子数: 子.length,
+             文位置: 文子 ? (文子.x + ',' + 文子.y) : '',
+             文在框内: !!(文子 && 文子.x >= 0 && 文子.y >= 0 && 文子.x <= (容.w || 0) && 文子.y <= (容.h || 0)),
+             高亮残留: document.querySelectorAll('#layStage .litem.drop-in').length };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (布局.顶层数 !== 1 || 布局.子数 !== 2) throw new Error('布局页拖进容器没成功：' + JSON.stringify(布局));
+  if (!布局.文在框内) throw new Error('拖进容器后坐标没落进框内：' + JSON.stringify(布局));
+  if (布局.高亮残留) throw new Error('布局页松手后高亮没清掉：' + JSON.stringify(布局));
+
+  // 容器里的控件不能和新控件撞 id：genId 必须连子控件一起算（2026-10-29 抓到的真 bug）
+  const 撞 = await js(`(function(){
+    document.querySelector('[data-add="button"]').click();
+    var 全 = window.EditorApp.__aiComps();
+    var ids = [];
+    全.forEach(function (c) { ids.push(c.id); (c.children || []).forEach(function (k) { ids.push(k.id); }); });
+    return { 个数: ids.length, 去重后: new Set(ids).size, ids: ids };
+  })()`);
+  if (撞.个数 !== 撞.去重后) throw new Error('控件 id 撞了（容器里的子控件没被 genId 算进去）：' + JSON.stringify(撞));
+
+  // 收尾清空，别把控件留给后面的用例
+  await js(`(function(){
+    var App = window.EditorApp;
+    App.__aiComps().slice().forEach(function (c) { App.__aiApplyComponents([{ op:'remove', id: c.id }]); });
+  })()`);
+  return { 设计页: '卡片拖进容器 ✓', 布局页: '控件落点 ' + 布局.文位置 + ' ✓', id: '不重名 ✓' };
 });
 
 // 阶段 3 第二批动作块：位置 / 大小 / 选项（运行时生效：RT.setPos / setSize / setOptions）

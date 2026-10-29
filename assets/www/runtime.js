@@ -1601,12 +1601,22 @@ function 启动走秒(node, fmt) {
       var x = String(text == null ? '' : text);
       try {
         if (window.Native && Native.notify) {
-          // Android 13+ 默认不给通知权限：第一次用时先问一次，别让用户以为"发了但没反应"
+          // 通知权限没给时，分两种情况，别一律说"去弹窗里允许"——
+          // 安卓 13+ 被拒过一次之后系统根本不会再弹框，那样用户会一直等一个不出现的弹窗。
           var 允许 = true;
           try { if (Native.notifAllowed) 允许 = !!Native.notifAllowed(); } catch (e) {}
           if (!允许) {
-            try { if (Native.askNotif) Native.askNotif(); } catch (e) {}
-            showToast('请在弹窗里允许通知，之后才会显示在通知栏');
+            var 结果 = 'dialog';
+            try { if (Native.askNotif) 结果 = String(Native.askNotif() || 'dialog'); } catch (e) {}
+            if (结果 === 'allowed') { Native.notify(t, x); return; }        // 刚好已经有权限了，直接发
+            if (结果 === 'settings') {
+              showToast('系统不会再弹授权框了，已打开通知设置页：把「允许通知」打开后回来再试一次');
+              return;
+            }
+            // 授权框已经弹出：先把这条交给原生存着（权限没给时系统会静默丢掉，但原生记了待发），
+            // 用户点"允许"之后会自动补发，不用再点一次
+            try { Native.notify(t, x); } catch (e) {}
+            showToast('请在弹窗里允许通知，允许后这条通知会马上补发出来');
             return;
           }
           Native.notify(t, x);
