@@ -1911,8 +1911,8 @@
    *  · 落点 = 手指所在的格子：点在格子里就取那个格子，落在间隙里才按最近的格子算。
    *    格子是静止的几何，所以手指跨过边界时才会换目标一次，不会在分界线上来回抖。
    *  · 手指停在屏幕上下边缘时自动滚屏（rAF 循环），否则被挡住的那几张卡永远拖不过去。
-   *  · 松手：先撤过渡 → 把卡片插到最终位置 → 再清 transform。顺序不能反，
-   *    反了就会"啪"地跳一下（视觉位置和落点其实是同一个地方）。
+   *  · 松手：先把卡片插到最终位置 → 再清 transform；影子卡用 200ms 滑到目标格子，
+   *    滑完才显示真卡、删影子（否则就是用户 2026-10-29 报的"松手直接瞬移"）。
    *  · 只写作品顺序，**不改**「自动调整 / 不调整排序」这个设置（用户 2026-10-29 明确要求）。
    */
   function bindHomeReorder(card, id) {
@@ -1937,6 +1937,9 @@
       计时 = null;
       var box = 列表();
       if (!box || 拖) return;
+      /* 上一张卡可能还在播 200ms 落位动画；这里先把它立即收尾，
+         否则屏幕上会同时出现两个影子卡（一个旧的还在滑）。 */
+      if (box.__homeSettle) { try { box.__homeSettle(); } catch (e) {} box.__homeSettle = null; }
       卡们 = Array.prototype.slice.call(box.children).filter(是卡);
       if (卡们.length < 2) { 卡们 = null; return; }
       拖位 = 卡们.indexOf(card);
@@ -2055,17 +2058,50 @@
       var box = 列表();
       var 格 = 目标 >= 0 ? 目标 : 拖位;
       var 旧卡们 = 卡们 || [];
-      // 顺序很重要：① 撤过渡 / 去掉影子和占位 ② 插到落点 ③ 最后清 transform —— 反了就会"啪"地跳一下
-      if (占位 && 占位.parentNode) 占位.remove();
-      占位 = null;
-      if (影子 && 影子.parentNode) 影子.remove();
-      影子 = null;
-      for (var i = 0; i < 旧卡们.length; i++) 旧卡们[i].classList.remove('proj-shift');
-      card.classList.remove('proj-holding');
+      var 落 = (槽 && 槽[格]) ? 槽[格] : null;
+      var 影 = 影子, 槽块 = 占位;
+      影子 = null; 占位 = null;
+
+      // ① 占位块只表示目标格，真卡马上落位，直接收掉
+      if (槽块 && 槽块.parentNode) 槽块.remove();
+      // ② 插到落点：插完的自然布局 == 拖动中看到的布局，所以这里不会跳
       if (box) {
         var 兄弟 = 旧卡们.filter(function (n) { return n !== card; });
         box.insertBefore(card, 兄弟[格] || null);
-        for (var j = 0; j < 旧卡们.length; j++) 旧卡们[j].style.transform = '';
+      }
+      // ③ 别的卡片：落点就是它们的自然位置，清掉 transform 即可（有过渡也不会乱动）
+      for (var i = 0; i < 旧卡们.length; i++) 旧卡们[i].style.transform = '';
+      for (var k2 = 0; k2 < 旧卡们.length; k2++) 旧卡们[k2].classList.remove('proj-shift');
+
+      /* ④ 落位动画（用户 2026-10-29 报的"松手直接瞬移"）：
+         影子卡从手指位置滑到目标格子，滑完才显示真卡、删影子。
+         之前是一松手就把影子和占位删掉、真卡立刻出现在格子里 —— 那就是"瞬移"。 */
+      var 收尾 = function () {
+        if (影 && 影.parentNode) 影.remove();
+        card.classList.remove('proj-holding');
+      };
+      if (影 && 影.parentNode && 落 && box) {
+        var br2 = box.getBoundingClientRect();
+        var 目标X = br2.left + 落.l, 目标Y = br2.top + 落.t;
+        var 完了 = false;
+        var 落定 = function () {
+          if (完了) return;
+          完了 = true;
+          try { box.__homeSettle = null; } catch (e) {}
+          收尾();
+        };
+        影.style.transition = 'transform .2s cubic-bezier(.2,0,0,1), box-shadow .2s ease, opacity .2s ease';
+        void 影.offsetWidth;                       // 先把"过渡前的当前位置"提交一帧，否则会从起点直接跳过去
+        影.style.transform = 'translate3d(' + 目标X + 'px,' + 目标Y + 'px,0) scale(1)';
+        影.style.boxShadow = '0 4px 14px rgba(0,0,0,.16)';
+        影.addEventListener('transitionend', 落定);
+        setTimeout(落定, 260);                      // 兜底：动画没触发也要收干净
+        try { box.__homeSettle = 落定; } catch (e) {}
+      } else {
+        收尾();
+      }
+
+      if (box) {
         // 按最终 DOM 顺序写回存储（只写顺序，**不动** __bb_proj_sort）
         var 顺序 = [];
         Array.prototype.forEach.call(box.children, function (n) {
@@ -7615,6 +7651,10 @@
      云端「更新」表只有版本号 + 附件，没有正文列，所以正文写死在这里最省事。
      发版时只在数组最前面加一条（新的在上、旧的在下），不用动云端表结构。 */
   var CHANGELOG = [
+    { v: '1.0.116.140', d: '2026-10-29', t: [
+      '修：从诊断信息返回设置时会先闪一下首页 —— 现在整页直接切换，没有淡入的中间帧',
+      '首页卡片松手后不再瞬移：影子卡带 200ms 滑到目标格子，落定后才显示真卡'
+    ] },
     { v: '1.0.116.139', d: '2026-10-29', t: [
       '首页作品拖动重做：拖动时布局一动不动，卡片只做位移动画，不再乱跳、不再抖',
       '修：设置里点「查看 / 导出诊断信息」会退到首页 —— 现在是独立整页，返回只回设置'
@@ -10659,20 +10699,24 @@
   /** 诊断信息：独立整页（用户 2026-10-29 报的两个问题 ——
       ① 点它会"自己返回首页"，其实那是先把设置关掉再弹窗，看着像被踢出去；
       ② 弹窗太小还得在弹窗里滚。现在改成整页：设置原样留在下面，返回只回设置，不回家。） */
+  /* 诊断页进出**不做淡入动画**（用户 2026-10-29 报的"返回时先闪一下首页"）：
+     `.page-*` 动画从 opacity:0 开始，那 200ms 里下面露出来的就是再下一层（关闭时是首页）。
+     现在两边都按「先铺目标页、再撤旧页」的顺序在同一帧内切换，浏览器只画一次，没有中间帧。 */
   function openDiagPage(txt) {
     var pre = $('diagPre');
     if (pre) pre.textContent = txt;
-    var st = $('viewSettings');
-    if (st) st.classList.add('hidden');
     var v = $('viewDiag');
-    if (v) { v.classList.remove('hidden'); 切页(v, 'fwd'); }
+    if (v) v.classList.remove('hidden');          // 先把诊断页铺上去
+    var st = $('viewSettings');
+    if (st) st.classList.add('hidden');           // 同一帧里再撤设置页，不产生"露首页"的中间帧
   }
   function closeDiagPage() {
     var v = $('viewDiag');
     if (!v || v.classList.contains('hidden')) return false;
-    v.classList.add('hidden');
     var st = $('viewSettings');
-    if (st) { st.classList.remove('hidden'); 切页(st, 'back'); 同步分段药丸(); }
+    if (st) st.classList.remove('hidden');        // 先把设置页铺在诊断页下面
+    v.classList.add('hidden');                    // 同一帧里再撤诊断页
+    if (st) 同步分段药丸();
     return true;
   }
   function asOneUndoStep(fn) {

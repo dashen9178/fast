@@ -1444,6 +1444,45 @@ DOM 不动、坐标继续相对父框（可为负），松手时加回父原点�
 * GitHub Release **v1.0.116.139**（`dashen9178/fast`）。
 * 版本号已自增到 `257`（下次打包出 1.0.116.140）。
 
+## 6.29 2026-10-29 第九轮（诊断页返回闪首页 / 松手瞬移，APK 1.0.116.140）
+
+**用户原话**：「诊断信息页面返回，没有直接返回到设置页面，而是先返回到首页一瞬间再返回到设置页面。首页拖动卡片松手后，是直接瞬移的，中间没有任何过渡。」
+
+### 一、诊断页返回先闪一下首页
+
+根因是 `.page-back` 关键帧**从 `opacity:0` 开始**：设置页淡入的那 200ms 里，它下面露出来的就是首页。改成两边都不做淡入，并且按「**先铺目标页、再撤旧页**」的顺序在**同一帧**内切换：
+
+* `openDiagPage`：先 `viewDiag` 去 hidden，再给 `viewSettings` 加 hidden；
+* `closeDiagPage`：先 `viewSettings` 去 hidden，再把 `viewDiag` 加 hidden，随后补一次 `同步分段药丸()`。
+
+浏览器只画一次，不存在"中间帧"。回归新增断言：打开/返回都**不许**带 `page-fwd` / `page-back` 类。
+
+### 二、首页松手瞬移
+
+上一版一松手就把影子卡和占位删掉、真卡立刻出现在格子里 —— 视觉上就是瞬移。现在：
+
+* 松手仍先 `insertBefore(card, 兄弟[格])` 并清掉其余卡片的 transform（插完的自然布局 == 拖动中看到的样子，所以它们不会动）；
+* 影子卡保留，加 `transition: transform .2s cubic-bezier(.2,0,0,1)`，用 `void 影.offsetWidth` 提交起始帧后，滑向 `box.getBoundingClientRect() + 槽[格]` 的目标坐标，同时收小阴影；
+* `transitionend`（兜底 260ms）后删影子、去掉 `.proj-holding` 显示真卡；
+* 收尾函数挂在 `#projectList.__homeSettle`，下一张卡起拖时先强制收尾，避免两个影子同时出现。
+
+回归新增断言：松手 60ms 时影子仍在、`transitionDuration` 含 `0.2s`、真卡仍隐藏；700ms 后影子/占位/`proj-holding`/残留 transform 全为 0。
+
+### 三、PowerShell 7 兼容性
+
+机器上已装 **PowerShell 7.6.9**（`C:\Program Files\PowerShell\7\pwsh.exe`，PATH 已注册；旧会话需刷新 PATH）。本轮用 pwsh 7 实跑：`run-ui-test.ps1` **176/176 全绿**、`run-export-test.ps1` 两包全 OK、`build.ps1` 正常出包 —— 脚本兼容。注意 .NET 8 的 deflate 比 .NET Framework 4.8 略差，APK 因此比上一版大 ~68KB（条目内容逐项比对完全一致，仅压缩率不同），功能无影响。
+
+### 验证 / 发布
+
+* `node --check editor.js` / `cdp-test.mjs` 通过；单测 23/23；`audit.mjs` 与 6.28 同基线（4 类已知项，无新增）。
+* APK：`versionCode=257 / versionName=1.0.116.140`，`FAST_v1.0.116.140.apk`
+（**1,973,724 字节**，sha256 `219056BEB5D352C2F05A34458E13F6A4E699C5B97E824C95E699BD1836B19724`，v2/v3 签名 OK）。
+* 「更新」表 row `LsEuYrKgQvOZbxKcGueoWQ`（行文 `1.0.116.140（26.10.30.00:01）`，下载 200、大小/哈希一致）；
+「工程」表 row `GrYcRxaRTWyJTylyILW4yA`（`FAST-full-1.0.116.140.zip` **1033 条目 / 21,358,526 字节**，下载大小/哈希一致，zip sha256 `20FD73B3483A755841FF9254B5FBD11E0DB300F8B4A29305B4DB6E25CDEFDD90`）。
+* GitHub Release **v1.0.116.140**（`dashen9178/fast`）。
+* 版本号已自增到 `258`（下次打包出 1.0.116.141）。
+* 新增 `D:\DSH工作\Fast\桌面版开发计划.md`（电脑版界面/架构方案，待评审）。
+
 ## 7\. 新会话怎么开口（给用户的话）
 
 > 读 `D:\\DSH工作\\Fast\\fast\_project\_v2\\NEXT.md`，然后接着干：<你要做的事>

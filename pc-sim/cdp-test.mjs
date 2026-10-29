@@ -449,27 +449,32 @@ await check('设置里点「查看 / 导出诊断信息」打开整页诊断（�
     return { 是整页: !!v && !v.classList.contains('hidden'), 有内容: txt.length > 20,
              头一行: txt.split('\\n')[0],
              还不是弹窗: !document.getElementById('diagSheet'),
+             有淡入: !!v && v.classList.contains('page-fwd'),
              首页没露出来: document.getElementById('viewHome').classList.contains('hidden') };
   })()`);
   await shot('t13b-诊断信息');
   if (!开.是整页 || !开.有内容) throw new Error('点「查看诊断信息」没打开整页：' + JSON.stringify(开));
   if (!开.还不是弹窗) throw new Error('诊断信息还是弹窗形式：' + JSON.stringify(开));
+  if (开.有淡入) throw new Error('诊断页还在用淡入动画（淡入那 200ms 会露出下面的首页）');
   if (!开.首页没露出来) throw new Error('打开诊断信息后首页露出来了（看着像被踢回首页）：' + JSON.stringify(开));
   const 回 = await js(`(function(){
     document.getElementById('btnDiagBack').click();
     var on = document.querySelector('#setRail .acct-item.on');
+    var st = document.getElementById('viewSettings');
     return { 诊断已关: document.getElementById('viewDiag').classList.contains('hidden'),
-             设置回来了: !document.getElementById('viewSettings').classList.contains('hidden'),
+             设置回来了: !st.classList.contains('hidden'),
+             有返回动画: st.classList.contains('page-back'),
              还是反馈: on ? on.getAttribute('data-cat') : '',
              首页没露出来: document.getElementById('viewHome').classList.contains('hidden') };
   })()`);
   await sleep(300);
   if (!回.诊断已关 || !回.设置回来了) throw new Error('从诊断页返回没有回到设置：' + JSON.stringify(回));
+  if (回.有返回动画) throw new Error('返回设置还在用淡入动画（淡入期间会先闪一下首页）');
   if (回.还是反馈 !== 'feedback') throw new Error('从诊断页返回后设置栏没停在「反馈」：' + JSON.stringify(回));
   if (!回.首页没露出来) throw new Error('从诊断页返回时首页露出来了：' + JSON.stringify(回));
   await js(`document.getElementById('btnSettingsBack').click()`);
   await sleep(300);
-  return { 形式: '整页', 返回: '回设置「反馈」', 头一行: 开.头一行 };
+  return { 形式: '整页', 返回: '回设置「反馈」（无淡入）', 头一行: 开.头一行 };
 });
 
 // 这两条是整个 AI 方案的地基：清单能不能自动生成、脏代码能不能被拦下来。
@@ -7439,6 +7444,17 @@ await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另�
   if (!中.位移的) throw new Error('拖动时别的卡片没有让位（transform 没写）：' + JSON.stringify(中));
   if (!中.影子 || !中.占位 || !中.藏起来的) throw new Error('拖动中的三件套不齐（影子/占位/被拖卡片）：' + JSON.stringify(中));
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 前.乙.x + 6, y: 前.乙.y + 6, button: 'left', clickCount: 1, buttons: 0 });
+  // 松手不能"瞬移"（用户 2026-10-29 报的）：影子卡要带着过渡滑向目标格子，滑完才显示真卡
+  await sleep(60);
+  const 落位 = await js(`(function(){
+    var g = document.querySelector('.proj-ghost');
+    return { 影子: !!g,
+             过渡: g ? getComputedStyle(g).transitionDuration : '',
+             藏起来的: document.querySelectorAll('#projectList .proj-holding').length };
+  })()`);
+  if (!落位.影子) throw new Error('松手后影子立刻消失 = 卡片瞬移，没有落位过渡：' + JSON.stringify(落位));
+  if (!/0\.2/.test(落位.过渡)) throw new Error('影子没有落位过渡（transitionDuration=' + 落位.过渡 + '）');
+  if (!落位.藏起来的) throw new Error('落位动画期间真卡应保持隐藏，避免两张卡同时出现');
   await sleep(700);
   const 后 = await js(`(function(){
     var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
@@ -7457,7 +7473,7 @@ await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另�
   await js(`(function(){ try { localStorage.removeItem('__bb_proj_sort'); } catch(e) {}
     document.getElementById('btnHome').click(); })()`);
   await sleep(500);
-  return { 前后: 前.名[0] + ' → 第 2 位', 拖动中: 'DOM 未动，' + 中.位移的 + ' 张让位' };
+  return { 前后: 前.名[0] + ' → 第 2 位', 拖动中: 'DOM 未动，' + 中.位移的 + ' 张让位', 松手: '影子滑行 200ms 后落位' };
 });
 
 // 用户 2026-10-29 要求：布局页点空白处取消选中
