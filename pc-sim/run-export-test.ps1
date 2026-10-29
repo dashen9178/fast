@@ -1,4 +1,4 @@
-﻿# FAST 导出流程 —— PC 端一键验证（不需要真机）
+﻿﻿# FAST 导出流程 —— PC 端一键验证（不需要真机）
 #
 # 用法：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File pc-sim\run-export-test.ps1

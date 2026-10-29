@@ -1,4 +1,4 @@
-﻿# build.sh 的 Windows 等价构建（JDK17 + Android build-tools，无需 Gradle）
+﻿﻿# build.sh 的 Windows 等价构建（JDK17 + Android build-tools，无需 Gradle）
 # 关键：Windows 版 aapt2 link -A 对多层子目录会写出反斜杠条目名（assets\www\...），
 # 故 -A 只放一层资产；www 多层目录用 ZipArchive 以正斜杠条目名追加，
 # 且不整体重建 zip，保证 resources.arsc / png 等保持 aapt2 的 STORED 布局。
