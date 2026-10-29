@@ -173,7 +173,7 @@ await check('「添加组件」里每个按钮都能建出对应控件', async (
   const r = await js(`(function(){
     var App = window.EditorApp;
     var 按钮 = Array.prototype.map.call(document.querySelectorAll('.addbtns [data-add]'), function (b) { return b.getAttribute('data-add'); });
-    var 建不出 = [];
+    var 建不出 = [], 超大 = [], 最大宽 = 0, 最大高 = 0;
     按钮.forEach(function (t) {
       var 前 = App.__aiComps().length;
       var btn = document.querySelector('.addbtns [data-add="' + t + '"]');
@@ -181,17 +181,23 @@ await check('「添加组件」里每个按钮都能建出对应控件', async (
       var 后 = App.__aiComps();
       if (后.length !== 前 + 1) 建不出.push(t);
       else if (后[0].type !== t) 建不出.push(t + '(类型变成 ' + 后[0].type + ')');
+      // 新控件不能一创建就占掉大半个画面（用户 2026-10-29 反馈）：宽 ≤ 设计宽 88%、高 ≤ 设计高 25%
+      var 新 = 后[0], w = 新.w || 0, h = 新.h || 0;
+      if (w > 最大宽) 最大宽 = w;
+      if (h > 最大高) 最大高 = h;
+      if (w > 343 || h > 207) 超大.push(t + ' ' + w + 'x' + h);
     });
-    return { 按钮数: 按钮.length, 建不出: 建不出, 控件总数: App.__aiComps().length };
+    return { 按钮数: 按钮.length, 建不出: 建不出, 超大: 超大, 最大宽: 最大宽, 最大高: 最大高, 控件总数: App.__aiComps().length };
   })()`);
   if (r.建不出.length) throw new Error('这些按钮建不出控件：' + JSON.stringify(r));
+  if (r.超大.length) throw new Error('这些控件一创建就占太大面积（宽>343 或 高>207）：' + JSON.stringify(r.超大));
   // 用完清掉：留着 23 个控件会让后面「AI 该改哪个控件」的用例产生歧义（实测把 AI 逼去反问）
   await js(`(function(){
     var App = window.EditorApp;
     App.__aiComps().slice().forEach(function (c) { App.__aiApplyComponents([{ op:'remove', id: c.id }]); });
     return App.__aiComps().length;
   })()`);
-  return { 全部可建: r.按钮数 + ' 种', 已清理: true };
+  return { 全部可建: r.按钮数 + ' 种', 最大初始尺寸: r.最大宽 + 'x' + r.最大高, 已清理: true };
 });
 await shot('t03-设计页');
 
@@ -4051,6 +4057,181 @@ await check('拖拽进容器：设计页拖卡片、布局页拖控件都能直�
     App.__aiComps().slice().forEach(function (c) { App.__aiApplyComponents([{ op:'remove', id: c.id }]); });
   })()`);
   return { 设计页: '卡片拖进容器 ✓', 布局页: '控件落点 ' + 布局.文位置 + ' ✓', id: '不重名 ✓' };
+});
+
+// 容器里的控件要能拖出来、也能在容器里挪位置（用户 2026-10-29 要求）
+await check('设计页：容器内子卡片可换位，拖出容器就回到页面顶层', async () => {
+  await js(`document.getElementById('tabDesign').click()`);
+  const 准备 = await js(`(function(){
+    var App = window.EditorApp;
+    App.__aiComps().slice().forEach(function (c) { App.__aiApplyComponents([{ op:'remove', id: c.id }]); });
+    document.querySelector('[data-add="container"]').click();
+    document.querySelector('[data-add="button"]').click();
+    document.querySelector('[data-add="text"]').click();
+    var 全 = App.__aiComps();
+    return { 数: 全.length, 类型: 全.map(function (c) { return c.type; }),
+             // 新建的容器必须从 0 个子控件开始（默认属性里的 children 不能被同类控件共用）
+             空容器: 全.filter(function (c) { return c.type === 'container' || c.type === 'scroll'; })
+                       .map(function (c) { return c.children.length; }) };
+  })()`);
+  if (准备.数 !== 3) throw new Error('准备控件失败：' + JSON.stringify(准备));
+  if (准备.空容器.some(function (n) { return n !== 0; })) throw new Error('新建容器一开始就有子控件（默认属性被共用了）：' + JSON.stringify(准备));
+  await sleep(250);
+
+  const 位 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    var 卡 = {};
+    全.forEach(function (c) {
+      var n = document.querySelector('#compList .compcard[data-id="' + c.id + '"]');
+      if (n && (c.type === 'button' || c.type === 'text')) 卡[c.type] = 中(n);
+    });
+    return { 容: 容.id, 按钮: 卡.button, 文字: 卡.text,
+             容卡: 中(document.querySelector('#compList .compcard[data-id="' + 容.id + '"]')) };
+  })()`);
+  if (!位.按钮 || !位.文字) throw new Error('设计页没列出控件卡片：' + JSON.stringify(位));
+
+  // 取某类控件在列表里的卡片中心（每次拖之前都重新取：上一次落进容器后列表会重排，旧坐标会指错卡片）
+  const 取卡 = (type) => js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var c = 全.filter(function (x) { return x.type === ${JSON.stringify(type)}; })[0];
+    var n = c ? document.querySelector('#compList .compcard[data-id="' + c.id + '"]') : null;
+    if (!n) return null;
+    var r = n.getBoundingClientRect();
+    return { id: c.id, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+
+  // ① 两张顶层卡片依次拖进容器
+  let 文 = await 取卡('text'), 容卡 = await 取卡('container');
+  if (!文 || !容卡) throw new Error('设计页没列出控件卡片：' + JSON.stringify({ 文, 容卡 }));
+  await 鼠标拖(文, 容卡);
+  await sleep(600);
+  const 中间 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    return { 顶层数: 全.length, 子数: 容.children.length };
+  })()`);
+  if (中间.顶层数 !== 2 || 中间.子数 !== 1) throw new Error('第一张卡片没拖进容器：' + JSON.stringify(中间));
+  let 钮 = await 取卡('button'); 容卡 = await 取卡('container');
+  await 鼠标拖(钮, 容卡);
+  await sleep(650);
+  const 后 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    return { 顶层数: 全.length, 子: 容.children.map(function (k) { return k.type; }) };
+  })()`);
+  if (后.顶层数 !== 1 || 后.子.length !== 2) throw new Error('两个控件没都拖进容器：' + JSON.stringify(后));
+
+  // ② 容器内换位：把后一张子卡片拖到前一张上面
+  const 换位 = await js(`(function(){
+    var 容 = window.EditorApp.__aiComps().filter(function (c) { return c.type === 'container'; })[0];
+    var 卡 = Array.prototype.slice.call(document.querySelectorAll('#compList .compcard[data-parent="' + 容.id + '"]'));
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    return { 数: 卡.length, 从: 中(卡[1]), 到: { x: 中(卡[0]).x, y: Math.round(卡[0].getBoundingClientRect().top + 4) } };
+  })()`);
+  if (换位.数 !== 2) throw new Error('容器里没列出两张子卡片：' + JSON.stringify(换位));
+  await 鼠标拖(换位.从, 换位.到);
+  await sleep(700);
+  const 排后 = await js(`(function(){
+    var 容 = window.EditorApp.__aiComps().filter(function (c) { return c.type === 'container'; })[0];
+    return { 子: 容.children.map(function (k) { return k.type; }) };
+  })()`);
+  if (排后.子.join(',') !== 后.子.slice().reverse().join(',')) throw new Error('容器内换位没生效：' + JSON.stringify({ 前: 后.子, 后: 排后.子 }));
+
+  // ③ 拖出容器：把第二张子卡片往父块下方拖
+  const 出位 = await js(`(function(){
+    var 容 = window.EditorApp.__aiComps().filter(function (c) { return c.type === 'container'; })[0];
+    var 卡 = Array.prototype.slice.call(document.querySelectorAll('#compList .compcard[data-parent="' + 容.id + '"]'));
+    var 列 = document.getElementById('compList').getBoundingClientRect();
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    var 底 = 0;
+    卡.forEach(function (n) { var r = n.getBoundingClientRect(); if (r.bottom > 底) 底 = r.bottom; });
+    return { 从: 中(卡[1]), 到: { x: 中(卡[1]).x, y: Math.round(Math.min(列.bottom - 60, 底 + 70)) } };
+  })()`);
+  await 鼠标拖(出位.从, 出位.到);
+  await sleep(800);
+  const 拖出后 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    return { 顶层数: 全.length, 子数: 容.children.length,
+             残红: document.querySelectorAll('#compList .compcard.drop-out').length,
+             顶层类型: 全.map(function (c) { return c.type; }) };
+  })()`);
+  if (拖出后.顶层数 !== 2 || 拖出后.子数 !== 1) throw new Error('拖出容器没回到顶层：' + JSON.stringify(拖出后));
+  if (拖出后.残红) throw new Error('拖出后父卡片红色提示没清掉');
+  return { 拖进: '2 个 ✓', 内换位: 排后.子.join(' / ') + ' ✓', 拖出: '回顶层 ✓' };
+});
+
+await check('布局页：容器内可拖动改位置，拖出容器就回到顶层', async () => {
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1600);
+  const 布 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    var 子 = 容.children[0];
+    var 舞台 = document.getElementById('layStage');
+    function 块(id) { return document.querySelector('#layStage .litem[data-id="' + id + '"]'); }
+    var 子块 = 块(子.id), 容块 = 块(容.id);
+    if (!子块 || !容块) return { 有块: false, 子: 子 ? 子.id : '', 容: 容 ? 容.id : '' };
+    function 中(n) { var r = n.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    var sr = 舞台.getBoundingClientRect(), cr = 容块.getBoundingClientRect();
+    var k = sr.width / 舞台.offsetWidth;
+    var 拖到 = { x: Math.round(Math.min(sr.right - 40, cr.right + 50)), y: Math.round(Math.min(sr.bottom - 40, cr.bottom + 50)) };
+    // 抓的是控件中心，松手时"中心落在手指上"——所以要减去半个宽高
+    var 期望x = Math.max(0, Math.min(舞台.offsetWidth - 子块.offsetWidth, Math.round((拖到.x - sr.left) / k - 子块.offsetWidth / 2)));
+    var 期望y = Math.max(0, Math.min(舞台.offsetHeight - 子块.offsetHeight, Math.round((拖到.y - sr.top) / k - 子块.offsetHeight / 2)));
+    return { 有块: true, 容: 容.id, 子: 子.id, 子数: 容.children.length, 顶层数: 全.length,
+             子位置: 子.x + ',' + 子.y, 从: 中(子块),
+             拖到: 拖到, 期望x: 期望x, 期望y: 期望y };
+  })()`);
+  if (!布.有块) throw new Error('布局页没画出容器/子控件：' + JSON.stringify(布));
+  if (布.子数 !== 1) throw new Error('布局页开始前容器里应该是 1 个子控件：' + JSON.stringify(布));
+
+  // ① 框内挪位置：只动 30px 左右，仍在容器里
+  const 从 = 布.从;
+  await 鼠标拖(从, { x: 从.x + 26, y: 从.y + 18 }, 200);
+  await sleep(700);
+  const 挪后 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    return { 子数: 容.children.length, 位置: 容.children[0] ? (容.children[0].x + ',' + 容.children[0].y) : '' };
+  })()`);
+  if (挪后.子数 !== 1) throw new Error('容器内拖动把子控件弄丢了：' + JSON.stringify(挪后));
+  if (挪后.位置 === 布.子位置) throw new Error('容器内拖动没改坐标：' + JSON.stringify(挪后));
+
+  // ② 拖出容器：往容器框外拖，松手应变成顶层控件
+  const 出块 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    var n = document.querySelector('#layStage .litem[data-id="' + 容.children[0].id + '"]');
+    function 中(x) { var r = x.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; }
+    return n ? 中(n) : null;
+  })()`);
+  await 鼠标拖(出块, 布.拖到, 200);
+  await sleep(800);
+  const 出后 = await js(`(function(){
+    var 全 = window.EditorApp.__aiComps();
+    var 容 = 全.filter(function (c) { return c.type === 'container'; })[0];
+    var 单 = 全.filter(function (c) { return c.id === ${JSON.stringify(布.子)}; });
+    return { 顶层数: 全.length, 子数: 容.children.length,
+             位置: 单.length ? (单[0].x + ',' + 单[0].y) : '',
+             单x: 单.length ? 单[0].x : null, 单y: 单.length ? 单[0].y : null,
+             残红: document.querySelectorAll('#layStage .litem.drop-out').length };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (出后.顶层数 !== 布.顶层数 + 1 || 出后.子数 !== 0) throw new Error('布局页拖出容器没回到顶层：' + JSON.stringify(出后));
+  if (出后.残红) throw new Error('布局页拖出后红色提示没清掉');
+  if (Math.abs(出后.单x - 布.期望x) > 4 || Math.abs(出后.单y - 布.期望y) > 4) {
+    throw new Error('拖出后没落在手指位置：实际 ' + 出后.位置 + '，期望 ' + 布.期望x + ',' + 布.期望y);
+  }
+
+  await js(`(function(){
+    var App = window.EditorApp;
+    App.__aiComps().slice().forEach(function (c) { App.__aiApplyComponents([{ op:'remove', id: c.id }]); });
+  })()`);
+  return { 框内挪动: 布.子位置 + " → " + 挪后.位置, 拖出: "落点 " + 出后.位置 };
 });
 
 // 阶段 3 第二批动作块：位置 / 大小 / 选项（运行时生效：RT.setPos / setSize / setOptions）

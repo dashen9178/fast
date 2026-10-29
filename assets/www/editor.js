@@ -888,6 +888,7 @@
     var vh = $('viewHome'); vh.classList.remove('hidden');
     切页(vh, 'back');
     renderHome();
+    后台查更新红点();   // 每次回首页都看一眼云端（内部有 10 分钟节流，不会反复拉接口）
   }
 
   /* ---------------- 使用帮助页（左：与编辑器一致的分类轨道；右：逐代码说明） ---------------- */
@@ -2431,6 +2432,7 @@
       var hidden = c.visible === false;
       var card = el('div', 'compcard' + (c.id === state.selectedCompId ? ' sel' : '') + (hidden ? ' is-hidden' : '') + (是子控件 ? ' is-child' : ''));
       card.dataset.id = c.id;
+      if (是子控件 && 父) card.dataset.parent = 父.id;   // 长按拖动时按所属容器分组
       card.appendChild(el('div', 'ico', meta.ico));
       var main = el('div', 'main');
       main.appendChild(el('div', 't1', compName(c)));
@@ -2474,8 +2476,9 @@
       d.addEventListener('click', function (e) { e.stopPropagation(); delComp(c.id); });
       ops.appendChild(eye); ops.appendChild(d);
       card.appendChild(main); card.appendChild(ops);
-      // 长按卡片拖拽排序（子控件在容器内排序先不做，避免和"移入/移出"打架）
-      if (!是子控件) bindCardReorder(card, c.id);
+      // 长按卡片拖拽：顶层卡片上下换位 / 拖到容器卡片上放进去；
+      // 容器里的子卡片可在兄弟之间换位，拖出父卡片所在区域就放回页面顶层
+      bindCardReorder(card, c.id, 是子控件 ? 父 : null);
       card.addEventListener('click', onTap(function (e) {
         e.stopPropagation();
         if (cardReorder.justEnded()) return;   // 长按拖拽松手后的残余 click 不触发选中
@@ -2569,8 +2572,9 @@
     容器.children.push(c);
     return true;
   }
-  /** 把容器里的子控件放回页面顶层（相对坐标换算回屏幕坐标） */
-  function 移出容器(childId) {
+  /** 把容器里的子控件放回页面顶层（相对坐标换算回屏幕坐标）
+      at：插到顶层列表的第几位（拖动"拉出来"时用，省略则放到最前面，与「移出容器」按钮一致） */
+  function 移出容器(childId, at) {
     var 源 = 找控件(childId);
     if (!源 || !源.parent) return false;
     var 父 = 源.parent, c = 源.c;
@@ -2578,12 +2582,15 @@
     c.y = Math.max(0, Math.round((父.y || 0) + (validN(c.y) ? c.y : 0)));
     源.list.splice(源.index, 1);
     var sc = curScreen();
-    sc.components.unshift(c);
+    var i = (typeof at === 'number' && isFinite(at)) ? Math.max(0, Math.min(sc.components.length, at)) : 0;
+    sc.components.splice(i, 0, c);
     return true;
   }
   function addComponent(type) {
     var sc = curScreen(), base = { id: genId(type), type: type };
-    var def = COMPONENT_DEFAULTS[type] || {};
+    // 默认属性必须**拷一份**：def 里的 children/items 是数组，直接引用会让所有同类控件共用同一个数组
+    // （2026-10-29 抓到：新建的第二个容器会带上第一个容器里的全部子控件）
+    var def = clone(COMPONENT_DEFAULTS[type] || {});
     Object.keys(def).forEach(function (k) { base[k] = def[k]; });
     var ns = naturalSize(type, base);           // 按自身内容给紧凑初始尺寸，不再一创建就占满整行
     base.w = ns.w; if (ns.h) base.h = ns.h;
@@ -2614,10 +2621,12 @@
   document.addEventListener('touchmove', function (e) {
     if (railDragActive && e.target.closest && e.target.closest('#bbCats')) e.preventDefault();
   }, { passive: false, capture: true });
-  function bindCardReorder(card, compId) {
+  function bindCardReorder(card, compId, 父) {
     var box = $('compList');
     var armTimer = null, dragging = false, startX = 0, startY = 0, grabY = 0, ph = null, fromIdx = -1, edgeDir = 0, edgeRaf = 0;
-    var 落点容器 = null;                       // 松手时如果指在某个容器上，就放进它
+    var 落点容器 = null;                       // 顶层卡片：松手时如果指在某个容器上，就放进它
+    // 子卡片：父卡片上沿往上 8px、最后一张子卡片下沿再往下 24px，出了这个范围就算"拖出容器"
+    var 拖出 = false, 出方向 = 0, 块顶 = 0, 块底 = 0, 父卡 = null;
     function clearArm() { if (armTimer) { clearTimeout(armTimer); armTimer = null; } }
     /* 手指指到哪个容器身上了：指容器卡片本身、或指容器里的子卡片，都算落在这个容器上。
        拖动中的卡片被设了 pointer-events:none，所以这里"摸"到的是它下面的卡片。 */
@@ -2637,14 +2646,62 @@
       var 卡 = box.querySelector('.compcard[data-id="' + 容器.id + '"]');
       if (卡) 卡.classList.add('drop-in');
     }
+    function 标父块(on) { if (父卡) 父卡.classList.toggle('drop-out', !!on); }
+    /** 当前容器里的兄弟卡片（不含正在浮动的这张） */
+    function 兄弟卡() {
+      return Array.prototype.slice.call(box.querySelectorAll('.compcard[data-parent="' + 父.id + '"]:not(.reordering)'));
+    }
+    /** 按手指位置把占位符挪到 others 里的第 target 位，并用 FLIP 让其他卡片平滑让位 */
+    function 排位(e, others) {
+      var target = others.length;
+      for (var i = 0; i < others.length; i++) {
+        var r = others[i].getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) { target = i; break; }
+      }
+      var ref;
+      if (target < others.length) ref = others[target];
+      else if (父) ref = (others.length ? others[others.length - 1].nextSibling : (父卡 ? 父卡.nextSibling : null)) || card;
+      else ref = card;                       // 顶层插到最后：位于浮动的卡片之前
+      if (ref === ph) return;                // 已经在这个位置
+      others.forEach(function (o) { o.style.transition = 'none'; });
+      var first = others.map(function (o) { return o.getBoundingClientRect().top; });
+      box.insertBefore(ph, ref || card);
+      others.forEach(function (o) { o.style.transform = ''; });
+      void box.offsetHeight;   // 强制 reflow，得到去 transform 后的新布局位置
+      var last = others.map(function (o) { return o.getBoundingClientRect().top; });
+      others.forEach(function (o, i) {
+        var d = first[i] - last[i];
+        if (Math.abs(d) > 0.5) o.style.transform = 'translateY(' + d + 'px)';
+      });
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          others.forEach(function (o) {
+            o.style.transition = 'transform .22s cubic-bezier(.2,0,0,1)';
+            o.style.transform = '';
+          });
+        });
+      });
+    }
     function beginDrag(downE) {
-      var sc = curScreen();
-      fromIdx = sc.components.findIndex(function (x) { return x.id === compId; });
-      if (fromIdx < 0) return;
+      var 源 = 找控件(compId);
+      if (!源) return;
+      fromIdx = 源.index;
       dragging = true; cardReorder.start(compId);
-      落点容器 = null;
+      落点容器 = null; 拖出 = false; 出方向 = 0;
       var r = card.getBoundingClientRect();
       grabY = startY - r.top;
+      if (父) {
+        // 边界在起拖这一刻量好（此时被拖的这张还在原位），拖动中占位符挪来挪去也不会让边界乱跳
+        父卡 = box.querySelector('.compcard[data-id="' + 父.id + '"]');
+        var pr = 父卡 ? 父卡.getBoundingClientRect() : null;
+        块顶 = pr ? pr.top - 8 : 0;
+        var 底 = pr ? pr.bottom : 0;
+        Array.prototype.forEach.call(box.querySelectorAll('.compcard[data-parent="' + 父.id + '"]'), function (n) {
+          var nr = n.getBoundingClientRect();
+          if (nr.bottom > 底) 底 = nr.bottom;
+        });
+        块底 = 底 + 24;
+      } else { 父卡 = null; }
       ph = el('div', 'compcard-reph');
       ph.style.height = r.height + 'px';
       card.classList.add('reordering');
@@ -2652,8 +2709,8 @@
       card.style.width = r.width + 'px';
       card.style.left = r.left + 'px';
       card.style.top = (downE.clientY - grabY) + 'px';
-      box.appendChild(card);   // 卡片转 fixed 后置末，占位符接管原文档流位置
-      box.insertBefore(ph, box.children[fromIdx] || null);
+      card.parentNode.insertBefore(ph, card);   // 占位符先接管原位，再把卡片浮起来放到末位
+      box.appendChild(card);
       try { if (navigator.vibrate) navigator.vibrate(15); } catch (err) {}
     }
     function onDown(e) {
@@ -2670,7 +2727,10 @@
     }
     function edgeTick() {
       if (!dragging || !edgeDir) { edgeRaf = 0; return; }
+      var 前 = box.scrollTop;
       box.scrollTop += edgeDir * 9;
+      var 差 = box.scrollTop - 前;
+      if (差) { 块顶 -= 差; 块底 -= 差; }   // 列表滚了，屏幕上量的边界跟着走
       edgeRaf = requestAnimationFrame(edgeTick);
     }
     function onMove(e) {
@@ -2681,41 +2741,27 @@
       }
       e.preventDefault();
       card.style.top = (e.clientY - grabY) + 'px';
-      // 指在容器身上时不排位，只把容器点亮，松手就放进去
-      落点容器 = 拖到哪个容器(e.clientX, e.clientY);
-      标容器高亮(落点容器);
-      if (落点容器) {
-        if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
-        edgeDir = 0;
-        return;
-      }
-      var others = Array.prototype.slice.call(box.querySelectorAll('.compcard:not(.reordering)'));
-      var target = others.length;
-      for (var i = 0; i < others.length; i++) {
-        var r = others[i].getBoundingClientRect();
-        if (e.clientY < r.top + r.height / 2) { target = i; break; }
-      }
-      var ref = others[target] || card;   // 插到最后时位于 fixed 卡片之前
-      // 其他卡片让位用 FLIP 动画平滑滑动，而不是瞬间跳动
-      if (ph.nextSibling !== ref) {
-        others.forEach(function (o) { o.style.transition = 'none'; });
-        var first = others.map(function (o) { return o.getBoundingClientRect().top; });
-        box.insertBefore(ph, ref);
-        others.forEach(function (o) { o.style.transform = ''; });
-        void box.offsetHeight;   // 强制 reflow，得到去 transform 后的新布局位置
-        var last = others.map(function (o) { return o.getBoundingClientRect().top; });
-        others.forEach(function (o, i) {
-          var d = first[i] - last[i];
-          if (Math.abs(d) > 0.5) o.style.transform = 'translateY(' + d + 'px)';
-        });
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            others.forEach(function (o) {
-              o.style.transition = 'transform .22s cubic-bezier(.2,0,0,1)';
-              o.style.transform = '';
-            });
-          });
-        });
+      if (父) {
+        // 容器里的子卡片：还在父块里就和其他子卡片换位，拖出父块就准备放回页面顶层
+        var 上 = e.clientY < 块顶, 下 = e.clientY > 块底;
+        var 新拖出 = 上 || 下;
+        if (新拖出 !== 拖出) {
+          拖出 = 新拖出;
+          出方向 = 上 ? -1 : (下 ? 1 : 0);
+          标父块(拖出);
+          if (ph) ph.style.display = 拖出 ? 'none' : '';
+        }
+        if (!拖出) 排位(e, 兄弟卡());
+      } else {
+        // 指在容器身上时不排位，只把容器点亮，松手就放进去
+        落点容器 = 拖到哪个容器(e.clientX, e.clientY);
+        标容器高亮(落点容器);
+        if (落点容器) {
+          if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
+          edgeDir = 0;
+          return;
+        }
+        排位(e, Array.prototype.slice.call(box.querySelectorAll('.compcard:not(.reordering):not(.is-child)')));
       }
       var br = box.getBoundingClientRect();
       edgeDir = e.clientY < br.top + 34 ? -1 : (e.clientY > br.bottom - 34 ? 1 : 0);
@@ -2727,46 +2773,93 @@
       document.removeEventListener('pointercancel', onUp, true);
       clearArm();
       if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
-      if (dragging) {
-        dragging = false;
-        标容器高亮(null);
-        // 松手时指在容器上 → 放进容器（不走排序）
-        if (落点容器) {
-          var 目标 = 落点容器; 落点容器 = null;
+      if (!dragging) return;
+      dragging = false;
+      标容器高亮(null); 标父块(false);
+
+      // —— 容器里的子卡片 ——
+      if (父) {
+        if (拖出) {
+          var 方向 = 出方向;
           if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
           cardReorder.stop();
-          if (移入容器(compId, 目标.id)) {
-            renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已放进容器');
+          var sc0 = curScreen();
+          var 父位置 = sc0.components.indexOf(父);
+          var at = (父位置 < 0 ? 0 : 父位置) + (方向 > 0 ? 1 : 0);   // 往上拖放到容器前，往下拖放到容器后
+          if (移出容器(compId, at)) {
+            renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已移出容器');
           } else {
             renderCompList();
           }
           return;
         }
-        // 松手不再"啪"一下跳回去：让卡片从当前位置滑到落点（占位虚线框那儿），落稳再重排列表
-        var 落点 = null;
-        try { 落点 = ph ? ph.getBoundingClientRect() : null; } catch (e) {}
-        var 起飞 = null;
-        try { 起飞 = card.getBoundingClientRect(); } catch (e) {}
-        if (落点 && 起飞) {
-          // 只做竖直方向的落位（横向不动 —— 按位移动会在松手时"向右滑一下"，用户反馈很怪）
+        // 容器内换位：按占位符在兄弟卡片里的先后算新下标
+        var to = 0;
+        for (var i = 0; i < box.children.length; i++) {
+          var n = box.children[i];
+          if (n === ph) break;
+          if (n.classList && n.classList.contains('compcard') && !n.classList.contains('reordering') &&
+              n.dataset.parent === String(父.id)) to++;
+        }
+        var 子起飞 = null, 子落点 = null;
+        try { 子落点 = ph ? ph.getBoundingClientRect() : null; 子起飞 = card.getBoundingClientRect(); } catch (e) {}
+        if (子落点 && 子起飞) {
           card.style.transition = 'transform .19s cubic-bezier(.2,0,0,1), opacity .19s ease, box-shadow .19s ease';
-          card.style.transform = 'translateY(' + Math.round(落点.top - 起飞.top) + 'px) scale(1)';
+          card.style.transform = 'translateY(' + Math.round(子落点.top - 子起飞.top) + 'px) scale(1)';
           card.style.opacity = '1';
           card.style.boxShadow = '0 4px 12px rgba(0,0,0,.12)';
         }
         setTimeout(function () {
-          var toIdx = Array.prototype.indexOf.call(box.children, ph);
-          var lastIdx = box.children.length - 1;   // 末尾是浮动中的拖拽卡片
-          if (toIdx > lastIdx) toIdx = lastIdx;
-          var sc = curScreen();
-          if (toIdx >= 0 && toIdx !== fromIdx && fromIdx >= 0) {
-            var item = sc.components.splice(fromIdx, 1)[0];
-            sc.components.splice(toIdx, 0, item);
+          if (to !== fromIdx && fromIdx >= 0 && 父.children) {
+            var 挪 = 父.children.splice(fromIdx, 1)[0];
+            if (挪) 父.children.splice(Math.min(to, 父.children.length), 0, 挪);
           }
           cardReorder.stop();
           renderCompList(); if (state.inLayout) renderLayout(); autosave();
         }, 190);
+        return;
       }
+
+      // —— 顶层卡片：指在容器上 → 放进容器（不走排序） ——
+      if (落点容器) {
+        var 目标 = 落点容器; 落点容器 = null;
+        if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
+        cardReorder.stop();
+        if (移入容器(compId, 目标.id)) {
+          renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已放进容器');
+        } else {
+          renderCompList();
+        }
+        return;
+      }
+      // 松手不再"啪"一下跳回去：让卡片从当前位置滑到落点（占位虚线框那儿），落稳再重排列表
+      var 落点 = null;
+      try { 落点 = ph ? ph.getBoundingClientRect() : null; } catch (e) {}
+      var 起飞 = null;
+      try { 起飞 = card.getBoundingClientRect(); } catch (e) {}
+      if (落点 && 起飞) {
+        // 只做竖直方向的落位（横向不动 —— 按位移动会在松手时"向右滑一下"，用户反馈很怪）
+        card.style.transition = 'transform .19s cubic-bezier(.2,0,0,1), opacity .19s ease, box-shadow .19s ease';
+        card.style.transform = 'translateY(' + Math.round(落点.top - 起飞.top) + 'px) scale(1)';
+        card.style.opacity = '1';
+        card.style.boxShadow = '0 4px 12px rgba(0,0,0,.12)';
+      }
+      setTimeout(function () {
+        // 只数顶层卡片，容器里的子卡片不参与这个下标（否则顺序会算错位）
+        var toIdx = 0;
+        for (var i = 0; i < box.children.length; i++) {
+          var n = box.children[i];
+          if (n === ph) break;
+          if (n.classList && n.classList.contains('compcard') && !n.classList.contains('is-child') && !n.classList.contains('reordering')) toIdx++;
+        }
+        var sc = curScreen();
+        if (toIdx >= 0 && toIdx !== fromIdx && fromIdx >= 0) {
+          var item = sc.components.splice(fromIdx, 1)[0];
+          sc.components.splice(Math.min(toIdx, sc.components.length), 0, item);
+        }
+        cardReorder.stop();
+        renderCompList(); if (state.inLayout) renderLayout(); autosave();
+      }, 190);
     }
     card.addEventListener('pointerdown', onDown, true);
   }
@@ -6593,9 +6686,11 @@
     });
   }
   function bindLitemDrag(item, c, 父) {
-    var sx = 0, sy = 0, ox = 0, oy = 0, moved = false, active = false, pid = null;
+    var sx = 0, sy = 0, moved = false, active = false, pid = null;
     var lx = 0, ly = 0;                              // 最后一次指针位置（松手时判落点用）
     var 落点容器 = null;
+    var 拖0x = 0, 拖0y = 0, 尺寸w = 0, 尺寸h = 0;      // 起拖时控件在舞台坐标系里的位置/尺寸
+    var 在父内 = !!父, 父节点 = null;                  // 容器里的子控件：现在挂不挂在父容器上
     var wasAuto = !(validN(c.x) || validN(c.y));   // 自动排列组件被拖后转绝对定位，但保持当前形状不变
     /* 指针底下是哪个容器：摸之前先把被拖的这块临时"隐身"，否则永远只摸到自己 */
     function 指到的容器(x, y) {
@@ -6620,10 +6715,21 @@
     }
     function down(e) {
       if (state.__pinching) return;                       // 缩放中第二根手指不要再启动拖动
+      // 容器里的子控件：**别让这一下冒泡到父容器**，否则父容器也会开始拖动并抢走指针捕获，
+      // 结果是"拖子控件，动的却是整个容器"（2026-10-29 抓到的）
+      if (父) e.stopPropagation();
       try { item.setPointerCapture(e.pointerId); } catch (err) {}
       pid = e.pointerId; sx = e.clientX; sy = e.clientY;
       lx = e.clientX; ly = e.clientY; 落点容器 = null;
-      ox = parseFloat(item.style.left) || 0; oy = parseFloat(item.style.top) || 0;
+      var stageEl = $('layStage'), k = stageScale();
+      var sr = stageEl.getBoundingClientRect(), ir = item.getBoundingClientRect();
+      拖0x = (ir.left - sr.left) / k; 拖0y = (ir.top - sr.top) / k;
+      尺寸w = item.offsetWidth; 尺寸h = item.offsetHeight;
+      if (父) {
+        父节点 = (item.parentNode && item.parentNode.classList && item.parentNode.classList.contains('litem'))
+          ? item.parentNode : stageEl.querySelector('.litem[data-id="' + 父.id + '"]');
+        在父内 = !!(父节点 && item.parentNode === 父节点);
+      }
       moved = false; active = true; item.classList.add('dragging'); e.preventDefault();
     }
     function move(e) {
@@ -6631,7 +6737,7 @@
       if (!active || e.pointerId !== pid) return;
       var dx = e.clientX - sx, dy = e.clientY - sy;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-        if (!moved && wasAuto) {
+        if (!moved && wasAuto && !父) {
           // 关键：开始自由拖动的瞬间，把屏幕上所有“自动排列”控件按当前画面位置/尺寸一次性固化为
           // 绝对定位（含被拖控件自己）。这样拖走其中一个时，其余控件原地不动、不再突然补位；
           // 运行时所有控件都按同一组坐标渲染，与现在所见完全一致。
@@ -6654,18 +6760,36 @@
       if (!moved) return;
       var k = stageScale(), stageEl = $('layStage');
       var sw = stageEl.offsetWidth, sh = stageEl.offsetHeight;   // 按舞台实际尺寸限制，拖不出舞台
-      // 容器里的子控件：限制在容器内部（相对坐标，和运行时一致）
-      if (父) {
-        var pw = validN(父.w) ? 父.w : (parseFloat(item.parentNode.style.width) || 300);
-        var ph2 = validN(父.h) ? 父.h : (parseFloat(item.parentNode.style.height) || 180);
-        var nx0 = Math.max(0, Math.min(pw - item.offsetWidth, ox + dx / k));
-        var ny0 = Math.max(0, Math.min(ph2 - item.offsetHeight, oy + dy / k));
-        item.style.left = Math.round(nx0) + 'px'; item.style.top = Math.round(ny0) + 'px';
+      var nx = Math.max(0, Math.min(sw - 尺寸w, 拖0x + dx / k));
+      var ny = Math.max(0, Math.min(sh - 尺寸h, 拖0y + dy / k));
+      // 容器里的子控件：还在父框里就按相对坐标限制；手指拖出父框 8px 以上 → 脱离父框跟手走，松手就移出
+      if (父 && 父节点) {
+        var pr = 父节点.getBoundingClientRect();
+        var sr = stageEl.getBoundingClientRect();
+        var 出界 = e.clientX < pr.left - 8 || e.clientX > pr.right + 8 || e.clientY < pr.top - 8 || e.clientY > pr.bottom + 8;
+        var p0x = (pr.left - sr.left) / k, p0y = (pr.top - sr.top) / k;
+        /* 拖出父框时**不能把子控件挪到别的节点上**：元素一旦离开文档，浏览器会立刻收回指针捕获，
+           后面的 pointermove / pointerup 就收不到了 —— 用户看到的就是"拖出去松手没反应"。
+           改成让父框临时不再裁剪（overflow:visible）并抬高层级，子控件就能"露"到框外，DOM 结构始终不动。 */
+        if (出界 === 在父内) {
+          在父内 = !出界;
+          父节点.classList.toggle('drop-out', !在父内);
+          父节点.style.overflow = 在父内 ? '' : 'visible';
+          父节点.style.zIndex = 在父内 ? '' : '30';
+          item.style.zIndex = 在父内 ? '' : '31';
+        }
+        if (在父内) {
+          var rx = Math.max(0, Math.min(父节点.offsetWidth - 尺寸w, nx - p0x));
+          var ry = Math.max(0, Math.min(父节点.offsetHeight - 尺寸h, ny - p0y));
+          item.style.left = Math.round(rx) + 'px'; item.style.top = Math.round(ry) + 'px';
+        } else {
+          // 父框外：坐标还是相对父框的（负值很正常），松手时再加回父框原点就是舞台坐标
+          item.style.left = Math.round(nx - p0x) + 'px'; item.style.top = Math.round(ny - p0y) + 'px';
+        }
+        try { var 子手 = $('layStage') && $('layStage').querySelector('.li-rs[data-for="' + c.id + '"]'); if (子手) 摆手柄(子手, item); } catch (e3) {}
         e.preventDefault();
         return;
       }
-      var nx = Math.max(0, Math.min(sw - item.offsetWidth, ox + dx / k));
-      var ny = Math.max(0, Math.min(sh - item.offsetHeight, oy + dy / k));
       item.style.left = Math.round(nx) + 'px'; item.style.top = Math.round(ny) + 'px';
       lx = e.clientX; ly = e.clientY;
       // 拖到容器框上就点亮它，松手直接放进去（放进去后坐标由容器接管）
@@ -6678,7 +6802,37 @@
       if (!active || (e && e.pointerId !== pid)) return;
       active = false; pid = null; item.classList.remove('dragging');
       高亮容器(null);
+      if (父节点) {
+        父节点.classList.remove('drop-out');
+        父节点.style.overflow = ''; 父节点.style.zIndex = '';   // 撤掉拖动时的临时裁剪/层级
+      }
+      item.style.zIndex = '';
       if (moved) {
+        // —— 容器里的子控件：框内改位置 / 拖到框外就移出容器 ——
+        if (父 && 父节点) {
+          if (!validN(c.w)) c.w = Math.round(尺寸w);
+          if (!validN(c.h)) c.h = Math.round(尺寸h);
+          if (!在父内) {
+            // 子控件的 left/top 一直是"相对父框"的，先加回父框原点换算成舞台坐标
+            var pr1 = 父节点.getBoundingClientRect(), sr1 = $('layStage').getBoundingClientRect(), k1 = stageScale();
+            var 舞台x = Math.round((parseFloat(item.style.left) || 0) + (pr1.left - sr1.left) / k1);
+            var 舞台y = Math.round((parseFloat(item.style.top) || 0) + (pr1.top - sr1.top) / k1);
+            移出容器(c.id);
+            c.x = Math.max(0, 舞台x); c.y = Math.max(0, 舞台y);
+            c.cx = false;
+            state.selectedCompId = c.id;
+            $('layFab').classList.remove('hidden');
+            autosave(); renderLayStage(); renderLaySheet();
+            snack('已移出容器');
+            return;
+          }
+          c.x = Math.round(parseFloat(item.style.left)); c.y = Math.round(parseFloat(item.style.top));
+          c.cx = false;
+          state.selectedCompId = c.id;
+          $('layFab').classList.remove('hidden');
+          autosave(); renderLayStage(); renderLaySheet();
+          return;
+        }
         c.x = Math.round(parseFloat(item.style.left)); c.y = Math.round(parseFloat(item.style.top));
         c.cx = false;        // 手动拖动 = 主动放弃"居中锁"（否则拖完又被拉回中间，像拖不动）
         // 松手时压在容器框上 → 收进容器，坐标落在手指位置（减容器原点变成相对坐标）
@@ -7125,15 +7279,29 @@
     var list = (resp && resp.rows) || [];
     return list.length ? (取最新版本(list) || null) : null;
   }
-  var 更新红点已查 = false;
-  /** 开机背景查一次：有新版本就亮红点；查不到（欠费/断网）就静悄悄算了 */
+  var 更新红点上次查 = 0;      // 上次查云端的时间戳，用来节流
+  var 更新红点已看过 = '';     // 用户点开「检查更新」看到的那一版：同一版不再亮红点
+  var 更新红点查询中 = false;  // 防止并发重复请求
+  /**
+   * 背景查更新：有新版本就亮红点；查不到（欠费 / 断网）就静悄悄算了。
+   * 以前是「开机查一次，之后再也不查」—— 用户开了很久再回首页就永远看不到红点。
+   * 现在开机查一次、每次回首页也查一次，但 10 分钟内不重复查（省流量、也不给云端添压力）；
+   * 用户点开过一次「检查更新」后，同一个版本不再亮红点（看过了就不烦人）。
+   */
   async function 后台查更新红点() {
-    if (更新红点已查) return;
-    更新红点已查 = true;
+    if (更新红点查询中) return;
+    var 现在 = Date.now();
+    if (更新红点上次查 && 现在 - 更新红点上次查 < 10 * 60 * 1000) return;
+    更新红点上次查 = 现在;
+    更新红点查询中 = true;
     try {
       var r = await 拉更新最新行();
-      设更新红点(!!(r && 有新版本(r['0000'])));
-    } catch (e) { 设更新红点(false); }
+      var ver = (r && r['0000']) || '';
+      设更新红点(!!(r && 有新版本(ver) && ver !== 更新红点已看过));
+    } catch (e) {
+      设更新红点(false);
+    }
+    更新红点查询中 = false;
   }
   async function openUpdateDialog() {
     $('updateMask').classList.remove('hidden');
@@ -7147,6 +7315,7 @@
       if (!r) { $('updateStatus').textContent = '暂无更新包'; return; }
       updateLatest = r;
       var ver = r['0000'] || '最新版本';
+      更新红点已看过 = String(r['0000'] || '');   // 这一版已经点开看过了，别再亮红点打扰
       var files = r['etRB'] || [];
       var fname = files[0] ? files[0].name : '';
       var card = el('div', 'upd-item sel');
@@ -10411,7 +10580,8 @@
       try {
         if (a.op === 'add') {
           var base = { id: genId(a.type), type: a.type };
-          var def = COMPONENT_DEFAULTS[a.type] || {};
+          // 和 addComponent 一样：默认属性要拷贝，别让同类控件共用一个 children/items 数组
+          var def = clone(COMPONENT_DEFAULTS[a.type] || {});
           Object.keys(def).forEach(function (k) { base[k] = def[k]; });
           // 先给默认尺寸，再盖 AI 的 props —— 顺序不能反：反了 AI 指定的宽高会被默认值冲掉
           var ns = naturalSize(a.type, base);
