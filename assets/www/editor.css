@@ -229,7 +229,13 @@ input, textarea { font-family: inherit; }
 .runtip-never.on .runtip-box { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .runtip-modal .create-btns { margin-top: 18px; }
 .home-sub { margin: 18px 0 12px; color: var(--on-surface-var); font-size: 16px; font-weight: 500; }
-.project-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.project-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+/* 首页卡片长按拖动换位：浮起来的那张 fixed 跟手，原位用一块同高占位撑着，其余卡片用 FLIP 让位 */
+.proj-card.proj-dragging {
+  position: fixed; z-index: 90; margin: 0; pointer-events: none;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28); opacity: .97; transition: none;
+}
+.proj-slot { border: 1px dashed var(--outline); border-radius: var(--r-lg); background: transparent; }
 .proj-card {
   position: relative;
   background: var(--c-low); border: 1px solid transparent; border-radius: var(--r-lg);
@@ -1144,8 +1150,10 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .lv-ring-t { position: relative; font-size: 16px; font-weight: 600; color: inherit; }
 
 /* 徽章 / 时钟 / 二维码（拖动布局预览）。样式对齐 runtime.css 的 .rt-* */
+/* 徽章在运行时是**透明无边框**（runtime.css .rt-badge），这里以前多画了白底+灰框，
+   看起来就像"不显示边框还留着边"（2026-10-29 用户要求排查全部控件时一并修正） */
 .lv-badge { display: flex; align-items: center; gap: 7px; width: 100%; height: 100%;
-  padding: 0 10px; border-radius: 999px; background: #fff; border: 1px solid #e0e0e0; }
+  padding: 0 10px; border-radius: 999px; background: transparent; }
 .lv-badge-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: #e5484d; }
 .lv-clock { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .lv-qr { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
@@ -1153,7 +1161,7 @@ button.small#btnReset, .pp-field .small { height: 34px; }
   border-radius: 6px; overflow: hidden; }
 .lv-qr-box svg { width: 100%; height: 100%; display: block; }
 .lv-qr-ph { font-size: 12px; color: #8a8794; }
-.litem.t-badge { border: 1px solid #e0e0e0; border-radius: 999px; background: #fff; }
+.litem.t-badge { border: none; border-radius: 999px; background: transparent; }
 .litem.t-qr { background: #fff; border-radius: 6px; }
 
 /* 多选下拉 / 日期范围 / 颜色选择器（拖动布局预览）。样式对齐 runtime.css 的 .rt-* */
@@ -1794,7 +1802,10 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .compcard.is-child::before { content: '└'; color: var(--outline); margin-right: 4px; }
 .compcard .iconbtn.out { font-size: 15px; }
 /* 容器默认**透明**（用户要求 2026-10-29）：不再刷白底；编辑时只留一圈淡边，方便看出范围 */
-.litem.t-container { border: 1px solid #e0e0e0; background: transparent; }
+/* 容器：边框颜色跟「预览时是否显示边框」走 —— 不然选「不显示边框」时容器还留一圈淡边，
+   和运行时的透明边框对不上（用户 2026-10-29 反馈）。几何保持 1px 不变，只改颜色。 */
+.litem.t-container { border: 1px solid transparent; background: transparent; }
+.lay-stage.show-border .litem.t-container { border-color: #e0e0e0; }
 .litem.t-container:empty { border-style: dashed; }
 .litem .litem-kid { position: absolute; }
 .litem .litem-kid .li-tag { font-size: 9px; opacity: .75; }
@@ -2026,3 +2037,25 @@ body.ai-dragging #aiPanel { opacity: .35; }
     animation-duration: .001ms !important; animation-delay: 0ms !important; transition-duration: .001ms !important;
   }
 }
+/* 设置里手动关掉「界面动画」时走同一套规则（老手机更跟手） */
+body.no-anim *, body.no-anim *::before, body.no-anim *::after {
+  animation-duration: .001ms !important; animation-delay: 0ms !important; transition-duration: .001ms !important;
+}
+
+/* ================= 设置（整页，左侧分类） =================
+   复用账号页那套 .acct 布局（固定整页 + 窄列表 + 右侧内容），只是分类换成 常规/AI/反馈。 */
+.set-page .acct-rail { flex: 0 0 104px; }
+.set-page .settings-grid { display: flex; flex-direction: column; gap: 22px; }
+.set-page .set-group { margin-bottom: 0; }
+.set-page .seed-swatch { width: 34px; height: 34px; }
+.set-page .seed-row { gap: 10px; }
+.set-hint { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--on-surface-var); }
+.set-ver { font-size: 12px; line-height: 1.8; color: var(--on-surface-var); }
+
+/* 检查更新 → 更新日志：一条版本一块，只读不选 */
+.updlog-modal { max-width: 400px; }
+.updlog-list { display: flex; flex-direction: column; gap: 14px; }
+.updlog-item .updlog-head { display: flex; align-items: baseline; gap: 10px; }
+.updlog-item .updlog-ver { font-size: 15px; font-weight: 700; color: var(--on-surface); }
+.updlog-item .updlog-date { font-size: 12px; color: var(--on-surface-var); }
+.updlog-item .updlog-body { margin-top: 6px; font-size: 13px; line-height: 1.7; color: var(--on-surface-var); white-space: pre-wrap; }

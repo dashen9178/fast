@@ -36,7 +36,6 @@
       <button id="btnNewApp" class="tb big">＋ 创建新 App</button>
     </div>
   </div>
-  <div class="home-sub">所有 App</div>
   <div id="projectList" class="project-list"></div>
   <div id="homeEmpty" class="home-empty hidden"></div>
   <!-- 导入别人分享的 .fast 作品文件。
@@ -276,7 +275,7 @@
 <!-- ============ 编辑器 ============ -->
 <div id="viewEditor" class="editor hidden">
   <div id="topbar">
-    <button id="btnHome" class="tb icononly" title="所有 App">
+    <button id="btnHome" class="tb icononly" title="回到首页">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
     </button>
     <div class="seg viewseg">
@@ -638,48 +637,98 @@
   </div>
 </div>
 
-<div id="settingsMask" class="mask hidden">
-  <div class="modal sheet-modal settings-modal fill">
-    <div class="mtitle">设置</div>
-    <div class="mbody">
-      <div class="settings-grid">
-        <div class="set-group">
-          <div class="set-label">主题颜色</div>
-          <div class="seed-row" id="seedRow"></div>
-        </div>
-        <div class="set-group">
-          <div class="set-label">显示模式</div>
-          <div class="mode-seg" id="modeSeg">
-            <button data-mode="light">浅色</button>
-            <button data-mode="dark">深色</button>
-            <button data-mode="auto">跟随系统</button>
-          </div>
-        </div>
-        <div class="set-group">
-          <div class="set-label">𝑭𝒍𝒖𝒙（AI 助手，DeepSeek）</div>
-          <div class="ai-key-row">
-            <input id="aiKey" class="inp" type="password" autocomplete="off" spellcheck="false"
-                   placeholder="粘贴你的 DeepSeek API Key">
-            <button id="aiKeyTest" class="small">测试</button>
-          </div>
-          <div id="aiKeyStatus" class="ai-key-status"></div>
-          <!-- 模型固定为 DeepSeek-V4.1 flash（用户要求：不再提供模型切换）；这里只配密钥 -->
-          <div class="ai-key-hint">
-            密钥只存在这台手机上（已排除出云备份），<b>不会</b>随作品分享、也不会打进导出的 App。<br>
-            没有的话去 platform.deepseek.com 申请一个，自己按量付费。
-          </div>
-        </div>
-        <!-- 出问题时不用你描述：这里一键把最近的运行记录导出来 -->
-        <div class="set-group">
-          <div class="set-label">出问题了？</div>
-          <div class="ai-key-row">
-            <button id="btnDiag" class="small" style="flex:1">查看 / 导出诊断信息</button>
-          </div>
-          <div class="ai-key-hint">会带上最近的出错记录与页面状态，发给我就能定位问题（不含你的 API Key 内容）。</div>
-        </div>
-      </div>
+<!-- ============ 设置（独立整页：左侧分类 常规 / AI / 反馈） ============ -->
+<div id="viewSettings" class="acct set-page hidden">
+  <div class="help-topbar">
+    <button id="btnSettingsBack" class="tb icononly" title="返回" aria-label="返回">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+    </button>
+    <div class="help-h-title">设置</div>
+  </div>
+  <div class="acct-body">
+    <div class="acct-rail" id="setRail">
+      <button class="acct-item on" data-cat="general" type="button">常规</button>
+      <button class="acct-item" data-cat="ai" type="button">AI</button>
+      <button class="acct-item" data-cat="feedback" type="button">反馈</button>
     </div>
-    <div class="mbtns"><button id="settingsClose" class="tb primary">完成</button></div>
+    <div class="acct-content">
+      <!-- 常规：主题 / 明暗 / 作品排序 / 界面动画 -->
+      <section id="setPaneGeneral" class="acct-pane">
+        <div class="settings-grid">
+          <div class="set-group">
+            <div class="set-label">主题颜色</div>
+            <div class="seed-row" id="seedRow"></div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">显示模式</div>
+            <div class="mode-seg" id="modeSeg">
+              <button data-mode="light">浅色</button>
+              <button data-mode="dark">深色</button>
+              <button data-mode="auto">跟随系统</button>
+            </div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">作品如何排序？</div>
+            <div class="mode-seg" id="setSort">
+              <button data-sort="auto">自动调整</button>
+              <button data-sort="manual">不调整排序</button>
+            </div>
+            <div class="set-hint">自动调整：最近改过的作品排在最前面。不调整排序：按你在首页长按拖动排出的顺序显示。</div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">界面动画</div>
+            <div class="mode-seg" id="setAnim">
+              <button data-anim="on">开启</button>
+              <button data-anim="off">关闭</button>
+            </div>
+            <div class="set-hint">关闭后切页、列表出现的动画不再播放，老手机更跟手。</div>
+          </div>
+        </div>
+      </section>
+      <!-- AI：只配密钥，模型固定 -->
+      <section id="setPaneAi" class="acct-pane hidden">
+        <div class="settings-grid">
+          <div class="set-group">
+            <div class="set-label">𝑭𝒍𝒖𝒙（AI 助手，DeepSeek）</div>
+            <div class="ai-key-row">
+              <input id="aiKey" class="inp" type="password" autocomplete="off" spellcheck="false"
+                     placeholder="粘贴你的 DeepSeek API Key">
+              <button id="aiKeyTest" class="small">测试</button>
+            </div>
+            <div id="aiKeyStatus" class="ai-key-status"></div>
+            <!-- 模型固定为 DeepSeek-V4.1 flash（用户要求：不再提供模型切换）；这里只配密钥 -->
+            <div class="ai-key-hint">
+              密钥只存在这台手机上（已排除出云备份），<b>不会</b>随作品分享、也不会打进导出的 App。<br>
+              没有的话去 platform.deepseek.com 申请一个，自己按量付费。
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- 反馈：诊断信息 / 联系开发者 / 版本 -->
+      <section id="setPaneFeedback" class="acct-pane hidden">
+        <div class="settings-grid">
+          <!-- 出问题时不用你描述：这里一键把最近的运行记录导出来 -->
+          <div class="set-group">
+            <div class="set-label">出问题了？</div>
+            <div class="ai-key-row">
+              <button id="btnDiag" class="small" style="flex:1">查看 / 导出诊断信息</button>
+            </div>
+            <div class="ai-key-hint">会带上最近的出错记录与页面状态，发给我就能定位问题（不含你的 API Key 内容）。</div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">联系开发者</div>
+            <div class="ai-key-row">
+              <button id="setContact" class="small" style="flex:1">打开联系方式</button>
+            </div>
+            <div class="ai-key-hint">微信 / 抖音号：dashen1949</div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">版本</div>
+            <div id="setVer" class="set-ver"></div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -715,6 +764,8 @@
   <div class="modal sheet-modal fill" style="max-width:430px">
     <div class="mtitle upd-title-row">
       <span>检查更新</span>
+      <!-- 右上角：更新日志（看这一版改了什么）+ 联系开发者 -->
+      <button type="button" id="updateLog" class="contact-chip">更新日志</button>
       <button type="button" id="updateContact" class="contact-chip">联系开发者</button>
     </div>
     <div class="mbody compact">
@@ -725,6 +776,17 @@
       <button id="updateCancel" class="tb">关闭</button>
       <button id="updateGo" class="tb primary" disabled>下载并安装</button>
     </div>
+  </div>
+</div>
+
+<!-- 检查更新 → 更新日志：最近几版改了什么（内容写在 editor.js 的 CHANGELOG 里） -->
+<div id="updLogMask" class="mask hidden">
+  <div class="modal sheet-modal updlog-modal fill">
+    <div class="mtitle">更新日志</div>
+    <div class="mbody">
+      <div id="updLogList" class="updlog-list"></div>
+    </div>
+    <div class="mbtns pinned"><button id="updLogClose" class="tb primary">关闭</button></div>
   </div>
 </div>
 

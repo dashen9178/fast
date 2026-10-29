@@ -326,7 +326,7 @@ await shot('t11-AI面板');
 await check('刚粘贴的 Key 立刻就能被识别（不用等失焦）', async () => {
   const r = await js(`(function(){
     var App=window.EditorApp;
-    App.__openSettings();
+    App.__openSettings('ai');
     var inp=document.getElementById('aiKey');
     if (!inp) return { 没有输入框:true };
     var 原 = App.__aiKeyRead();
@@ -347,34 +347,54 @@ await check('刚粘贴的 Key 立刻就能被识别（不用等失焦）', async
 await check('设置里有 AI Key 输入框与测试按钮', async () => {
   const r = await js(`(function(){
     var k=document.getElementById('aiKey'), t=document.getElementById('aiKeyTest');
-    return { key: !!k, test: !!t, type: k ? k.type : '', inSettings: !!(k && k.closest('#settingsMask')) };
+    return { key: !!k, test: !!t, type: k ? k.type : '', inSettings: !!(k && k.closest('#viewSettings')) };
   })()`);
   return (r.key && r.test && r.type === 'password' && r.inSettings) ? true : r;
 });
 
-// 加了第三组之后，原来用 :first-child/:last-child 定位的两列布局会把中间那组挤扁
-await check('设置弹窗三组布局正常，没有被挤扁', async () => {
+// 用户 2026-10-29 要求：设置改成整页（不再是小窗），左侧分类 常规 / AI / 反馈 切换。
+await check('设置是整页，左侧三栏分类能切换、内容没被挤扁', async () => {
   // 走真实入口（点设置按钮），这样主题色块等才会被渲染出来
   await js(`document.getElementById('btnSettings').click()`);
-  await sleep(700);   // 等弹窗的入场动画结束，否则量到的是缩放中的尺寸（踩过）
+  await sleep(700);   // 等切页动画结束，否则量到的是动画中的尺寸（踩过）
   const m = await js(`(function(){
-    var groups=Array.prototype.map.call(document.querySelectorAll('#settingsMask .set-group'), function(g){
+    var groups=Array.prototype.map.call(document.querySelectorAll('#setPaneGeneral .set-group'), function(g){
       var b=g.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height) };
     });
     var seg=document.getElementById('modeSeg').getBoundingClientRect();
+    var rail=Array.prototype.map.call(document.querySelectorAll('#setRail .acct-item'), function(b){
+      return { 名: b.textContent.trim(), 宽: Math.round(b.getBoundingClientRect().width), 选中: b.classList.contains('on') };
+    });
+    var 是弹窗 = !!document.getElementById('settingsMask');
+    // 切到 AI 分类：常规要隐藏、AI 要显示（顺便量一下输入框宽度，藏着时量是 0）
+    document.querySelector('#setRail .acct-item[data-cat="ai"]').click();
     var key=document.getElementById('aiKey').getBoundingClientRect();
+    var 切到AI = { 常规隐藏: document.getElementById('setPaneGeneral').classList.contains('hidden'),
+                   AI显示: !document.getElementById('setPaneAi').classList.contains('hidden') };
+    document.querySelector('#setRail .acct-item[data-cat="general"]').click();
     return { 分组: groups, 显示模式宽: Math.round(seg.width), AI输入框宽: Math.round(key.width),
-             主题色块数: document.querySelectorAll('#seedRow .seed-swatch').length };
+             主题色块数: document.querySelectorAll('#seedRow .seed-swatch').length,
+             左栏: rail, 仍是弹窗: 是弹窗, 切到AI: 切到AI,
+             排序默认: (function(){ var b=document.querySelector('#setSort .on'); return b ? b.getAttribute('data-sort') : ''; })(),
+             动画默认: (function(){ var b=document.querySelector('#setAnim .on'); return b ? b.getAttribute('data-anim') : ''; })() };
   })()`);
-  await shot('t13-设置弹窗');
-  await js(`document.getElementById('settingsClose').click()`);
+  await shot('t13-设置整页');
+  await js(`document.getElementById('btnSettingsBack').click()`);
   await sleep(300);
-  if (!m || !m.分组 || m.分组.length < 3) throw new Error('设置分组数不对：' + JSON.stringify(m));
+  if (m.仍是弹窗) throw new Error('设置还是小窗（#settingsMask 不该再存在）');
+  if (!m.分组 || m.分组.length < 3) throw new Error('常规分类的分组数不对：' + JSON.stringify(m));
   if (m.主题色块数 < 5) throw new Error('主题色块没渲染出来：' + JSON.stringify(m));
   const squashed = m.分组.filter(function (g) { return g.w < 150 || g.h < 20; });
   if (squashed.length) throw new Error('有分组被挤扁：' + JSON.stringify(m));
   if (m.显示模式宽 < 140) throw new Error('显示模式按钮被挤扁：' + JSON.stringify(m));
   if (m.AI输入框宽 < 150) throw new Error('AI Key 输入框太窄：' + JSON.stringify(m));
+  if (m.左栏.length !== 3 || m.左栏.map(function (x) { return x.名; }).join(',') !== '常规,AI,反馈') {
+    throw new Error('左侧分类应为 常规/AI/反馈：' + JSON.stringify(m.左栏));
+  }
+  if (m.左栏.filter(function (x) { return x.选中; }).length !== 1) throw new Error('左侧分类必须只有一个选中：' + JSON.stringify(m.左栏));
+  if (!m.切到AI.常规隐藏 || !m.切到AI.AI显示) throw new Error('点「AI」没切过去：' + JSON.stringify(m.切到AI));
+  if (m.排序默认 !== 'auto') throw new Error('「作品如何排序」默认应勾「自动调整」，实际：' + m.排序默认);
+  if (m.动画默认 !== 'on') throw new Error('「界面动画」默认应勾「开启」，实际：' + m.动画默认);
   return m;
 });
 
@@ -1938,7 +1958,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     var 竖页 = App.__aiAddScreen();          // 新页面默认竖屏
     App.__aiSwitchScreen(原页);
     try { localStorage.removeItem('__bb_layout_orient'); } catch (e) {}   // 默认「自动」
-    try { localStorage.removeItem('__bb_preview_border'); } catch (e) {}  // 默认「不显示边框」
+    try { localStorage.removeItem('__bb_preview_border'); } catch (e) {}  // 没存过 = 默认「显示边框」
     return { 横页: 原页, 竖页: 竖页, 原向: 原向, 原设计: 原设计 };
   })()`);
   if (场景.错误) throw new Error(场景.错误);
@@ -2023,42 +2043,64 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     throw new Error('边框选项应为 是/否，实际：' + JSON.stringify(菜单.边框项));
   }
   const 默认边框 = 菜单.边框项.filter(function (x) { return x.勾选; }).map(function (x) { return x.值; }).join(',');
-  if (默认边框 !== '0') throw new Error('边框默认应勾「否」，实际：' + 默认边框);
+  if (默认边框 !== '1') throw new Error('边框默认应勾「是」，实际：' + 默认边框);
 
-  // ④b 选「是」→ 布局页每个控件都描边；选「否」→ 描边消失（且记在本地）
-  await js(`document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="1"]').click()`);
+  // ④b 选「否」→ 布局页不描边，**容器也不能留着边框**；选「是」→ 都有（且记在本地）
+  //    用户 2026-10-29 报的就是「选了不显示边框，容器还有边框」——
+  //    控件自己的实体边框（输入框/图片等运行时本来就有）不算，容器的 1px 框必须跟着开关走。
+  await js(`(function(){
+    var App = window.EditorApp;
+    var 前 = App.__aiComps().map(function (c) { return c.id; });
+    App.__aiApplyComponents([{ op:'add', type:'container', props:{ x:20, y:420, w:280, h:120 } }]);
+    var 新 = App.__aiComps().filter(function (c) { return 前.indexOf(c.id) < 0 && c.type === 'container'; })[0];
+    window.__测试容器id = 新 ? 新.id : '';
+  })()`);
+  const 量边框 = () => js(`(function(){
+    var st = document.getElementById('layStage');
+    var it = st.querySelector('.litem');
+    var co = st.querySelector('.litem.t-container');
+    var ccs = co ? getComputedStyle(co) : null;
+    var 透明 = ccs ? (ccs.borderTopColor === 'rgba(0, 0, 0, 0)' || /transparent/.test(ccs.borderTopColor)) : null;
+    return { 有块: !!it, 有容器: !!co, 类: st.className,
+             描边: it ? getComputedStyle(it).outlineStyle : '',
+             容器边宽: ccs ? ccs.borderTopWidth : '', 容器透明: 透明,
+             记住: localStorage.getItem('__bb_preview_border') };
+  })()`);
+
+  // 先跑「否」
+  await js(`document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="0"]').click()`);
   await sleep(300);
   await js(`document.getElementById('btnLayout').click()`);
   await sleep(1200);
-  const 边框开 = await js(`(function(){
-    var st = document.getElementById('layStage');
-    var it = st.querySelector('.litem');
-    var o = it ? getComputedStyle(it).outlineStyle : '';
-    return { 有块: !!it, 类: st.className, 描边: o, 记住: localStorage.getItem('__bb_preview_border') };
+  const 边框关 = await 量边框();
+  if (/show-border/.test(边框关.类) || 边框关.记住 !== '0' || (边框关.有块 && 边框关.描边 === 'solid')) {
+    throw new Error('选「否」后控件不该再描边：' + JSON.stringify(边框关));
+  }
+  if (!边框关.有容器) throw new Error('布局页没有容器控件，测不了容器边框：' + JSON.stringify(边框关));
+  if (边框关.容器透明 !== true) throw new Error('选「否」后容器还留着边框（用户报的那个 bug）：' + JSON.stringify(边框关));
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
+
+  // 再跑「是」：控件描边、容器边框都该出来
+  await js(`(function(){
+    document.getElementById('btnLayoutCaret').click();
+    document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="1"]').click();
   })()`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1200);
+  const 边框开 = await 量边框();
   if (!/show-border/.test(边框开.类) || 边框开.记住 !== '1' || (边框开.有块 && 边框开.描边 !== 'solid')) {
     throw new Error('选「是」后控件应显示边框：' + JSON.stringify(边框开));
   }
+  if (边框开.容器透明 !== false) throw new Error('选「是」后容器的边框应该看得见：' + JSON.stringify(边框开));
   await js(`document.getElementById('layBack').click()`);
   await sleep(700);
+  // 收尾：把测试用的容器删掉，别影响后面的用例
   await js(`(function(){
-    document.getElementById('btnLayoutCaret').click();
-    document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="0"]').click();
+    var App = window.EditorApp, id = window.__测试容器id;
+    if (id) App.__aiApplyComponents([{ op:'remove', id: id }]);
   })()`);
-  await sleep(300);
-  await js(`document.getElementById('btnLayout').click()`);
-  await sleep(1200);
-  const 边框关 = await js(`(function(){
-    var st = document.getElementById('layStage');
-    var it = st.querySelector('.litem');
-    var o = it ? getComputedStyle(it).outlineStyle : '';
-    return { 有块: !!it, 有类: /show-border/.test(st.className), 描边: o, 记住: localStorage.getItem('__bb_preview_border') };
-  })()`);
-  if (边框关.有类 || 边框关.记住 !== '0' || (边框关.有块 && 边框关.描边 === 'solid')) {
-    throw new Error('选「否」后控件不该再描边：' + JSON.stringify(边框关));
-  }
-  await js(`document.getElementById('layBack').click()`);
-  await sleep(700);
 
   // ⑤ 竖屏页面 + 强制横屏 → 框是横的，画面仍是页面自己的竖屏画面（且不能改页面方向）
   await js(`document.getElementById('layoutOrientMenu').querySelector('[data-mode="landscape"]').click()`);
@@ -2239,7 +2281,7 @@ await check('编辑器里没有多余的「松手删除」孤儿标记（底部�
   await sleep(500);
   // 先关掉可能开着的弹窗/遮罩，否则 elementFromPoint 会命中遮罩（那是正常现象，不是孤儿元素）
   await js(`(function(){
-    ['settingsMask','updateMask','contactMask','exportMask','confirmMask','blocklyDialogMask'].forEach(function(id){
+    ['viewSettings','updateMask','updLogMask','contactMask','exportMask','confirmMask','blocklyDialogMask'].forEach(function(id){
       var m=document.getElementById(id); if (m) m.classList.add('hidden');
     });
   })()`);
@@ -5152,7 +5194,7 @@ await check('AI 助手已改名 𝑭𝒍𝒖𝒙（悬浮球 / 面板标题 / �
   const r = await js(`(function(){
     var ball = document.getElementById('aiBall');
     var title = document.querySelector('#aiPanel .ai-title');
-    var label = Array.prototype.slice.call(document.querySelectorAll('#settingsMask .set-label'))
+    var label = Array.prototype.slice.call(document.querySelectorAll('#viewSettings .set-label'))
                   .map(function(n){ return n.textContent; }).join(' | ');
     var sys = window.EditorApp.__aiSystemPrompt ? window.EditorApp.__aiSystemPrompt() : '';
     return { 球: (ball && (ball.getAttribute('aria-label') || ball.title)) || '',
@@ -6226,7 +6268,7 @@ await check('模板库关闭按钮：M3 无阴影、不遮挡列表项', async (
 });
 
 // 用户反馈：很多弹层的列表都没占满，浪费空间
-await check('列表类弹层会占满可用高度（设置 / 导出 / 检查更新 / 模板库）', async () => {
+await check('列表类弹层会占满可用高度（更新日志 / 导出 / 模板库）', async () => {
   const 量 = async (开, 选) => {
     await js(开);
     await sleep(450);
@@ -6238,7 +6280,7 @@ await check('列表类弹层会占满可用高度（设置 / 导出 / 检查更�
                min高度: getComputedStyle(box).minHeight };
     })()`);
     await js(`(function(){
-      ['settingsMask','exportMask','updateMask','tplSheet','cloudManageMask'].forEach(function (id) {
+      ['updLogMask','exportMask','updateMask','tplSheet','cloudManageMask'].forEach(function (id) {
         var m = document.getElementById(id); if (m) m.classList.add('hidden');
       });
       var t = document.getElementById('tplSheet'); if (t && t.parentNode) t.parentNode.removeChild(t);
@@ -6246,12 +6288,12 @@ await check('列表类弹层会占满可用高度（设置 / 导出 / 检查更�
     await sleep(200);
     return r;
   };
-  const 设置 = await 量(`(function(){ document.getElementById('settingsMask').classList.remove('hidden'); })()`, '#settingsMask .settings-modal');
+  const 日志 = await 量(`(function(){ document.getElementById('updateLog').click(); })()`, '#updLogMask .updlog-modal');
   const 导出 = await 量(`(function(){ document.getElementById('exportMask').classList.remove('hidden'); })()`, '#exportMask .export-modal');
   const 模板 = await 量(`(function(){ document.getElementById('btnTpl').click(); })()`, '#tplSheet .tpl-modal');
-  const 坏 = [['设置', 设置], ['导出', 导出], ['模板库', 模板]].filter(function (x) { return x[1].没打开 || x[1].占比 < 55; });
+  const 坏 = [['更新日志', 日志], ['导出', 导出], ['模板库', 模板]].filter(function (x) { return x[1].没打开 || x[1].占比 < 55; });
   if (坏.length) throw new Error('这些弹层还是没占满：' + JSON.stringify(坏));
-  return { 设置: 设置.占比 + '%', 导出: 导出.占比 + '%', 模板库: 模板.占比 + '%' };
+  return { 更新日志: 日志.占比 + '%', 导出: 导出.占比 + '%', 模板库: 模板.占比 + '%' };
 });
 
 // 用户要求：列表里已经有同名 App，就不能再创建同名
@@ -7243,6 +7285,116 @@ await check('检查更新提示区分「有新版本 / 已最新 / 云端更旧�
   if (!/已经在用最新版/.test(r.相同)) throw new Error('同版本提示不对：' + r.相同);
   if (!/还旧/.test(r.更旧)) throw new Error('云端更旧时应明确提示（防止误导降级）：' + r.更旧);
   return r;
+});
+
+// 用户 2026-10-29 要求：检查更新右上角增加「更新日志」，用来展示每一版改了什么
+await check('检查更新右上角有「更新日志」，能列出最近几版的改动', async () => {
+  const r = await js(`(function(){
+    var m = document.getElementById('updateMask');
+    var row = m ? m.querySelector('.mtitle') : null;
+    var btn = document.getElementById('updateLog');
+    if (!btn) return { 没有按钮: true };
+    btn.click();
+    var mask = document.getElementById('updLogMask');
+    var items = Array.prototype.slice.call(document.querySelectorAll('#updLogList .updlog-item'));
+    var out = { 在标题栏: !!(row && row.contains(btn)), 文字: btn.textContent.trim(),
+                弹窗显示: !!mask && !mask.classList.contains('hidden'), 条数: items.length,
+                版本: items.map(function (n) { return (n.querySelector('.updlog-ver') || {}).textContent || ''; }),
+                日期: items.map(function (n) { return (n.querySelector('.updlog-date') || {}).textContent || ''; }),
+                正文空: items.filter(function (n) {
+                  var b = n.querySelector('.updlog-body');
+                  return !b || !b.textContent.trim();
+                }).length };
+    document.getElementById('updLogClose').click();
+    out.关闭后隐藏 = mask.classList.contains('hidden');
+    return out;
+  })()`);
+  if (r.没有按钮) throw new Error('检查更新弹窗里没有「更新日志」按钮');
+  if (!r.在标题栏 || r.文字 !== '更新日志') throw new Error('「更新日志」应在标题栏右上角：' + JSON.stringify(r));
+  if (!r.弹窗显示) throw new Error('点「更新日志」没弹出内容：' + JSON.stringify(r));
+  if (r.条数 < 4) throw new Error('更新日志至少要有最近 4 版：' + JSON.stringify(r));
+  if (!/^v1\.0\.116\.137$/.test(r.版本[0])) throw new Error('更新日志第一条应是最新版本：' + JSON.stringify(r.版本));
+  if (r.日期.filter(function (x) { return !/^\d{4}-\d{2}-\d{2}$/.test(x); }).length) {
+    throw new Error('更新日志缺日期：' + JSON.stringify(r.日期));
+  }
+  if (r.正文空) throw new Error('有更新条目没有写内容：' + JSON.stringify(r));
+  if (!r.关闭后隐藏) throw new Error('「关闭」没关掉更新日志');
+  return { 条数: r.条数, 最新: r.版本[0] };
+});
+
+// 用户 2026-10-29 要求：首页作品卡支持长按拖动调整位置
+await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另一张卡上）', async () => {
+  await js(`(function(){ var h=document.getElementById('btnHome'); if(h) h.click(); })()`);
+  await sleep(800);
+  const 前 = await js(`(function(){
+    var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
+    if (cards.length < 2) return { 数: cards.length };
+    var a = cards[0].getBoundingClientRect(), b = cards[1].getBoundingClientRect();
+    return { 数: cards.length, 名: cards.map(function (c) { return c.dataset.id; }),
+             甲: { x: Math.round(a.left + a.width / 2), y: Math.round(a.top + a.height / 2) },
+             乙: { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) } };
+  })()`);
+  if (前.数 < 2) throw new Error('首页少于 2 个作品，测不了长按排序');
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 前.甲.x, y: 前.甲.y, button: 'left', clickCount: 1, buttons: 1 });
+  await sleep(700);   // 超过 480ms 长按阈值
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 前.乙.x + 6, y: 前.乙.y + 6, button: 'left', buttons: 1 });
+  await sleep(250);   // 留出 FLIP 排位的时间
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 前.乙.x + 6, y: 前.乙.y + 6, button: 'left', clickCount: 1, buttons: 0 });
+  await sleep(700);
+  const 后 = await js(`(function(){
+    var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
+    return { 名: cards.map(function (c) { return c.dataset.id; }), 排序: localStorage.getItem('__bb_proj_sort'),
+             残留槽: document.querySelectorAll('#projectList .proj-slot').length,
+             还在拖: document.querySelectorAll('.proj-dragging').length };
+  })()`);
+  if (后.排序 !== 'manual') throw new Error('长按拖完应切成「不调整排序」，实际：' + 后.排序);
+  if (后.名.join(',') === 前.名.join(',')) throw new Error('拖完顺序没变：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
+  if (后.名.indexOf(前.名[0]) !== 1) throw new Error('第一张卡没落到第二位：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
+  if (后.残留槽 || 后.还在拖) throw new Error('拖完页面留下残渣（占位槽/拖动中的卡）：' + JSON.stringify(后));
+  // 收尾：恢复「自动调整」，别让后面的用例受影响
+  await js(`(function(){ try { localStorage.setItem('__bb_proj_sort','auto'); } catch(e) {}
+    document.getElementById('btnHome').click(); })()`);
+  await sleep(500);
+  return { 前后: 前.名[0] + ' → 第 2 位' };
+});
+
+// 用户 2026-10-29 要求：布局页点空白处取消选中
+await check('布局页点空白处取消选中（点控件本身不会误取消）', async () => {
+  await js(`(function(){ document.getElementById('btnHome').click(); })()`);
+  await sleep(700);
+  await js(`(function(){ var c=document.querySelector('#projectList .proj-card'); if (c) c.click(); })()`);
+  await sleep(1000);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1300);
+  const r = await js(`(function(){
+    var st = document.getElementById('layStage');
+    var it = st.querySelector('.litem');
+    if (!it) return { 没有控件: true };
+    function pd(node) {
+      var b = node.getBoundingClientRect();
+      node.dispatchEvent(new PointerEvent('pointerdown', { clientX: b.left + 6, clientY: b.top + 6,
+        bubbles: true, cancelable: true, pointerId: 21, isPrimary: true }));
+      node.dispatchEvent(new PointerEvent('pointerup', { clientX: b.left + 6, clientY: b.top + 6,
+        bubbles: true, cancelable: true, pointerId: 21, isPrimary: true }));
+    }
+    pd(it);                                    // 先选中一个控件
+    var 选中 = st.querySelectorAll('.litem.sel').length;
+    pd(st.querySelector('.litem.sel') || it);  // 再按控件本身：不该取消
+    var 按控件后 = st.querySelectorAll('.litem.sel').length;
+    st.dispatchEvent(new PointerEvent('pointerdown', { clientX: 2, clientY: 2,
+      bubbles: true, cancelable: true, pointerId: 22, isPrimary: true }));   // 点舞台空白
+    return { 选中: 选中, 按控件后: 按控件后,
+             之后: st.querySelectorAll('.litem.sel').length,
+             控制点: st.querySelectorAll('.li-rs').length,
+             工具条隐藏: document.getElementById('layFab').classList.contains('hidden') };
+  })()`);
+  if (r.没有控件) throw new Error('布局页没有控件，测不了取消选中');
+  if (r.选中 !== 1) throw new Error('点控件没选中：' + JSON.stringify(r));
+  if (r.按控件后 !== 1) throw new Error('点控件本身不该取消选中：' + JSON.stringify(r));
+  if (r.之后 !== 0 || r.控制点 !== 0 || !r.工具条隐藏) throw new Error('点空白后没取消选中：' + JSON.stringify(r));
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(600);
+  return { 选中: '1 → 点空白 → 0' };
 });
 
 const failed = results.filter(r => !r.ok);

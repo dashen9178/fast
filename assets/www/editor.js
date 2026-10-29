@@ -808,7 +808,7 @@
       var h = $('edgeHint'); if (h) { h.classList.remove('show'); h.style.transform = ''; }
       var t = e.changedTouches ? e.changedTouches[0] : null, dx = t ? t.clientX - sx : 0, dy = t ? t.clientY - sy : 0;
       if (!(dx > 64 && Math.abs(dx) > Math.abs(dy) * 1.4)) return;
-      var masks = ['createMask', 'colorMask', 'cloudCreateMask', 'cloudManageMask', 'blocklyDialogMask', 'confirmMask', 'exportMask', 'settingsMask', 'modalMask', 'authMask'];
+      var masks = ['createMask', 'colorMask', 'cloudCreateMask', 'cloudManageMask', 'blocklyDialogMask', 'confirmMask', 'exportMask', 'updLogMask', 'modalMask', 'authMask'];
       for (var i = 0; i < masks.length; i++) { var m = $(masks[i]); if (m && !m.classList.contains('hidden')) { m.classList.add('hidden'); return; } }
       if (state.inLayout) closeLayout();
     }
@@ -1839,9 +1839,13 @@
     s.items = (s.items || []).filter(function (it) { return it && it.project && Array.isArray(it.project.screens); });
     empty.classList.toggle('hidden', s.items.length > 0);
     empty.textContent = s.items.length ? '' : '点击右上角「创建新 App」开始';
-    s.items.slice().sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); }).forEach(function (it, 序) {
+    // 排序跟着设置走：auto = 最近改过的在最前；manual = 保持存储里的顺序（长按拖出来的顺序）
+    var 排序后 = s.items.slice();
+    if (getProjSort() !== 'manual') 排序后.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+    排序后.forEach(function (it, 序) {
       var n = it.project.screens.reduce(function (a, x) { return a + x.components.length; }, 0);
       var card = el('div', 'proj-card');
+      card.dataset.id = it.id;
       // 右上角分享按钮（绝对定位贴角）；单独绑定并阻止冒泡，免得连带触发卡片的双击打开
       var share = el('button', 'p-share');
       share.type = 'button';
@@ -1880,7 +1884,139 @@
       ops.appendChild(del);
       card.appendChild(ops); card.addEventListener('dblclick', function () { openItem(it.id); });
       错峰(card, 序);
+      bindHomeReorder(card, it.id);      // 长按卡片拖动换位置
       box.appendChild(card);
+    });
+  }
+
+  /* ---------------- 首页：作品排序设置 + 长按拖动换位 ---------------- */
+  var PROJ_SORT_KEY = '__bb_proj_sort';        // 'auto'（默认）| 'manual'
+  function getProjSort() {
+    var v = null; try { v = localStorage.getItem(PROJ_SORT_KEY); } catch (e) {}
+    return v === 'manual' ? 'manual' : 'auto';
+  }
+  function setProjSort(v) {
+    try { localStorage.setItem(PROJ_SORT_KEY, v === 'manual' ? 'manual' : 'auto'); } catch (e) {}
+    buildSettings();
+    if ($('viewHome') && !$('viewHome').classList.contains('hidden')) renderHome();
+  }
+  /**
+   * 长按卡片（约 0.5 秒）后拖动换位置。
+   * 移动中：卡片 position:fixed 跟手；原位放一块 .proj-slot 占位；其余卡片 FLIP 平滑让位。
+   * 松手：按 DOM 里的最终顺序写回存储，并把排序切到「不调整排序」——否则下次自动排序又把顺序打乱。
+   */
+  function bindHomeReorder(card, id) {
+    var 计时 = null, 起X = 0, 起Y = 0, 抓x = 0, 抓y = 0, 拖 = false, 占位 = null;
+    function 清计时() { if (计时) { clearTimeout(计时); 计时 = null; } }
+    function 拦滚动(e) { if (拖 && e.cancelable) e.preventDefault(); }
+    function 起拖() {
+      var r = card.getBoundingClientRect();
+      拖 = true;
+      抓x = 起X - r.left; 抓y = 起Y - r.top;
+      card.classList.add('proj-dragging');
+      card.style.width = r.width + 'px';
+      card.style.height = r.height + 'px';
+      card.style.left = r.left + 'px';
+      card.style.top = r.top + 'px';
+      占位 = el('div', 'proj-slot');
+      占位.style.height = r.height + 'px';
+      card.parentNode.insertBefore(占位, card);
+      document.body.appendChild(card);
+      // 手指已经按在卡片上时，只有拦下 touchmove 才能阻止页面跟着滚
+      document.addEventListener('touchmove', 拦滚动, { passive: false });
+      try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+    }
+    /** 手指位置对应的插入点：返回要插在它前面的那张卡；返回 null = 插到最后 */
+    function 插入点(x, y) {
+      var kids = Array.prototype.slice.call($('projectList').children);
+      for (var i = 0; i < kids.length; i++) {
+        var n = kids[i];
+        if (n === card || n === 占位 || !n.classList.contains('proj-card')) continue;
+        var r = n.getBoundingClientRect();
+        if (y < r.top + r.height / 2) return n;                       // 在它上半部分之上
+        if (y < r.bottom && x < r.left + r.width / 2) return n;       // 同一行、左半边
+      }
+      return null;
+    }
+    function 排位(x, y) {
+      var box = $('projectList'), ref = 插入点(x, y);
+      if (!占位) return;
+      if (ref === 占位 || ref === 占位.nextSibling) return;           // 位置没变
+      var 兄弟 = Array.prototype.slice.call(box.children).filter(function (n) { return n !== card && n !== 占位; });
+      兄弟.forEach(function (n) { n.style.transition = 'none'; n.style.transform = ''; });
+      var 前 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
+      box.insertBefore(占位, ref || null);
+      void box.offsetHeight;
+      var 后 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
+      兄弟.forEach(function (n, i) {
+        var dx = 前[i][0] - 后[i][0], dy = 前[i][1] - 后[i][1];
+        if (dx || dy) n.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      });
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          兄弟.forEach(function (n) {
+            n.style.transition = 'transform .2s cubic-bezier(.2,0,0,1)';
+            n.style.transform = '';
+          });
+        });
+      });
+    }
+    function 移动(e) {
+      if (!拖) {
+        if (Math.abs(e.clientX - 起X) > 9 || Math.abs(e.clientY - 起Y) > 9) 清计时();  // 在滚动列表，不算长按
+        return;
+      }
+      card.style.left = (e.clientX - 抓x) + 'px';
+      card.style.top = (e.clientY - 抓y) + 'px';
+      排位(e.clientX, e.clientY);
+    }
+    function 松手() {
+      document.removeEventListener('pointermove', 移动);
+      document.removeEventListener('pointerup', 松手, true);
+      document.removeEventListener('pointercancel', 松手, true);
+      document.removeEventListener('touchmove', 拦滚动);
+      清计时();
+      if (!拖) return;
+      拖 = false;
+      var box = $('projectList');
+      // 按最终 DOM 顺序（占位符所在的位置就是这张卡的新位置）写回存储
+      var 顺序 = [];
+      Array.prototype.forEach.call(box.children, function (n) {
+        if (n === 占位) 顺序.push(id);
+        else if (n.classList && n.classList.contains('proj-card') && n.dataset.id) 顺序.push(n.dataset.id);
+      });
+      card.classList.remove('proj-dragging');
+      card.style.cssText = '';
+      if (占位 && 占位.parentNode) 占位.remove();
+      if (card.parentNode) card.remove();
+      兄弟复位();
+      var s = loadStore(), map = {};
+      s.items.forEach(function (it) { map[it.id] = it; });
+      var 新 = 顺序.map(function (i) { return map[i]; }).filter(Boolean);
+      if (新.length !== s.items.length) return renderHome();      // 顺序对不上就别乱写
+      s.items = 新; saveStore(s);
+      var 之前 = getProjSort();
+      try { localStorage.setItem(PROJ_SORT_KEY, 'manual'); } catch (e) {}
+      renderHome();
+      if (之前 !== 'manual') snack('已按你的顺序排列（设置 → 常规 可改回自动调整）');
+    }
+    function 兄弟复位() {
+      if (!box()) return;
+      Array.prototype.forEach.call(box().children, function (n) {
+        n.style.transform = ''; n.style.transition = '';
+      });
+    }
+    function box() { return $('projectList'); }
+    card.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest && e.target.closest('button')) return;   // 卡片上的分享/编辑/删除按钮不参与
+      if (document.querySelector('.mask:not(.hidden)')) return;
+      起X = e.clientX; 起Y = e.clientY;
+      清计时();
+      计时 = setTimeout(起拖, 480);
+      document.addEventListener('pointermove', 移动);
+      document.addEventListener('pointerup', 松手, true);
+      document.addEventListener('pointercancel', 松手, true);
     });
   }
   // 创建 App：先弹 M3 对话框（应用名 + 竖/横屏），确认后再建工程
@@ -2370,11 +2506,12 @@
     syncPreviewBorderMenu();
   }
   /* 「控件在预览时是否显示边框」：布局页预览里给每个控件描一圈细线，
-     方便看清透明/空白控件的实际范围。只影响布局页预览，不进运行/导出。存本地，默认「否」。 */
+     方便看清透明/空白控件的实际范围。只影响布局页预览，不进运行/导出。
+     存本地，**默认「是」**（用户 2026-10-29 要求：默认看得见范围）。 */
   var PREVIEW_BORDER_KEY = '__bb_preview_border';
   function previewBorderOn() {
     var v = null; try { v = localStorage.getItem(PREVIEW_BORDER_KEY); } catch (e) {}
-    return v === '1';
+    return v !== '0';            // 只认显式存下的 '0' 才是关；没存过一律开
   }
   function syncPreviewBorderMenu() {
     var on = previewBorderOn() ? '1' : '0';
@@ -5947,7 +6084,9 @@
     if (maskVisible('confirmMask')) { var cc = $('confirmCancel'); if (cc) cc.click(); return true; }
     if (maskVisible('modalMask')) { hideModal(); return true; }
     if (maskVisible('exportMask')) { $('exportMask').classList.add('hidden'); return true; }
-    if (maskVisible('settingsMask')) { $('settingsMask').classList.add('hidden'); return true; }
+    if (maskVisible('updLogMask')) { $('updLogMask').classList.add('hidden'); return true; }
+    // 设置是独立整页，返回键当作"退出设置"（回到打开它的那一页）
+    if ($('viewSettings') && !$('viewSettings').classList.contains('hidden')) { closeSettings(); return true; }
     // 2) 代码：下拉/齿轮设置框/分类浮层
     if (state.view === 'blocks' && state.ws) {
       var flyoutOpen = false;
@@ -6979,6 +7118,18 @@
     // 返回编辑器（以前这个按钮在 HTML 里丢了，进来就出不去）
     var lb = $('layBack');
     if (lb) lb.addEventListener('click', function (e) { e.stopPropagation(); closeLayout(); });
+    // 点布局页空白处取消选中（用户 2026-10-29 要求）。
+    // 用 pointerdown 而不是 click：拖控件松手时也可能在空白处产生一次 click，会误取消刚拖的那一个。
+    var lv = $('viewLayout');
+    if (lv) lv.addEventListener('pointerdown', function (e) {
+      if (e.target.closest && e.target.closest('.litem, .li-rs, button, .lay-sheet, .lay-topbar, input, select, textarea, .menu')) return;
+      if (!state.selectedCompId) return;
+      state.selectedCompId = null;
+      Array.prototype.slice.call($('layStage').querySelectorAll('.li-rs')).forEach(function (h) { h.remove(); });
+      Array.prototype.forEach.call($('layStage').querySelectorAll('.litem.sel'), function (n) { n.classList.remove('sel'); });
+      $('layFab').classList.add('hidden');
+      renderLaySheet();
+    });
   }
   function buildLayPageMenu() {
     var menu = $('layPageMenu'); menu.innerHTML = '';
@@ -7060,9 +7211,33 @@
     });
   }
 
-  /* ---------------- 设置（主题色 / 明暗） ---------------- */
+  /* ---------------- 设置（独立整页：常规 / AI / 反馈，用户 2026-10-29 要求） ---------------- */
+  var 设置来源 = 'home';          // 从哪儿打开的：'home' | 'editor'，返回时回到原处
+  var UI_ANIM_KEY = '__bb_ui_anim';
+  function uiAnimOn() {
+    var v = null; try { v = localStorage.getItem(UI_ANIM_KEY); } catch (e) {}
+    return v !== '0';             // 默认开
+  }
+  function applyUiAnim() {
+    try { document.body.classList.toggle('no-anim', !uiAnimOn()); } catch (e) {}
+  }
+  function setUiAnim(on) {
+    try { localStorage.setItem(UI_ANIM_KEY, on ? '1' : '0'); } catch (e) {}
+    applyUiAnim(); buildSettings();
+  }
+  function setSettingsCat(cat) {
+    ['general', 'ai', 'feedback'].forEach(function (k) {
+      var pane = $('setPane' + (k === 'general' ? 'General' : (k === 'ai' ? 'Ai' : 'Feedback')));
+      if (pane) pane.classList.toggle('hidden', k !== cat);
+      var b = document.querySelector('#setRail .acct-item[data-cat="' + k + '"]');
+      if (b) b.classList.toggle('on', k === cat);
+    });
+    同步分段药丸();               // 左侧分类的滑块跟着走
+  }
   function buildSettings() {
-    var th = getTheme(), seedRow = $('seedRow'); seedRow.innerHTML = '';
+    var th = getTheme(), seedRow = $('seedRow');
+    if (!seedRow) return;
+    seedRow.innerHTML = '';
     SEEDS.forEach(function (s) {
       var b = el('button', 'seed-swatch' + (s[0].toLowerCase() === th.seed.toLowerCase() ? ' on' : ''));
       b.style.background = s[0]; b.title = s[1]; b.type = 'button';
@@ -7073,9 +7248,25 @@
       b.classList.toggle('on', b.getAttribute('data-mode') === th.mode);
       b.onclick = function () { var t = getTheme(); t.mode = b.getAttribute('data-mode'); saveTheme(t); applyTheme(); buildSettings(); };
     });
+    // 作品如何排序（默认自动调整）
+    var 排序 = getProjSort(), sortSeg = $('setSort');
+    if (sortSeg) Array.prototype.forEach.call(sortSeg.children, function (b) {
+      b.classList.toggle('on', b.getAttribute('data-sort') === 排序);
+      b.onclick = function () { setProjSort(b.getAttribute('data-sort')); };
+    });
+    // 界面动画
+    var 动 = uiAnimOn(), animSeg = $('setAnim');
+    if (animSeg) Array.prototype.forEach.call(animSeg.children, function (b) {
+      b.classList.toggle('on', (b.getAttribute('data-anim') === 'on') === 动);
+      b.onclick = function () { setUiAnim(b.getAttribute('data-anim') === 'on'); };
+    });
+    var sv = $('setVer');
+    if (sv) sv.textContent = '当前版本：' + buildVersion();
   }
-  function openSettings() {
+  function openSettings(cat) {
+    设置来源 = ($('viewEditor') && !$('viewEditor').classList.contains('hidden')) ? 'editor' : 'home';
     buildSettings();
+    setSettingsCat(cat || 'general');
     // 打开设置时把"模型/深度思考"两个控件的显示同步一次 ——
     // 否则上次选了 flash，这里还显示 HTML 里写死的 v4-pro（显示和实际不一致）
     try { aiSyncThinkUI(); } catch (e) {}
@@ -7089,7 +7280,15 @@
       if (ki && cur && ki.value !== cur) ki.value = cur;
       if (stt) stt.textContent = cur ? ('已保存到本机：' + aiKeyMask(cur)) : '还没有填 Key';
     } catch (e) {}
-    $('settingsMask').classList.remove('hidden');
+    var v = $('viewSettings');
+    if (v) { v.classList.remove('hidden'); 切页(v, 'fwd'); }
+  }
+  function closeSettings() {
+    var v = $('viewSettings');
+    if (!v || v.classList.contains('hidden')) return;
+    v.classList.add('hidden');
+    if (设置来源 === 'editor') { var e = $('viewEditor'); if (e) e.classList.remove('hidden'); }
+    else { var h = $('viewHome'); if (h) h.classList.remove('hidden'); }
   }
 
   /* ---------------- 运行 / 导出 ----------------
@@ -7329,6 +7528,57 @@
       设更新红点(false);
     }
     更新红点查询中 = false;
+  }
+  /* ---- 检查更新 → 更新日志 ----
+     云端「更新」表只有版本号 + 附件，没有正文列，所以正文写死在这里最省事。
+     发版时只在数组最前面加一条（新的在上、旧的在下），不用动云端表结构。 */
+  var CHANGELOG = [
+    { v: '1.0.116.137', d: '2026-10-29', t: [
+      '预览边框默认改成「显示」',
+      '修：预览选「不显示边框」时，容器、徽章仍带着边框',
+      '布局页点空白处可取消选中',
+      '首页作品卡支持长按拖动调整顺序',
+      '去掉首页「所有 App」那行字',
+      '设置改为整页：左侧分类（常规 / AI / 反馈），新增「作品如何排序」「界面动画」',
+      '检查更新右上角新增「更新日志」'
+    ] },
+    { v: '1.0.116.136', d: '2026-10-29', t: [
+      '容器控件默认透明（和运行时一致）',
+      '预览菜单新增「是否显示边框」开关',
+      '预览菜单文案与横竖屏选项顺序调整'
+    ] },
+    { v: '1.0.116.135', d: '2026-10-29', t: [
+      '新建控件默认尺寸整体收小，不再一放就占满画面',
+      '容器 / 滚动区里的控件可长按拖动换位置，也能拖出来',
+      '修：新建的容器会带上别的容器里的子控件',
+      '回首页时会重新检查更新（10 分钟最多一次）'
+    ] },
+    { v: '1.0.116.134', d: '2026-10-29', t: [
+      '控件可以拖进容器 / 滚动区',
+      '通知权限支持三种状态',
+      '布局页按钮去掉多余阴影'
+    ] },
+    { v: '1.0.116.133', d: '2026-10-29', t: [
+      '检查更新：有新版本时首页按钮亮红点',
+      '布局页顶部按钮改为连体样式'
+    ] }
+  ];
+  function openUpdateLog() {
+    var box = $('updLogList');
+    if (!box) return;
+    box.innerHTML = '';
+    CHANGELOG.forEach(function (it, i) {
+      var card = el('div', 'updlog-item');
+      var head = el('div', 'updlog-head');
+      head.appendChild(el('span', 'updlog-ver', 'v' + it.v));
+      head.appendChild(el('span', 'updlog-date', it.d));
+      card.appendChild(head);
+      var body = el('div', 'updlog-body');
+      body.textContent = (it.t || []).join('\n');   // .updlog-body 是 pre-wrap，直接换行最省事
+      card.appendChild(body);
+      box.appendChild(错峰(card, i));
+    });
+    $('updLogMask').classList.remove('hidden');
   }
   async function openUpdateDialog() {
     $('updateMask').classList.remove('hidden');
@@ -10297,7 +10547,7 @@
     var btn = $('btnDiag');
     if (btn) btn.addEventListener('click', function () {
       var txt = diagText();
-      $('settingsMask').classList.add('hidden');
+      closeSettings();
       openDiagSheet(txt);
     });
   }
@@ -11220,8 +11470,8 @@
     __aiPromptHas: function (needle) { return aiSystemPrompt().indexOf(String(needle)) >= 0; },
     /** 测试用：手动触发一次预览缩放校正（验证"反复算不会越来越大"） */
     /** 测试用：打开/关闭设置弹窗（顺便验证"打开时会把模型名同步一次"） */
-    __openSettings: function () { openSettings(); return !$('settingsMask').classList.contains('hidden'); },
-    __closeSettings: function () { try { $('settingsMask').classList.add('hidden'); closeMenus(); } catch (e) {} return true; },
+    __openSettings: function (cat) { openSettings(cat); return !$('viewSettings').classList.contains('hidden'); },
+    __closeSettings: function () { try { closeSettings(); closeMenus(); } catch (e) {} return true; },
     /** 测试用：等价于点「插入到画布」（用待插入内容插到主画布），返回这次插了几组 */
     __aiInsertPending: function () {
       var ws = state.ws;
@@ -13546,6 +13796,8 @@
       if (seg) 装分段药丸(seg, [$('tabDesign'), $('tabBlocks')]);
       var nav = document.querySelector('#viewAccount .acct-rail');
       if (nav) 装分段药丸(nav, [$('acctNavInfo'), $('acctNavComm')]);
+      var setRail = $('setRail');
+      if (setRail) 装分段药丸(setRail, Array.prototype.slice.call(setRail.querySelectorAll('.acct-item')));
       setTimeout(同步分段药丸, 80);
     })();
     $('btnLayout').addEventListener('click', openLayout);
@@ -13573,8 +13825,18 @@
       });
     });
     $('modalCancel').addEventListener('click', hideModal);
-    $('btnSettings').addEventListener('click', openSettings);
-    $('settingsClose').addEventListener('click', function () { $('settingsMask').classList.add('hidden'); });
+    // 设置：独立整页（左侧 常规 / AI / 反馈）
+    $('btnSettings').addEventListener('click', function () { openSettings('general'); });
+    $('btnSettingsBack').addEventListener('click', closeSettings);
+    Array.prototype.forEach.call(document.querySelectorAll('#setRail .acct-item'), function (b) {
+      b.addEventListener('click', function () { setSettingsCat(b.getAttribute('data-cat')); });
+    });
+    var 设置联系 = $('setContact');
+    if (设置联系) 设置联系.addEventListener('click', function () { $('contactMask').classList.remove('hidden'); });
+    // 检查更新 → 更新日志
+    $('updateLog').addEventListener('click', openUpdateLog);
+    $('updLogClose').addEventListener('click', function () { $('updLogMask').classList.add('hidden'); });
+    applyUiAnim();
     $('viewHome').addEventListener('scroll', function () { $('homeHead').classList.toggle('scrolled', this.scrollTop > 4); });
 
     // ---- 添加组件：分组收纳（「控件类型 ⬇️」）----
