@@ -229,19 +229,25 @@ input, textarea { font-family: inherit; }
 .runtip-never.on .runtip-box { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .runtip-modal .create-btns { margin-top: 18px; }
 .home-sub { margin: 18px 0 12px; color: var(--on-surface-var); font-size: 16px; font-weight: 500; }
-.project-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
-/* 首页卡片长按拖动换位：浮起来的那张 fixed 跟手，原位用一块同高占位撑着，其余卡片用 FLIP 让位 */
-.proj-card.proj-dragging {
-  position: fixed; z-index: 90; margin: 0; pointer-events: none;
-  box-shadow: 0 12px 32px rgba(0,0,0,.24); opacity: .98; transition: none;
-  transform: scale(1.02); cursor: grabbing;
-  will-change: left, top;
+/* position:relative 是占位块的定位基准（拖动时它绝对定位在目标格子上，不参与网格排版） */
+.project-list { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+/* 首页卡片长按拖动换位（2026-10-29 重做：**拖动期间一棵 DOM 都不动**，让位全靠 transform）
+   ① 被拖的那张卡留在格子里但隐藏（照样占位，网格不会重排）
+   ② 跟手的是一个 fixed 的影子卡（克隆），只动 transform
+   ③ 落点是列表里的绝对定位虚线块，跟着目标格子平移 */
+.proj-card.proj-holding { visibility: hidden; }
+.proj-card.proj-ghost {
+  position: fixed; left: 0; top: 0; margin: 0; z-index: 90; pointer-events: none;
+  box-shadow: 0 12px 32px rgba(0,0,0,.24); opacity: .98; will-change: transform;
 }
-/* 占位块跟着"卡片的洞"走：淡淡的底色 + 虚线，比纯虚线框稳（拖动时不会来回闪） */
-.proj-slot { border-radius: var(--r-lg); background: var(--secondary-c);
-  outline: 1.5px dashed var(--outline-var); outline-offset: -1.5px; }
+.proj-slot {
+  position: absolute; pointer-events: none;
+  border-radius: var(--r-lg); background: var(--secondary-c);
+  outline: 1.5px dashed var(--outline-var); outline-offset: -1.5px;
+  transition: left .18s var(--ease), top .18s var(--ease);
+}
 /* 拖动期间其余卡片让位：只跑 transform，时长压短一点，别拖泥带水 */
-.proj-card.proj-shift { transition: transform .16s cubic-bezier(.2,0,0,1); }
+.proj-card.proj-shift { transition: transform .18s var(--ease); }
 .proj-card {
   position: relative;
   background: var(--c-low); border: 1px solid transparent; border-radius: var(--r-lg);
@@ -1927,6 +1933,14 @@ body.ai-dragging #aiPanel { opacity: .35; }
 
 /* ================= 账号页（登录后进入：左窄列表 + 右内容区） ================= */
 .acct { position: fixed; inset: 0; z-index: 60; background: var(--surface); display: flex; flex-direction: column; }
+/* 诊断信息：独立整页（从设置 → 反馈 进来；返回只回设置，不再一件事不对就退到首页） */
+.diag-page { position: fixed; inset: 0; z-index: 62; background: var(--surface); display: flex; flex-direction: column; }
+.diag-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 18px 28px; }
+.diag-page .diag-pre {
+  margin: 0; padding: 14px 16px; border-radius: var(--r-md); background: var(--c-low);
+  font: 12px/1.7 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+  color: var(--on-surface);
+}
 .acct-body { flex: 1 1 auto; min-height: 0; display: flex; }
 /* 左列表故意做窄（用户要求），只放得下「个人信息 / 社区」两项 */
 .acct-rail { flex: 0 0 132px; border-right: 1px solid var(--outline-var); overflow-y: auto; padding: 10px 8px; }

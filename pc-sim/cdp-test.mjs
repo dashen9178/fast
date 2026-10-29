@@ -434,26 +434,42 @@ await check('设置重新进入时左侧标签和右侧内容对得上（滑块�
 });
 
 // 用户 2026-10-29 报的 bug：在设置里点「查看 / 导出诊断信息」没反应（以前只有打开过工程才绑上）
-await check('设置里点「查看 / 导出诊断信息」能弹出诊断内容', async () => {
+// 同一天又报：点它会"自己返回首页"、还是弹窗 —— 现在改成独立整页，关掉只回设置（不回家）
+await check('设置里点「查看 / 导出诊断信息」打开整页诊断（关掉只回设置，不回家）', async () => {
   await js(`document.getElementById('btnSettings').click()`);
   await sleep(600);
   await js(`document.querySelector('#setRail .acct-item[data-cat="feedback"]').click()`);
   await sleep(250);
   await js(`document.getElementById('btnDiag').click()`);
   await sleep(500);
-  const m = await js(`(function(){
-    var s = document.getElementById('diagSheet');
-    var pre = s ? s.querySelector('.diag-pre') : null;
-    return { 有浮层: !!s, 有内容: !!(pre && pre.textContent && pre.textContent.length > 20),
-             头一行: pre ? String(pre.textContent).split('\\n')[0] : '',
-             设置已收起: document.getElementById('viewSettings').classList.contains('hidden') };
+  const 开 = await js(`(function(){
+    var v = document.getElementById('viewDiag');
+    var pre = document.getElementById('diagPre');
+    var txt = pre ? String(pre.textContent) : '';
+    return { 是整页: !!v && !v.classList.contains('hidden'), 有内容: txt.length > 20,
+             头一行: txt.split('\\n')[0],
+             还不是弹窗: !document.getElementById('diagSheet'),
+             首页没露出来: document.getElementById('viewHome').classList.contains('hidden') };
   })()`);
   await shot('t13b-诊断信息');
-  if (!m.有浮层 || !m.有内容) throw new Error('点「查看诊断信息」没反应：' + JSON.stringify(m));
-  if (!m.设置已收起) throw new Error('打开诊断信息后设置页应该收起：' + JSON.stringify(m));
-  await js(`(function(){ var s=document.getElementById('diagSheet'); if (s && s.parentNode) s.parentNode.removeChild(s); })()`);
-  await sleep(200);
-  return m;
+  if (!开.是整页 || !开.有内容) throw new Error('点「查看诊断信息」没打开整页：' + JSON.stringify(开));
+  if (!开.还不是弹窗) throw new Error('诊断信息还是弹窗形式：' + JSON.stringify(开));
+  if (!开.首页没露出来) throw new Error('打开诊断信息后首页露出来了（看着像被踢回首页）：' + JSON.stringify(开));
+  const 回 = await js(`(function(){
+    document.getElementById('btnDiagBack').click();
+    var on = document.querySelector('#setRail .acct-item.on');
+    return { 诊断已关: document.getElementById('viewDiag').classList.contains('hidden'),
+             设置回来了: !document.getElementById('viewSettings').classList.contains('hidden'),
+             还是反馈: on ? on.getAttribute('data-cat') : '',
+             首页没露出来: document.getElementById('viewHome').classList.contains('hidden') };
+  })()`);
+  await sleep(300);
+  if (!回.诊断已关 || !回.设置回来了) throw new Error('从诊断页返回没有回到设置：' + JSON.stringify(回));
+  if (回.还是反馈 !== 'feedback') throw new Error('从诊断页返回后设置栏没停在「反馈」：' + JSON.stringify(回));
+  if (!回.首页没露出来) throw new Error('从诊断页返回时首页露出来了：' + JSON.stringify(回));
+  await js(`document.getElementById('btnSettingsBack').click()`);
+  await sleep(300);
+  return { 形式: '整页', 返回: '回设置「反馈」', 头一行: 开.头一行 };
 });
 
 // 这两条是整个 AI 方案的地基：清单能不能自动生成、脏代码能不能被拦下来。
@@ -5108,13 +5124,14 @@ await check('出错会被记进诊断日志，且能导出成可读文本（不�
   })()`);
   await sleep(200);
   const 文本 = await js(`(function(){
+    document.getElementById('btnSettings').click();
     document.getElementById('btnDiag').click();
-    var pre = document.querySelector('#diagSheet .diag-pre');
-    return { 有浮层: !!document.getElementById('diagSheet'), 文本: pre ? pre.textContent : '' };
+    var pre = document.getElementById('diagPre');
+    return { 有页: !document.getElementById('viewDiag').classList.contains('hidden'), 文本: pre ? pre.textContent : '' };
   })()`);
-  await js(`(function(){ var s=document.getElementById('diagSheet'); if(s&&s.parentNode) s.parentNode.removeChild(s); })()`);
+  await js(`(function(){ var b=document.getElementById('btnDiagBack'); if (b) b.click(); var s=document.getElementById('btnSettingsBack'); if (s) s.click(); })()`);
   if (!r.设置里有按钮) throw new Error('设置里没有诊断按钮');
-  if (!文本.有浮层) throw new Error('诊断浮层没打开');
+  if (!文本.有页) throw new Error('诊断页没打开');
   if (文本.文本.indexOf('FAST 诊断信息') < 0) throw new Error('诊断文本没有表头');
   if (文本.文本.indexOf('测试用异常-diag') < 0) throw new Error('异常没被记进日志');
   if (/sk-[A-Za-z0-9]{10,}/.test(文本.文本)) throw new Error('诊断文本里出现了密钥内容（不能带）');
@@ -7382,7 +7399,7 @@ await check('检查更新右上角有「更新日志」，能列出最近几版�
   if (r.右差 < 0 || r.右差 > 48) throw new Error('「更新日志」没有成组贴在右边（被 space-between 顶到中间了）：' + JSON.stringify(r));
   if (!r.弹窗显示) throw new Error('点「更新日志」没弹出内容：' + JSON.stringify(r));
   if (r.条数 < 4) throw new Error('更新日志至少要有最近 4 版：' + JSON.stringify(r));
-  if (!/^v1\.0\.116\.13[89]$/.test(r.版本[0])) throw new Error('更新日志第一条应是最新版本：' + JSON.stringify(r.版本));
+  if (!/^v1\.0\.116\.(13\d|1[4-9]\d)$/.test(r.版本[0])) throw new Error('更新日志第一条应是最新版本：' + JSON.stringify(r.版本));
   if (r.日期.filter(function (x) { return !/^\d{4}-\d{2}-\d{2}$/.test(x); }).length) {
     throw new Error('更新日志缺日期：' + JSON.stringify(r.日期));
   }
@@ -7408,25 +7425,39 @@ await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另�
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: 前.甲.x, y: 前.甲.y, button: 'left', clickCount: 1, buttons: 1 });
   await sleep(700);   // 超过 480ms 长按阈值
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 前.乙.x + 6, y: 前.乙.y + 6, button: 'left', buttons: 1 });
-  await sleep(250);   // 留出 FLIP 排位的时间
+  await sleep(250);   // 留出让位动画的时间
+  // 拖动中：DOM 顺序必须**一点没动**（只写 transform），否则换位就会跳 / 重排 / 把过渡打断
+  const 中 = await js(`(function(){
+    var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
+    return { 名: cards.map(function (c) { return c.dataset.id; }),
+             位移的: cards.filter(function (c) { return !!c.style.transform; }).length,
+             影子: document.querySelectorAll('.proj-ghost').length,
+             占位: document.querySelectorAll('#projectList .proj-slot').length,
+             藏起来的: document.querySelectorAll('#projectList .proj-holding').length };
+  })()`);
+  if (中.名.join(',') !== 前.名.join(',')) throw new Error('拖动期间就改了 DOM 顺序（应该只动 transform）：' + JSON.stringify({ 前: 前.名, 中: 中.名 }));
+  if (!中.位移的) throw new Error('拖动时别的卡片没有让位（transform 没写）：' + JSON.stringify(中));
+  if (!中.影子 || !中.占位 || !中.藏起来的) throw new Error('拖动中的三件套不齐（影子/占位/被拖卡片）：' + JSON.stringify(中));
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 前.乙.x + 6, y: 前.乙.y + 6, button: 'left', clickCount: 1, buttons: 0 });
   await sleep(700);
   const 后 = await js(`(function(){
     var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
     return { 名: cards.map(function (c) { return c.dataset.id; }), 排序: localStorage.getItem('__bb_proj_sort'),
              残留槽: document.querySelectorAll('#projectList .proj-slot').length,
-             还在拖: document.querySelectorAll('.proj-dragging').length };
+             残留影子: document.querySelectorAll('.proj-ghost').length,
+             残留藏起来: document.querySelectorAll('.proj-holding').length,
+             残留位移: cards.filter(function (c) { return !!c.style.transform; }).length };
   })()`);
   // 用户 2026-10-29 要求：拖动**不能**顺手把「自动调整 / 不调整排序」这个设置改掉
   if (后.排序 !== null) throw new Error('拖动不该改动排序设置（应保持没设置过 = 自动调整），实际：' + 后.排序);
   if (后.名.join(',') === 前.名.join(',')) throw new Error('拖完顺序没变：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
   if (后.名.indexOf(前.名[0]) !== 1) throw new Error('第一张卡没落到第二位：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
-  if (后.残留槽 || 后.还在拖) throw new Error('拖完页面留下残渣（占位槽/拖动中的卡）：' + JSON.stringify(后));
+  if (后.残留槽 || 后.残留影子 || 后.残留藏起来 || 后.残留位移) throw new Error('拖完页面留下残渣：' + JSON.stringify(后));
   // 收尾：清掉排序设置（回到默认「自动调整」），别让后面的用例受影响
   await js(`(function(){ try { localStorage.removeItem('__bb_proj_sort'); } catch(e) {}
     document.getElementById('btnHome').click(); })()`);
   await sleep(500);
-  return { 前后: 前.名[0] + ' → 第 2 位' };
+  return { 前后: 前.名[0] + ' → 第 2 位', 拖动中: 'DOM 未动，' + 中.位移的 + ' 张让位' };
 });
 
 // 用户 2026-10-29 要求：布局页点空白处取消选中

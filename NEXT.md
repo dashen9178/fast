@@ -1408,6 +1408,42 @@ DOM 不动、坐标继续相对父框（可为负），松手时加回父原点�
 * GitHub Release **v1.0.116.138**（`dashen9178/fast`）；源码同步提交 `7ad11b69`（代码 + 本文初稿），NEXT.md 的最后一次修订单独提交。
 * 版本号已自增到 `256`（下次打包出 1.0.116.139）。
 
+## 6.28 2026-10-29 第八轮（首页拖动 transform-only 重做 / 诊断信息改整页，APK 1.0.116.139）
+
+**用户原话**：「为什么点击查看诊断信息会自己返回首页，而且以弹窗形式显示。这个首页卡片拖动完全做的一塌糊涂，重做，实在不会去GitHub找方法。」
+
+### 一、首页拖动：拖动期间一棵 DOM 都不动
+
+6.27 那版是「FLIP + 反复 `insertBefore(占位, ref)`」：每次移动先清 transform 再重测再写，快速跨卡时动画被打断，表现为抖、跳、松手位置对不上。本轮整段重写 `bindHomeReorder()`（`editor.js` 约 1903-2096），换成成熟拖拽库（SortableJS/dnd-kit）同款思路——**拖动期间只写 transform**：
+
+* 起拖瞬间把所有卡片的格子量成**内容坐标**（相对 `#projectList` border box）存进 `槽[]`，之后不再量。
+* 原卡留在格子里但 `visibility:hidden`（`.proj-holding`），网格完全不重排；跟手的是 `cloneNode(true)` 的 fixed 影子卡（`.proj-ghost`），只改 `translate3d`。
+* 落点 = 绝对定位虚线块（`.proj-slot`，靠 `.project-list{position:relative}` 定位），从源格平移到目标格。
+* 其余卡片让位：第 k 张 → 目标格 `k + (k >= 格 ? 1 : 0)`，只写一次 transform，挂 `.proj-shift` 180ms 过渡。
+* 命中格：点进格子矩形就取该格，落在间隙才按最近中心算——天然有迟滞，不在分界线上抖。
+* 边缘自动滚屏沿用 `requestAnimationFrame`，滚了才重算落点。
+* 松手顺序固定：①撤 `.proj-shift`、删影子/占位 → ②`insertBefore(card, 兄弟[格] || null)` → ③清所有 transform（反了会"啪"跳一下）。
+* 仍然只写 `s.items` 顺序，**不改** `__bb_proj_sort`。
+
+### 二、诊断信息：从弹窗改成独立整页
+
+原实现是 `closeSettings()` 之后动态造 `.mask` 浮层——用户看到的是「退回首页 + 小弹窗」。现在：
+
+* `editor.html` 新增 `#viewDiag`（`position:fixed; inset:0; z-index:62`，与 `.acct`/`.help` 同级），顶栏 `← 诊断信息 / 复制全部`，正文 `pre` 可滚动。
+* `openDiagPage(txt)` 只 `hidden` 设置页、显示诊断页并 `切页(v,'fwd')`；`closeDiagPage()` 反过来，重新显示设置页并 `同步分段药丸()`，左栏仍停在「反馈」。原 `openDiagSheet()` 整段删除。
+* `__rtSystemBack` 在设置判断之前先关诊断页；init 绑 `btnDiagBack` / `btnDiagCopy`（复制走 `Native.copyText`，退化到 `navigator.clipboard`）。
+
+### 验证 / 发布
+
+* 全量回归 **176/176 全绿**，JS 报错 0。新增/改写断言：诊断页形式=整页、`#diagSheet` 不存在、关掉只回设置且左栏仍是 `feedback`、首页未露出；排序用例增加「拖动中 DOM 顺序不变 + 影子/占位/隐藏三件套齐全」，松手后四类残留全为 0。
+* `node --check editor.js` / `cdp-test.mjs` 通过；`unit-comp-spec.mjs` 23/23；导出回归全绿（todo/land 包名、签名、对齐、入口均 OK）；`audit.mjs` 与 6.27 同基线（4 类已知项，无新增）。
+* APK：`versionCode=256 / versionName=1.0.116.139`，`FAST_v1.0.116.139.apk`
+（**1,904,092 字节**，sha256 `65B9BBA0212F3B905316780F558109CF6492A9DD992BEE67E50E917CDDF88920`，v2/v3 签名 OK）。
+* 「更新」表 row `b0f8B5T5RaehJUntetkmdQ`（行文 `1.0.116.139（26.10.29.21:21）`，下载 200、大小/哈希一致）；
+「工程」表 row `LMokN2OrRDacL-xMbIQh1A`（`FAST-full-1.0.116.139.zip` **1033 条目 / 21,355,661 字节**，下载大小/哈希一致，zip sha256 `152FD8987BC60674DB1258905BE4E7BCE6B1380AEFDAA950E9BEB0FDE9D5B53D`）。
+* GitHub Release **v1.0.116.139**（`dashen9178/fast`）。
+* 版本号已自增到 `257`（下次打包出 1.0.116.140）。
+
 ## 7\. 新会话怎么开口（给用户的话）
 
 > 读 `D:\\DSH工作\\Fast\\fast\_project\_v2\\NEXT.md`，然后接着干：<你要做的事>

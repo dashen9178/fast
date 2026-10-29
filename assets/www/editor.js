@@ -1902,122 +1902,147 @@
   }
   /**
    * 长按卡片（约 0.5 秒）后拖动换位置。
-   * 移动中：卡片 position:fixed 跟手；原位放一块 .proj-slot 占位；其余卡片 FLIP 平滑让位。
-   * 松手：把卡片放回占位那个洞里（**不重画首页**，重画会整页闪一下），
-   *       顺序写回存储，但**不改「自动调整 / 不调整排序」这个设置**（用户 2026-10-29 明确要求）。
+   *
+   * 2026-10-29 第二次重做（前一版用 FLIP 反复插 DOM，用户反馈"一塌糊涂"）。这次的做法：
+   *  · **拖动期间一棵 DOM 都不动**。起拖时把每张卡所在的格子量下来（内容坐标），
+   *    之后"让位"全部只是给别的卡写 transform（挂 .proj-shift 的 180ms 过渡），布局一次都不重排。
+   *  · 被拖的那张卡留在格子里但 visibility:hidden（照样占位，网格不会重排）；
+   *    真正跟手的是一个 fixed 的克隆影子卡，只动 transform。
+   *  · 落点 = 手指所在的格子：点在格子里就取那个格子，落在间隙里才按最近的格子算。
+   *    格子是静止的几何，所以手指跨过边界时才会换目标一次，不会在分界线上来回抖。
+   *  · 手指停在屏幕上下边缘时自动滚屏（rAF 循环），否则被挡住的那几张卡永远拖不过去。
+   *  · 松手：先撤过渡 → 把卡片插到最终位置 → 再清 transform。顺序不能反，
+   *    反了就会"啪"地跳一下（视觉位置和落点其实是同一个地方）。
+   *  · 只写作品顺序，**不改**「自动调整 / 不调整排序」这个设置（用户 2026-10-29 明确要求）。
    */
   function bindHomeReorder(card, id) {
-    var 计时 = null, 起X = 0, 起Y = 0, 抓x = 0, 抓y = 0, 拖 = false, 占位 = null;
+    var 计时 = null, 拖 = false;
+    var 起X = 0, 起Y = 0, 抓x = 0, 抓y = 0;
     var 指针X = 0, 指针Y = 0, 滚RAF = 0;
+    var 影子 = null, 占位 = null, 槽 = null, 卡们 = null, 拖位 = 0, 目标 = -1;
+
     function 清计时() { if (计时) { clearTimeout(计时); 计时 = null; } }
     function 拦滚动(e) { if (拖 && e.cancelable) e.preventDefault(); }
-    /** 首页那个真正能滚的容器（#viewHome 自己就是滚动容器） */
-    function 滚动容器() {
+    function 列表() { return $('projectList'); }
+    function 可滚容器() {
       var n = $('viewHome');
-      if (!n) return null;
-      return n.scrollHeight > n.clientHeight + 4 ? n : null;
+      return (n && n.scrollHeight > n.clientHeight + 4) ? n : null;
     }
-    /** 手指拖到屏幕上下边缘时自动滚屏：不然挡住的那几张卡永远拖不过去 */
-    function 滚一步() {
-      滚RAF = 0;
-      if (!拖) return;
-      var sc = 滚动容器(); if (!sc) return;
-      var 高 = window.innerHeight || document.documentElement.clientHeight;
-      var 边 = Math.max(70, Math.min(130, 高 * .16));
-      var v = 0;
-      if (指针Y < 边) v = -Math.max(6, Math.round((边 - 指针Y) / 边 * 16));
-      else if (指针Y > 高 - 边) v = Math.max(6, Math.round((指针Y - (高 - 边)) / 边 * 16));
-      if (!v) return;
-      var 先前 = sc.scrollTop;
-      sc.scrollTop = 先前 + v;
-      if (sc.scrollTop !== 先前) 排位(指针X, 指针Y);   // 滚了才重排，没滚就别白算
-      滚RAF = requestAnimationFrame(滚一步);
+    function 是卡(n) {
+      return !!(n && n.nodeType === 1 && n.classList && n.classList.contains('proj-card') && n !== 影子);
     }
+
+    /** 起拖：量格子、放影子、铺虚线占位 */
     function 起拖() {
+      计时 = null;
+      var box = 列表();
+      if (!box || 拖) return;
+      卡们 = Array.prototype.slice.call(box.children).filter(是卡);
+      if (卡们.length < 2) { 卡们 = null; return; }
+      拖位 = 卡们.indexOf(card);
+      if (拖位 < 0) { 卡们 = null; return; }
+      var br = box.getBoundingClientRect();
+      槽 = 卡们.map(function (n) {
+        var r = n.getBoundingClientRect();
+        return { l: r.left - br.left, t: r.top - br.top, w: r.width, h: r.height };
+      });
       var r = card.getBoundingClientRect();
-      拖 = true;
       抓x = 起X - r.left; 抓y = 起Y - r.top;
-      card.classList.add('proj-dragging');
-      card.style.width = r.width + 'px';
-      card.style.height = r.height + 'px';
-      card.style.left = r.left + 'px';
-      card.style.top = r.top + 'px';
+      拖 = true;
+      目标 = -1;
+      // 原卡留格子里但不画（visibility:hidden），跟手的是克隆影子
+      card.classList.add('proj-holding');
+      影子 = card.cloneNode(true);
+      影子.removeAttribute('data-id');
+      影子.className = 'proj-card proj-ghost';
+      影子.style.cssText = 'width:' + r.width + 'px;height:' + r.height + 'px';
+      影子.style.transform = 'translate3d(' + r.left + 'px,' + r.top + 'px,0) scale(1.02)';
+      document.body.appendChild(影子);
       占位 = el('div', 'proj-slot');
-      占位.style.height = r.height + 'px';
-      card.parentNode.insertBefore(占位, card);
-      document.body.appendChild(card);
-      // 手指已经按在卡片上时，只有拦下 touchmove 才能阻止页面跟着滚（pointermove 拦不住滚屏）
-      document.addEventListener('touchmove', 拦滚动, { passive: false });
+      占位.style.left = 槽[拖位].l + 'px';
+      占位.style.top = 槽[拖位].t + 'px';
+      占位.style.width = 槽[拖位].w + 'px';
+      占位.style.height = 槽[拖位].h + 'px';
+      box.appendChild(占位);
+      for (var i = 0; i < 卡们.length; i++) if (卡们[i] !== card) 卡们[i].classList.add('proj-shift');
       指针X = 起X; 指针Y = 起Y;
+      // 手指按住卡片时，只有拦下 touchmove 才能阻止页面跟着滚（pointermove 拦不住滚屏）
+      document.addEventListener('touchmove', 拦滚动, { passive: false });
       滚一步();
       try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
     }
-    /** 手指位置对应的插入点：返回要插在它前面的那张卡；返回 null = 插到最后。
-        算法：先找"中心离手指最近"的那张卡，再看手指落在它的左右/上下哪一边。
-        以前是逐张判"上半部分之上 / 同一行左半边"——同一行时会被第一张卡吃掉，
-        拖到右边那张卡身上反而没反应（用户 2026-10-29 报的"手感很奇怪"）。 */
-    function 插入点(x, y) {
-      var kids = Array.prototype.slice.call($('projectList').children).filter(function (n) {
-        return n !== card && n !== 占位 && n.classList && n.classList.contains('proj-card');
-      });
-      var 最近 = null, 最近距 = Infinity, 放它后面 = false;
-      for (var i = 0; i < kids.length; i++) {
-        var r = kids[i].getBoundingClientRect();
-        var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-        var dx = x - cx, dy = y - cy;
-        var d = dx * dx + dy * dy * 1.4;      // 纵向权重高一点：换行比换列更"重"
-        if (d < 最近距) {
-          最近距 = d;
-          最近 = kids[i];
-          放它后面 = (y > cy + r.height * .1) || (Math.abs(y - cy) <= r.height * .1 && x > cx);
+
+    /** 手指落点对应的格子（0..n-1）。点在格子里就取那个格子；落在间隙里才按最近的格子算。 */
+    function 命中格(x, y) {
+      if (!槽 || !槽.length) return -1;
+      var box = 列表();
+      if (!box) return -1;
+      var br = box.getBoundingClientRect();
+      var px = x - br.left, py = y - br.top;
+      for (var i = 0; i < 槽.length; i++) {
+        var s = 槽[i];
+        if (px >= s.l && px <= s.l + s.w && py >= s.t && py <= s.t + s.h) return i;
+      }
+      var 最近 = Infinity, 最好 = 0;
+      for (var j = 0; j < 槽.length; j++) {
+        var t = 槽[j], dx = px - (t.l + t.w / 2), dy = py - (t.t + t.h / 2);
+        var d = dx * dx + dy * dy;
+        if (d < 最近) { 最近 = d; 最好 = j; }
+      }
+      return 最好;
+    }
+
+    /** 把占位块和别的卡片挪到"目标格子"对应的位置（只改 transform，不重排布局） */
+    function 排位(x, y) {
+      if (!拖 || !槽) return;
+      var 格 = 命中格(x, y);
+      if (格 < 0 || 格 === 目标) return;
+      目标 = 格;
+      var s = 槽[格];
+      if (占位) { 占位.style.left = s.l + 'px'; 占位.style.top = s.t + 'px'; }
+      // 其余卡片：原来在 L 里的第 k 张，最终要落到格子 k + (k >= 格 ? 1 : 0)
+      var k = 0;
+      for (var i = 0; i < 卡们.length; i++) {
+        var n = 卡们[i];
+        if (n === card) continue;
+        var 到 = 槽[k + (k >= 格 ? 1 : 0)], 起 = 槽[i];
+        k++;
+        if (!到) { n.style.transform = ''; continue; }
+        var dx = 到.l - 起.l, dy = 到.t - 起.t;
+        n.style.transform = (dx || dy) ? 'translate3d(' + dx + 'px,' + dy + 'px,0)' : '';
+      }
+    }
+
+    /** 手指贴在屏幕上下边缘就持续滚屏：不然挡住的卡永远拖不过去（用户 2026-10-29 报的） */
+    function 滚一步() {
+      滚RAF = 0;
+      if (!拖) return;
+      var sc = 可滚容器();
+      if (sc) {
+        var 高 = window.innerHeight || document.documentElement.clientHeight;
+        var 边 = Math.max(70, Math.min(130, 高 * .16));
+        var v = 0;
+        if (指针Y < 边) v = -Math.max(6, Math.round((边 - 指针Y) / 边 * 16));
+        else if (指针Y > 高 - 边) v = Math.max(6, Math.round((指针Y - (高 - 边)) / 边 * 16));
+        if (v) {
+          var 先前 = sc.scrollTop;
+          sc.scrollTop = 先前 + v;
+          if (sc.scrollTop !== 先前) 排位(指针X, 指针Y);   // 滚了才重算落点
         }
       }
-      if (!最近) return null;
-      if (!放它后面) return 最近;
-      var nx = 最近.nextElementSibling;
-      while (nx && (nx === 占位 || nx === card)) nx = nx.nextElementSibling;
-      return nx;                              // null = 插到末尾
+      滚RAF = requestAnimationFrame(滚一步);
     }
-    function 排位(x, y) {
-      var box = $('projectList'), ref = 插入点(x, y);
-      if (!box || !占位) return;
-      if (ref === 占位) return;
-      if ((ref || null) === 占位.nextElementSibling) return;            // 已经在这个位置，别重复 FLIP
-      var 兄弟 = Array.prototype.slice.call(box.children).filter(function (n) {
-        return n !== card && n !== 占位 && n.classList && n.classList.contains('proj-card');
-      });
-      兄弟.forEach(function (n) { n.classList.remove('proj-shift'); n.style.transform = ''; });
-      var 前 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
-      box.insertBefore(占位, ref || null);
-      void box.offsetHeight;
-      var 后 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
-      var 有动 = false;
-      兄弟.forEach(function (n, i) {
-        var dx = 前[i][0] - 后[i][0], dy = 前[i][1] - 后[i][1];
-        if (dx || dy) { n.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; 有动 = true; }
-      });
-      if (!有动) return;
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          兄弟.forEach(function (n) {
-            if (!n.style.transform) return;
-            n.classList.add('proj-shift');
-            n.style.transform = '';
-          });
-        });
-      });
-    }
+
     function 移动(e) {
       if (!拖) {
-        if (Math.abs(e.clientX - 起X) > 9 || Math.abs(e.clientY - 起Y) > 9) 清计时();  // 在滚动列表，不算长按
+        if (Math.abs(e.clientX - 起X) > 9 || Math.abs(e.clientY - 起Y) > 9) 清计时();   // 在滚动列表，不算长按
         return;
       }
       指针X = e.clientX; 指针Y = e.clientY;
-      card.style.left = (e.clientX - 抓x) + 'px';
-      card.style.top = (e.clientY - 抓y) + 'px';
+      if (影子) 影子.style.transform = 'translate3d(' + (e.clientX - 抓x) + 'px,' + (e.clientY - 抓y) + 'px,0) scale(1.02)';
       排位(e.clientX, e.clientY);
-      if (!滚RAF) 滚一步();
     }
+
     function 松手() {
       document.removeEventListener('pointermove', 移动);
       document.removeEventListener('pointerup', 松手, true);
@@ -2027,28 +2052,33 @@
       if (滚RAF) { cancelAnimationFrame(滚RAF); 滚RAF = 0; }
       if (!拖) return;
       拖 = false;
-      var box = $('projectList');
-      // 按最终 DOM 顺序（占位符所在的位置就是这张卡的新位置）写回存储
-      var 顺序 = [];
-      Array.prototype.forEach.call(box.children, function (n) {
-        if (n === 占位) 顺序.push(id);
-        else if (n.classList && n.classList.contains('proj-card') && n.dataset.id) 顺序.push(n.dataset.id);
-      });
-      // 卡片放回占位那个洞：DOM 自己就对了，不用重画首页（重画会闪一下，用户 2026-10-29 报的）
-      if (占位 && 占位.parentNode) box.insertBefore(card, 占位);
-      card.classList.remove('proj-dragging');
-      card.style.cssText = '';
+      var box = 列表();
+      var 格 = 目标 >= 0 ? 目标 : 拖位;
+      var 旧卡们 = 卡们 || [];
+      // 顺序很重要：① 撤过渡 / 去掉影子和占位 ② 插到落点 ③ 最后清 transform —— 反了就会"啪"地跳一下
       if (占位 && 占位.parentNode) 占位.remove();
       占位 = null;
-      Array.prototype.forEach.call(box.children, function (n) {
-        n.classList.remove('proj-shift'); n.style.transform = ''; n.style.transition = '';
-      });
-      var s = loadStore(), map = {};
-      s.items.forEach(function (it) { map[it.id] = it; });
-      var 新 = 顺序.map(function (i) { return map[i]; }).filter(Boolean);
-      if (新.length === s.items.length) { s.items = 新; saveStore(s); }
-      // 只写顺序，**不动** __bb_proj_sort：用户选的"自动调整 / 不调整排序"保持原样
+      if (影子 && 影子.parentNode) 影子.remove();
+      影子 = null;
+      for (var i = 0; i < 旧卡们.length; i++) 旧卡们[i].classList.remove('proj-shift');
+      card.classList.remove('proj-holding');
+      if (box) {
+        var 兄弟 = 旧卡们.filter(function (n) { return n !== card; });
+        box.insertBefore(card, 兄弟[格] || null);
+        for (var j = 0; j < 旧卡们.length; j++) 旧卡们[j].style.transform = '';
+        // 按最终 DOM 顺序写回存储（只写顺序，**不动** __bb_proj_sort）
+        var 顺序 = [];
+        Array.prototype.forEach.call(box.children, function (n) {
+          if (是卡(n) && n.dataset.id) 顺序.push(n.dataset.id);
+        });
+        var s = loadStore(), map = {};
+        (s.items || []).forEach(function (it) { map[it.id] = it; });
+        var 新 = 顺序.map(function (i2) { return map[i2]; }).filter(Boolean);
+        if (s.items && 新.length === s.items.length) { s.items = 新; saveStore(s); }
+      }
+      卡们 = null; 槽 = null; 目标 = -1;
     }
+
     card.addEventListener('pointerdown', function (e) {
       if (e.button !== undefined && e.button !== 0) return;
       if (e.target.closest && e.target.closest('button')) return;   // 卡片上的分享/编辑/删除按钮不参与
@@ -6128,6 +6158,8 @@
     if (maskVisible('exportMask')) { $('exportMask').classList.add('hidden'); return true; }
     if (maskVisible('updLogMask')) { $('updLogMask').classList.add('hidden'); return true; }
     // 设置是独立整页，返回键当作"退出设置"（回到打开它的那一页）
+    // 诊断信息页压在设置上面，要先关它（关闭后回到设置，不回家）
+    if ($('viewDiag') && !$('viewDiag').classList.contains('hidden')) { closeDiagPage(); return true; }
     if ($('viewSettings') && !$('viewSettings').classList.contains('hidden')) { closeSettings(); return true; }
     // 2) 代码：下拉/齿轮设置框/分类浮层
     if (state.view === 'blocks' && state.ws) {
@@ -7583,6 +7615,10 @@
      云端「更新」表只有版本号 + 附件，没有正文列，所以正文写死在这里最省事。
      发版时只在数组最前面加一条（新的在上、旧的在下），不用动云端表结构。 */
   var CHANGELOG = [
+    { v: '1.0.116.139', d: '2026-10-29', t: [
+      '首页作品拖动重做：拖动时布局一动不动，卡片只做位移动画，不再乱跳、不再抖',
+      '修：设置里点「查看 / 导出诊断信息」会退到首页 —— 现在是独立整页，返回只回设置'
+    ] },
     { v: '1.0.116.138', d: '2026-10-29', t: [
       '首页长按拖动：不再顺手改掉「自动调整 / 不调整排序」这个设置',
       '拖动松手后不再整页闪一下',
@@ -10617,31 +10653,27 @@
     btn.addEventListener('click', function () {
       var txt = '';
       try { txt = diagText(); } catch (e) { txt = '诊断信息读取失败：' + ((e && e.message) || e); }
-      closeSettings();
-      openDiagSheet(txt);
+      openDiagPage(txt);
     });
   }
-  /** 诊断信息用"整页浮层"展示，不依赖任何原生能力：可复制、可直接读 */
-  function openDiagSheet(txt) {
-    var old = $('diagSheet'); if (old && old.parentNode) old.parentNode.removeChild(old);
-    var wrap = el('div', 'mask'); wrap.id = 'diagSheet';
-    var box = el('div', 'modal sheet-modal');
-    box.appendChild(el('div', 'mtitle', '诊断信息'));
-    var body = el('div', 'mbody');
-    var pre = el('pre', 'diag-pre', txt);
-    body.appendChild(pre);
-    box.appendChild(body);
-    var btns = el('div', 'mbtns');
-    var copy = el('button', 'tb primary', '复制全部');
-    copy.addEventListener('click', function () {
-      try { if (window.Native && Native.copyText) Native.copyText(txt); else navigator.clipboard.writeText(txt); snack('已复制'); } catch (e) { snack('复制失败，请手动选择文字'); }
-    });
-    var close = el('button', 'tb', '关闭');
-    close.addEventListener('click', function () { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); });
-    btns.appendChild(close); btns.appendChild(copy);
-    box.appendChild(btns);
-    wrap.appendChild(box);
-    document.body.appendChild(wrap);
+  /** 诊断信息：独立整页（用户 2026-10-29 报的两个问题 ——
+      ① 点它会"自己返回首页"，其实那是先把设置关掉再弹窗，看着像被踢出去；
+      ② 弹窗太小还得在弹窗里滚。现在改成整页：设置原样留在下面，返回只回设置，不回家。） */
+  function openDiagPage(txt) {
+    var pre = $('diagPre');
+    if (pre) pre.textContent = txt;
+    var st = $('viewSettings');
+    if (st) st.classList.add('hidden');
+    var v = $('viewDiag');
+    if (v) { v.classList.remove('hidden'); 切页(v, 'fwd'); }
+  }
+  function closeDiagPage() {
+    var v = $('viewDiag');
+    if (!v || v.classList.contains('hidden')) return false;
+    v.classList.add('hidden');
+    var st = $('viewSettings');
+    if (st) { st.classList.remove('hidden'); 切页(st, 'back'); 同步分段药丸(); }
+    return true;
   }
   function asOneUndoStep(fn) {
     var grouped = false;
@@ -13884,6 +13916,18 @@
     // 设置：独立整页（左侧 常规 / AI / 反馈）
     $('btnSettings').addEventListener('click', function () { openSettings(); });   // 不带分类 = 回到上次看的那一栏
     $('btnSettingsBack').addEventListener('click', closeSettings);
+    // 诊断信息页：返回只回设置；右上角一键复制（真机走原生剪贴板，网页退化成 clipboard）
+    var 诊断返回 = $('btnDiagBack');
+    if (诊断返回) 诊断返回.addEventListener('click', function () { closeDiagPage(); });
+    var 诊断复制 = $('btnDiagCopy');
+    if (诊断复制) 诊断复制.addEventListener('click', function () {
+      var txt = ($('diagPre') || {}).textContent || '';
+      try {
+        if (window.Native && Native.copyText) Native.copyText(txt);
+        else if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt);
+        snack('已复制');
+      } catch (e) { snack('复制失败，请手动选择文字'); }
+    });
     Array.prototype.forEach.call(document.querySelectorAll('#setRail .acct-item'), function (b) {
       b.addEventListener('click', function () { setSettingsCat(b.getAttribute('data-cat')); });
     });
