@@ -290,14 +290,19 @@
       <button id="btnLayout" class="tb" title="拖动布局">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg>布局
       </button>
-      <!-- 「如何预览」：自动 = 跟着当前页面方向；竖屏/横屏 = 强制（用户要求，2026-10-28） -->
+      <!-- 「如何预览」下拉：选择预览方向（自动调整 / 强制横屏 / 强制竖屏），
+           以及「控件在预览时是否显示边框」（是 / 否）。横屏在前是用户要求的顺序（2026-10-29）。 -->
       <button id="btnLayoutCaret" class="tb layout-caret" title="选择预览方式" aria-haspopup="menu">▾</button>
     </div>
     <div id="layoutOrientMenu" class="popover hidden">
-      <div class="lay-orient-title">如何预览？</div>
-      <button class="menu-item orient-opt" data-mode="auto">自动<span class="run-opt-ck">✓</span></button>
-      <button class="menu-item orient-opt" data-mode="portrait">竖屏<span class="run-opt-ck">✓</span></button>
-      <button class="menu-item orient-opt" data-mode="landscape">横屏<span class="run-opt-ck">✓</span></button>
+      <div class="lay-orient-title">选择你的预览方向</div>
+      <button class="menu-item orient-opt" data-mode="auto">自动调整<span class="run-opt-ck">✓</span></button>
+      <button class="menu-item orient-opt" data-mode="landscape">强制横屏<span class="run-opt-ck">✓</span></button>
+      <button class="menu-item orient-opt" data-mode="portrait">强制竖屏<span class="run-opt-ck">✓</span></button>
+      <div class="menu-sep"></div>
+      <div class="lay-orient-title">控件在预览时是否显示边框？</div>
+      <button class="menu-item orient-border" data-b="1">是<span class="run-opt-ck">✓</span></button>
+      <button class="menu-item orient-border" data-b="0">否<span class="run-opt-ck">✓</span></button>
     </div>
     <div class="run-split" id="runSplit">
       <button id="btnRun" class="tb primary run-main"><span id="runMainIco">⏮</span><span class="run-main-tx">运行</span></button>

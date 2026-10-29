@@ -1938,6 +1938,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     var 竖页 = App.__aiAddScreen();          // 新页面默认竖屏
     App.__aiSwitchScreen(原页);
     try { localStorage.removeItem('__bb_layout_orient'); } catch (e) {}   // 默认「自动」
+    try { localStorage.removeItem('__bb_preview_border'); } catch (e) {}  // 默认「不显示边框」
     return { 横页: 原页, 竖页: 竖页, 原向: 原向, 原设计: 原设计 };
   })()`);
   if (场景.错误) throw new Error(场景.错误);
@@ -1991,7 +1992,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     throw new Error('换回横屏页面后预览没回到横屏：' + JSON.stringify(换横));
   }
 
-  // ④ 退出布局页，检查顶栏「如何预览」下拉：三项、默认勾「自动」
+  // ④ 退出布局页，检查顶栏预览下拉：方向三项（自动调整/强制横屏/强制竖屏）+ 字体边框两项，默认勾「自动调整」「否」
   await js(`document.getElementById('layBack').click()`);
   await sleep(700);
   const 菜单 = await js(`(function(){
@@ -2000,17 +2001,64 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
     var m = document.getElementById('layoutOrientMenu');
     return { 显示: !m.classList.contains('hidden'),
              标题: (m.querySelector('.lay-orient-title') || {}).textContent || '',
+             边框标题: Array.prototype.map.call(m.querySelectorAll('.lay-orient-title'), function (x) { return x.textContent; }),
              项: Array.prototype.map.call(m.querySelectorAll('.orient-opt'), function (x) {
                return { 模式: x.getAttribute('data-mode'), 勾选: x.classList.contains('on') };
+             }),
+             边框项: Array.prototype.map.call(m.querySelectorAll('.orient-border'), function (x) {
+               return { 值: x.getAttribute('data-b'), 文字: (x.textContent || '').replace('✓', ''), 勾选: x.classList.contains('on') };
              }) };
   })()`);
-  if (菜单.没有箭头按钮) throw new Error('顶栏没有「如何预览」下拉箭头');
-  if (!菜单.显示) throw new Error('点箭头后「如何预览」菜单没弹出');
-  if (!/如何预览/.test(菜单.标题)) throw new Error('菜单标题不对：' + JSON.stringify(菜单));
+  if (菜单.没有箭头按钮) throw new Error('顶栏没有预览下拉箭头');
+  if (!菜单.显示) throw new Error('点箭头后预览菜单没弹出');
+  if (!/选择你的预览方向/.test(菜单.标题)) throw new Error('菜单标题不对：' + JSON.stringify(菜单));
   const 模式们 = 菜单.项.map(function (x) { return x.模式; }).join(',');
-  if (模式们 !== 'auto,portrait,landscape') throw new Error('「如何预览」应为 自动/竖屏/横屏，实际：' + 模式们);
+  if (模式们 !== 'auto,landscape,portrait') throw new Error('预览方向应为 自动调整/强制横屏/强制竖屏，实际：' + 模式们);
   const 默认勾 = 菜单.项.filter(function (x) { return x.勾选; }).map(function (x) { return x.模式; }).join(',');
-  if (默认勾 !== 'auto') throw new Error('默认应勾「自动」，实际勾的是：' + 默认勾);
+  if (默认勾 !== 'auto') throw new Error('默认应勾「自动调整」，实际勾的是：' + 默认勾);
+  if (菜单.边框标题.length < 2 || !/控件在预览时是否显示边框/.test(菜单.边框标题.join('|'))) {
+    throw new Error('菜单里缺少「控件在预览时是否显示边框？」这一栏：' + JSON.stringify(菜单.边框标题));
+  }
+  if (菜单.边框项.map(function (x) { return x.文字; }).join(',') !== '是,否') {
+    throw new Error('边框选项应为 是/否，实际：' + JSON.stringify(菜单.边框项));
+  }
+  const 默认边框 = 菜单.边框项.filter(function (x) { return x.勾选; }).map(function (x) { return x.值; }).join(',');
+  if (默认边框 !== '0') throw new Error('边框默认应勾「否」，实际：' + 默认边框);
+
+  // ④b 选「是」→ 布局页每个控件都描边；选「否」→ 描边消失（且记在本地）
+  await js(`document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="1"]').click()`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1200);
+  const 边框开 = await js(`(function(){
+    var st = document.getElementById('layStage');
+    var it = st.querySelector('.litem');
+    var o = it ? getComputedStyle(it).outlineStyle : '';
+    return { 有块: !!it, 类: st.className, 描边: o, 记住: localStorage.getItem('__bb_preview_border') };
+  })()`);
+  if (!/show-border/.test(边框开.类) || 边框开.记住 !== '1' || (边框开.有块 && 边框开.描边 !== 'solid')) {
+    throw new Error('选「是」后控件应显示边框：' + JSON.stringify(边框开));
+  }
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
+  await js(`(function(){
+    document.getElementById('btnLayoutCaret').click();
+    document.getElementById('layoutOrientMenu').querySelector('.orient-border[data-b="0"]').click();
+  })()`);
+  await sleep(300);
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1200);
+  const 边框关 = await js(`(function(){
+    var st = document.getElementById('layStage');
+    var it = st.querySelector('.litem');
+    var o = it ? getComputedStyle(it).outlineStyle : '';
+    return { 有块: !!it, 有类: /show-border/.test(st.className), 描边: o, 记住: localStorage.getItem('__bb_preview_border') };
+  })()`);
+  if (边框关.有类 || 边框关.记住 !== '0' || (边框关.有块 && 边框关.描边 === 'solid')) {
+    throw new Error('选「否」后控件不该再描边：' + JSON.stringify(边框关));
+  }
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(700);
 
   // ⑤ 竖屏页面 + 强制横屏 → 框是横的，画面仍是页面自己的竖屏画面（且不能改页面方向）
   await js(`document.getElementById('layoutOrientMenu').querySelector('[data-mode="landscape"]').click()`);
@@ -2063,6 +2111,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   await js(`(function(){
     var App = window.EditorApp, p = App.__proj();
     try { localStorage.removeItem('__bb_layout_orient'); } catch (e) {}
+    try { localStorage.removeItem('__bb_preview_border'); } catch (e) {}
     p.screens.forEach(function (s) {
       if (s.id === ${JSON.stringify(场景.横页)}) s.orientation = ${JSON.stringify(场景.原向)};
     });
@@ -2074,7 +2123,7 @@ await check('布局预览方向：自动跟随页面（换页重算），也能�
   if (还原 !== 1) throw new Error('临时页面没清理干净，剩 ' + 还原 + ' 个页面');
 
   return { 自动: '横页→横框、竖页→竖框 ✓', 换页方向: '跟随 ✓',
-           菜单: '自动/竖屏/横屏，默认自动 ✓',
+           菜单: '自动调整/强制横屏/强制竖屏，默认自动；边框 是/否，默认否 ✓',
            强制横: '框 ' + 强制横.框宽 + 'x' + 强制横.框高 + '，画面 ' + 强制横.画面宽 + 'x' + 强制横.画面高,
            强制竖: '框 ' + 强制竖.框宽 + 'x' + 强制竖.框高 + '，画面 ' + 强制竖.画面宽 + 'x' + 强制竖.画面高 };
 });

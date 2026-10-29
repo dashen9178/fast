@@ -2367,6 +2367,32 @@
       var ck = b.querySelector('.run-opt-ck');
       if (ck) ck.textContent = on ? '✓' : '';
     });
+    syncPreviewBorderMenu();
+  }
+  /* 「控件在预览时是否显示边框」：布局页预览里给每个控件描一圈细线，
+     方便看清透明/空白控件的实际范围。只影响布局页预览，不进运行/导出。存本地，默认「否」。 */
+  var PREVIEW_BORDER_KEY = '__bb_preview_border';
+  function previewBorderOn() {
+    var v = null; try { v = localStorage.getItem(PREVIEW_BORDER_KEY); } catch (e) {}
+    return v === '1';
+  }
+  function syncPreviewBorderMenu() {
+    var on = previewBorderOn() ? '1' : '0';
+    Array.prototype.forEach.call(document.querySelectorAll('#layoutOrientMenu .orient-border'), function (b) {
+      var onb = b.getAttribute('data-b') === on;
+      b.classList.toggle('on', onb);
+      var ck = b.querySelector('.run-opt-ck');
+      if (ck) ck.textContent = onb ? '✓' : '';
+    });
+  }
+  function applyPreviewBorder() {
+    var st = $('layStage');
+    if (st) st.classList.toggle('show-border', previewBorderOn());
+  }
+  function setPreviewBorder(on) {
+    try { localStorage.setItem(PREVIEW_BORDER_KEY, on ? '1' : '0'); } catch (e) {}
+    syncPreviewBorderMenu();
+    applyPreviewBorder();
   }
   function curShowSB() { var s = curScreen(); return !s || s.showStatusBar !== false; }
   function syncOrientSeg() {
@@ -6186,6 +6212,7 @@
   function renderLayout() {
     if (!$('viewLayout')) return;
     fitStage();
+    applyPreviewBorder();                                 // 「预览时显示边框」的开关每次进布局页都对齐一次
     wireStageZoom();
     wireLayFabDrag();
     起手柄跟跑();
@@ -13535,6 +13562,14 @@
         setLayoutOrientMode(b.getAttribute('data-mode'));
         closeMenus();
         if (state.inLayout) { applyLayoutOrient(); renderLayout(); requestAnimationFrame(fitStage); }
+      });
+    });
+    // 「控件在预览时是否显示边框」：是 / 否
+    Array.prototype.forEach.call(document.querySelectorAll('#layoutOrientMenu .orient-border'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        setPreviewBorder(b.getAttribute('data-b') === '1');
+        closeMenus();
       });
     });
     $('modalCancel').addEventListener('click', hideModal);

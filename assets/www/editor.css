@@ -1054,6 +1054,10 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 }
 .litem.dragging { cursor: grabbing; opacity: .9; }
 .litem.sel { outline-color: var(--primary); }
+/* 「控件在预览时是否显示边框」选「是」：预览里给每个控件描一圈细线（选中/隐藏/拖动提示仍然优先） */
+.lay-stage.show-border .litem:not(.sel):not(.drop-in):not(.drop-out):not(.is-hidden) {
+  outline-style: solid; outline-width: 1px; outline-color: rgba(0, 0, 0, .28);
+}
 /* 拖着控件压到容器框上：给个实心提示，松手就收进去 */
 .litem.drop-in { outline-style: solid; outline-width: 3px; outline-color: var(--primary); background: var(--secondary-c); }
 /* 从容器里把子控件拖出框外：容器变红框，提示"松手就移出容器" */
@@ -1789,13 +1793,14 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .compcard.is-child { margin-left: 18px; }
 .compcard.is-child::before { content: '└'; color: var(--outline); margin-right: 4px; }
 .compcard .iconbtn.out { font-size: 15px; }
-.litem.t-container { border: 1px solid #e0e0e0; background: #fff; }
+/* 容器默认**透明**（用户要求 2026-10-29）：不再刷白底；编辑时只留一圈淡边，方便看出范围 */
+.litem.t-container { border: 1px solid #e0e0e0; background: transparent; }
 .litem.t-container:empty { border-style: dashed; }
 .litem .litem-kid { position: absolute; }
 .litem .litem-kid .li-tag { font-size: 9px; opacity: .75; }
 
 /* ---- 表格 / 图表：设计页与布局页的预览（类名/结构跟运行时的 .rt-* 对齐） ---- */
-.lv-container { width: 100%; height: 100%; border: 1px solid #e0e0e0; border-radius: 14px; background: #fff; }
+.lv-container { width: 100%; height: 100%; border: 1px solid #e0e0e0; border-radius: 14px; background: transparent; }
 /* 滚动区 / 底部导航（阶段 4，2026-10-29）。滚动区在布局页只做虚线提示，
    真正能上下滑动的是运行时；底部导航的横排容器是真实子元素，所以这里直接给它排版。 */
 .lv-scroll { border-style: dashed; }
