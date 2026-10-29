@@ -970,5 +970,81 @@ stage.style.top  = Math.round((frame.h - ch) / 2) + 'px';
 **下一步**：阶段 4（滚动区 / 底部导航）与阶段 5（设备能力块）；真机冒烟：新控件三种、安装/更新流程（本次动了 install/download 门槛）。
 
 
+## 6.22 2026-10-29 检查更新红点 + 布局按钮连体 + 阶段 4/5（APK 1.0.116.133）
+
+**这次做了什么**（用户原话：「那个检查更新那个按钮，如果有新版本，就会在这个按钮右上显示一个红点。把布局按钮和它的右边那个向下箭头的按钮连在一起」；「把阶段4、5开始吧，搞完这些再交付给我」）
+
+### 一、检查更新红点
+
+- `editor.html` 的 `#btnUpdate` 里加了 `<span id="updDot" class="upd-dot hidden"></span>`；
+  `editor.css` 里 `.upd-dot` 绝对定位在按钮**右上角**（top/right 5px，直径 8px，`#e5484d`，`pointer-events:none` 不挡点击）。
+- 逻辑在 `editor.js`（`本地版本号 / 比版本 / 取最新版本 / 校验更新提示 / 设更新红点 / 有新版本 / 拉更新最新行 / 后台查更新红点`）：
+  - 开机 **1.5 秒后**后台查一次（`更新红点已查` 防重入），**有新版本才亮**；
+  - 断网 / 中转欠费一律**静默**，绝不打扰用户；
+  - 用户点开「检查更新」时立刻**熄灭**（`openUpdateDialog()` 开头 `设更新红点(false)`）；
+  - 开发版（`buildVersion()` 返回「开发版」）永不亮，避免本地调试时天天闪。
+- 抽了 `拉更新最新行()`，弹窗与红点共用同一套「只取最新一行」逻辑，不会两处判断不一致。
+- 测试出口 `EditorApp.__updateDot(on)` 供用例开/关红点。
+
+### 二、布局按钮与 ▾ 连体
+
+照抄 `.run-split` 拆分按钮的做法（不动 HTML 结构、不动两个按钮各自的点击逻辑）：
+`.layout-split` 外层 `gap:0; overflow:hidden; box-shadow`，`#btnLayout` 左侧圆角 20px、
+`.layout-caret` 右侧圆角 20px + `border-left:1px solid` 当分隔线 → 看起来是一颗按钮、中间一条细线。
+
+### 三、阶段 4：容器类控件（滚动区 `scroll`、底部导航 `bottomNav`，注册表 36 → 38）
+
+- **滚动区**：直接复用容器的「子控件存相对坐标」机制。父子关系全部收敛成一个 `是容器(c)`
+  （`找控件 / 所有容器 / 移入容器 / 移出容器 / 放进容器` 五处都用它），滚动区不用另写一套。
+  运行时 `overflow:auto` + `overscroll-behavior:contain` + `-webkit-overflow-scrolling:touch`，
+  滑到边界不会把整页带走（触摸冲突就是这么解决的）。
+- **底部导航**：设计页卡片、布局页舞台、运行时三处都渲染成「一排可点的栏 + 当前项高亮」。
+  ⚠️ 布局页 `renderLayStage` 只搬视觉节点的**子元素**（根节点的 class 会被丢弃），
+  所以横排必须做成真实子元素 `.lv-navbar`，否则舞台上排版整个塌掉。
+  运行时点击切高亮并跑 `runHandlers(changeMap[c.id])`；代码侧用通用「控件赋值」块读写选中序号（0 开始），
+  `RT.getValue(id)` 读 `r.__val`，`RT.setComponent(id, v)` 会夹到 `0..钮数-1`。
+- 用例「阶段4：滚动区/底部导航 三处渲染一致，运行时能滑动、能切换」覆盖：顶层数、卡片文案、
+  布局页 `.litem-kid` 与三栏高亮、运行时 `overflowY/overscrollBehaviorY`、点第三项变「我的」、
+  `RT.getValue===2`、`setComponent(id,99)` 夹到 2。
+
+### 四、阶段 5：设备能力块（读剪贴板 / 打开网址 / 发通知）
+
+- 三个块：`val_clipboard`（值块）、`act_open_url`（值输入 URL）、`act_notify`（标题 + 内容），
+  工具箱「设备」分类、帮助页「设备」分类、AI 块名映射与帮助关键词全部补齐。
+- 运行时 `RT.readClipboard / RT.openUrl / RT.notify`，**原生优先、网页回退**：
+  - `readClipboard`：`Native.readClipboard()` 同步返回；网页里拿不到就给空串（不抛错）；
+  - `openUrl`：只认 `http/https`（否则提示「网址要以 http:// 或 https:// 开头」），
+    原生走 `ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`，网页回退 `window.open('_blank')`；
+  - `notify`：Android 13+ **默认不给通知权限** —— 先 `notifAllowed()`，没授权就 `askNotif()`
+    并提示「请在弹窗里允许通知，之后才会显示在通知栏」，避免用户以为「发了但没反应」；
+    通道「作品通知」、`setAutoCancel(true)`、点击回到 App；网页版退回页面内 toast。
+- `MainActivity.java` 的 `NativeBridge` 新增 `readClipboard() / openUrl(String) / notify(String,String)`；
+  导出壳复用同一份 `classes.dex`，**导出的作品同样能用这三个能力**。
+- 用例「阶段5：剪贴板/打开网址/发通知 三块定义、生成代码、工具箱、帮助齐全」覆盖：
+  生成的代码、工具箱 3 块、帮助 9 条、运行时三方法存在且不抛错。
+
+**踩到的坑（已修）**
+- 第一轮回归 165/166，唯一失败是「上下文压缩」用例报 81% > 80%。查下来是**用例自身的口径错**：
+  它把末条消息里的「当前页面控件 / 已有代码」等**动态上下文**也算进了压缩比，而当前工程代码变长了，
+  老历史其实已从 31179 字压到 905 字。修法是把末条上下文从「发出」里扣掉再算比例，业务代码不动。
+
+**验证 / 发布**
+- `node --check` 5 个 JS 全过；`unit-comp-spec.mjs` **23/23**（新增「滚动区」「底部导航」2 项）。
+- 全量回归 **168/168**（新增 4 条：阶段4、阶段5、检查更新红点、布局按钮连体）；导出回归全绿。
+- `audit.mjs` 与 6.21 同基线（4 类已知项，无新增）。
+- APK：`versionCode=250 / versionName=1.0.116.133`，`FAST_v1.0.116.133.apk`
+  （**1,887,708 字节**，sha256 `45AAF0D391707B07279311ECF2F3FE68BE1FEA75E4A38DCE4F01949C0F6BC100`，v2/v3 签名 OK）。
+- 「更新」表 row `BLMFY-YHQlqfhEe5Vmav3w`（`/api/download` 200、大小/哈希一致）；
+  「工程」表 row `HLMBvwIERYaNaWIj2ZVXrg`（`FAST-full-1.0.116.133.zip` **1032 条目 / 约 21.3 MB**，
+  备份 APK 自动改名 `FAST_v1.0.116.133 (1).apk`）。
+- GitHub Release **v1.0.116.133**（`dashen9178/Fast`），资产 digest `sha256:45aaf0d3…6bc100`、1,887,708B，与本地一致；
+  源码同步提交 `25fcb86`（12 个文件：`blocks.js`、`comp-spec.js`、`editor.*`、`runtime.*`、
+  `MainActivity.java`、`cdp-test.mjs`、`unit-comp-spec.mjs`、`VERSION`、规划文档）。
+- 版本号已自增到 `251`（下次打包出 1.0.116.134）。
+
+**下一步**：真机冒烟这三件——滚动区里放长内容能不能滑、底部导航点着切不切、
+发通知有没有弹权限；之后按 `新增代码块与控件规划.md` 第 5 节继续往后排（阶段 6 起）。
+
+
 ## 7. 新会话怎么开口（给用户的话）
 > 读 `D:\DSH工作\Fast\fast_project_v2\NEXT.md`，然后接着干：<你要做的事>
