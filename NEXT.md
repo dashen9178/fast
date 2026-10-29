@@ -919,5 +919,56 @@ stage.style.top  = Math.round((frame.h - ch) / 2) + 'px';
 **下一步**：阶段 3 剩余（规划文档里动作块后续项）+ 真机复验（6.12 那三条、新控件点击手感、动作块拖拽手感、本次灰底、131 两种强制预览的实际观感）。
 
 
+## 6.21 2026-10-29 全面检查 + 阶段 2 收尾：徽章/时钟/二维码（APK 1.0.116.132）
+
+**这次做了什么**（用户原话：「对项目做一次全面检查，看看有没有漏洞并修复。然后开始阶段 2 开发」）
+
+### 一、全面检查（结论：无新增高危，修了 2 处原生边界）
+
+按四条线自查：WebView 配置与原生桥、路径/文件名、XSS/动态执行、导出链。
+
+| 项 | 结论 |
+| --- | --- |
+| 外来作品代码注入 | 仍然有效：`洗掉外来代码(proj)` 按 blocksXml 重生成 `code`（导入、社区运行、生成副本三处都过） |
+| 文件名 / 媒体名路径穿越 | `saveProject/shareProject` 过滤 `[\\/:*?"<>\|]`；`mediaUrl/readMediaBase64/writeMedia` 拒 `/\`、`..` |
+| innerHTML 拼变量 | 4 处，全是数字/固定文案/`authEsc` 转义，无云端可控串 |
+| 导出包密钥 | `build.ps1` 断言 APK 内无密钥/无 SeaTable 凭据，签名 v2/v3 OK |
+| **`Native.installApk(path)`** | **已修**：纯路径（非 `content://`）只接受本 App 私有目录内的文件，且必须 `.apk` 后缀 + ZIP 魔数 `PK\x03\x04`。以前网页控件里的第三方页面理论上能直接把任意本地文件递进安装器 |
+| **`Native.downloadApk(url)`** | **已修**：只允许 `http://` / `https://`。以前 `file://` 能把本机任意文件复制成 `.apk` 再走安装流程 |
+| `usesCleartextTraffic=true` | 低危、**保留**：云表格服务允许用户填 http 地址，关掉会直接破坏老作品 |
+
+### 二、阶段 2 收尾（3 个新控件，注册表 33 → 36）
+
+- **徽章 `badge`**：小圆点 + 文字，用于状态提示；属性面板可改文字与圆点颜色。
+- **时钟 `clock`**：默认按真实时间走秒（全局 1 个 interval，销毁节点自动剔除）；
+  格式 `hm` / `hms` / `mdhm`；代码赋值后停走秒，赋空串恢复走秒。
+- **二维码 `qr`**：新增 `assets/www/qr.js`（纯 ES5、单 IIFE、字节模式 UTF-8、ECC M、版本 1~10 自动），
+  离线出 SVG，不联网；内容 > 213 字节时属性面板红字提示、运行时显示占位文案。
+- 三处渲染：设计页卡片（`compDesc`）、布局页舞台（`layVisual`）、运行时（`renderComp`）。
+- 代码侧不新增块：复用通用「控件赋值」`act_comp_set`，`RT.setComponent` 按 wrap 类名分流到
+  `setBadge / setClock / setQR`；工具箱按控件类型自动出现「徽章 / 时钟 / 二维码」分类（含显示/隐藏/透明度/旋转/启用/禁用）。
+- `build.ps1` 的导出壳复制清单补了 `qr.js`；`editor.html` / `runtime.html` 都加载它。
+
+**踩到的坑（已修）**：`renderComp` 的徽章分支建好了文字 `span` 却忘了 `appendChild`，
+真机/浏览器里表现是"只有红点没有字"，而 `__val` 一切正常 —— 单测只比数据就查不出来，
+是新加的端到端用例（断言 `.rt-badge-t` 的文本）把它抓出来的。
+
+**验证 / 发布**
+- `node --check` 5 个 JS 全过；`unit-comp-spec.mjs` **21/21**（新增「qr.js 引用与打包」2 项）。
+- 全量回归 **164/164**（新增「新控件③：徽章/时钟/二维码 三处渲染一致，运行时能读写」）；导出回归全绿。
+- `audit.mjs` 与 6.19 同基线（4 类已知项，无新增）；`MainActivity.java` 改动通过导出链真编译验证。
+- APK：`versionCode=249 / versionName=1.0.116.132`，`FAST_v1.0.116.132.apk`
+  （**1,879,516 字节**，sha256 `850E201649188B5FB2E0504FDD590C64DACCAF6DADEAFA547BC7042CBCAE9048`，v2/v3 签名 OK）。
+- 「更新」表 row `d0i-md43QBOfcmEhNCJ8Bg`（`/api/download` 200、大小/哈希一致）；
+  「工程」表 row `T-4WFm3-SreOWOgYrjwsFA`（`FAST-full-1.0.116.132.zip` **21,335,566B / 1032 条目**，
+  备份 APK 自动改名 `FAST_v1.0.116.132 (1).apk`）。
+- GitHub Release **v1.0.116.132**（`dashen9178/Fast`），资产 digest `sha256:850e2016…ae9048`、1,879,516B，与本地一致；
+  源码同步提交 `c55d753`（14 个文件，含 `qr.js`、`comp-spec.js`、`runtime.*`、`MainActivity.java`、两个测试）。
+- 版本号已自增到 `250 / 1.0.116.132`（下次打包出 1.0.116.133）。
+- 规划文档第 5 节进度已更正：阶段 2、阶段 3 第一批实际都已完成，只剩阶段 4～5。
+
+**下一步**：阶段 4（滚动区 / 底部导航）与阶段 5（设备能力块）；真机冒烟：新控件三种、安装/更新流程（本次动了 install/download 门槛）。
+
+
 ## 7. 新会话怎么开口（给用户的话）
 > 读 `D:\DSH工作\Fast\fast_project_v2\NEXT.md`，然后接着干：<你要做的事>
