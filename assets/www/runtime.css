@@ -257,6 +257,15 @@ body {
   font-size: 14px; color: #49454f; cursor: pointer; border-bottom: 2px solid transparent;
   white-space: nowrap; }
 .rt-tab.on { color: #6750a4; border-bottom-color: #6750a4; font-weight: 600; }
+/* ---- 底部导航（阶段 4） ---- */
+.rt-navbar { display: flex; align-items: stretch; width: 100%; height: 100%; gap: 4px;
+  padding: 4px; box-sizing: border-box; background: #ECE6F0; border-radius: 14px; }
+.rt-navbtn { flex: 1 1 0; min-width: 0; border: none; background: transparent; border-radius: 10px;
+  font-size: 13px; color: #49454f; cursor: pointer; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; padding: 0 8px; }
+.rt-navbtn.on { color: #6750a4; font-weight: 700; background: rgba(103,80,164,.12); }
+/* ---- 滚动区 ---- */
+.rt-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 /* ---- 折叠面板 ---- */
 .rt-collapse { width: 100%; border: 1px solid #e0e0e0; border-radius: 12px; background: #fff; overflow: hidden; }
 .rt-collapse-h { display: flex; align-items: center; justify-content: space-between; gap: 8px;

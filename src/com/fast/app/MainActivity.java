@@ -67,6 +67,9 @@ public class MainActivity extends Activity {
     // 试运行的通知卡片（「终止运行」按钮）：通道 id 与通知 id
     private static final String CH_RUN = "fast_run";
     private static final int RUN_NOTICE_ID = 8801;
+    // 代码块「发通知」用的通道与通知 id（和"运行中"卡片分开，互不影响）
+    private static final String CH_NOTICE = "fast_notice";
+    private static final int NOTICE_ID = 8802;
     private String pendingPickCb;                   // 对应的网页回调 id
     private String pendingMediaKind;
 
@@ -1200,6 +1203,67 @@ public class MainActivity extends Activity {
                             (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     if (cm != null) cm.setPrimaryClip(
                             android.content.ClipData.newPlainText("FAST", text == null ? "" : text));
+                } catch (Exception ignore) {}
+            }});
+        }
+
+        /** 读剪贴板文字（没有内容或系统不给读时回空串） */
+        @JavascriptInterface
+        public String readClipboard() {
+            try {
+                android.content.ClipboardManager cm =
+                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (cm == null || !cm.hasPrimaryClip()) return "";
+                android.content.ClipData clip = cm.getPrimaryClip();
+                if (clip == null || clip.getItemCount() == 0) return "";
+                CharSequence t = clip.getItemAt(0).coerceToText(MainActivity.this);
+                return t == null ? "" : t.toString();
+            } catch (Throwable e) { return ""; }
+        }
+
+        /** 用系统浏览器打开网址。只认 http/https —— 别让 file://、intent:// 之类的链接进来 */
+        @JavascriptInterface
+        public void openUrl(final String url) {
+            final String u = url == null ? "" : url.trim();
+            if (!(u.startsWith("http://") || u.startsWith("https://"))) return;
+            main.post(new Runnable() { @Override public void run() {
+                try {
+                    Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(u));
+                    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(it);
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "打不开这个网址", Toast.LENGTH_SHORT).show();
+                }
+            }});
+        }
+
+        /** 代码块「发通知」：设备通知栏弹一条，点一下回到 App */
+        @JavascriptInterface
+        public void notify(final String title, final String text) {
+            main.post(new Runnable() { @Override public void run() {
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    if (nm == null) return;
+                    if (Build.VERSION.SDK_INT >= 26) {
+                        NotificationChannel ch = new NotificationChannel(CH_NOTICE, "作品通知",
+                                NotificationManager.IMPORTANCE_DEFAULT);
+                        nm.createNotificationChannel(ch);
+                    }
+                    Intent it = new Intent(MainActivity.this, MainActivity.class);
+                    it.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                    if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+                    PendingIntent pi = PendingIntent.getActivity(MainActivity.this, NOTICE_ID, it, flags);
+                    String t = (title == null || title.trim().isEmpty()) ? "FAST" : title.trim();
+                    Notification.Builder nb = (Build.VERSION.SDK_INT >= 26)
+                            ? new Notification.Builder(MainActivity.this, CH_NOTICE)
+                            : new Notification.Builder(MainActivity.this);
+                    nb.setSmallIcon(android.R.drawable.ic_dialog_info)
+                            .setContentTitle(t)
+                            .setContentText(text == null ? "" : text)
+                            .setAutoCancel(true)
+                            .setContentIntent(pi);
+                    nm.notify(NOTICE_ID, nb.build());
                 } catch (Exception ignore) {}
             }});
         }

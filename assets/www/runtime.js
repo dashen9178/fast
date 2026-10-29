@@ -516,10 +516,11 @@ function 启动走秒(node, fmt) {
     }
     if (validNum(c.opacity)) wrap.style.opacity = (Math.max(0, Math.min(100, c.opacity)) / 100).toFixed(3);
 
-    // 容器：自己是一块底板，子控件用**相对坐标**画在里面（和布局页/设计页同一套坐标）
-    if (c.type === 'container') {
+    // 容器 / 滚动区：自己是一块底板，子控件用**相对坐标**画在里面（和布局页/设计页同一套坐标）
+    if (c.type === 'container' || c.type === 'scroll') {
       wrap.style.position = 'relative';
-      wrap.style.overflow = 'hidden';
+      wrap.style.overflow = c.type === 'scroll' ? 'auto' : 'hidden';   // 滚动区：内容超高时上下滑
+      if (c.type === 'scroll') wrap.classList.add('rt-scroll');
       if (c.bg) wrap.style.background = c.bg;
       if (validNum(c.radius)) wrap.style.borderRadius = px(c.radius);
       if (!validNum(c.w)) wrap.style.width = '100%';
@@ -804,6 +805,32 @@ function 启动走秒(node, fmt) {
       if (validNum(c.radius)) 页签条.style.borderRadius = px(c.radius);
       画页签();
       wrap.appendChild(页签条);
+    } else if (c.type === 'bottomNav') {
+      // 底部导航：一排按钮，点哪个把 __val 记成那个序号（0 开始），并触发「值变了」
+      var 导航们 = (c.items && c.items.length) ? c.items : ['首页', '消息', '我的'];
+      var 导航框 = el('div', 'rt-navbar');
+      var 导航钮 = [];
+      wrap.__val = Math.max(0, Math.min(导航们.length - 1, Number(c.value) || 0));
+      function 画导航() {
+        导航钮.forEach(function (b, i) { b.classList.toggle('on', i === wrap.__val); });
+      }
+      导航们.forEach(function (it, i) {
+        var b = el('button', 'rt-navbtn', String(it == null ? '' : it));
+        b.type = 'button';
+        b.addEventListener('click', function (e) {
+          e.stopPropagation();
+          if (wrap.__val === i) return;
+          wrap.__val = i; 画导航();
+          runHandlers(changeMap[c.id]);
+        });
+        导航钮.push(b); 导航框.appendChild(b);
+      });
+      if (validNum(c.fs)) 导航框.style.fontSize = px(c.fs);
+      if (c.color) 导航框.style.color = c.color;
+      if (c.bg) 导航框.style.background = c.bg;
+      if (validNum(c.radius)) 导航框.style.borderRadius = px(c.radius);
+      画导航();
+      wrap.appendChild(导航框);
     } else if (c.type === 'collapse') {
       // 折叠面板：点标题展开/收起，__val = 是否展开
       var 折盒 = el('div', 'rt-collapse' + (c.open ? ' open' : ''));
@@ -1550,6 +1577,44 @@ function 启动走秒(node, fmt) {
         if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(s); return; }
       } catch (e) {}
     },
+    /* 读取剪贴板：值是同步返回的（代码块当普通文字用）；网页里拿不到时给空文字 */
+    readClipboard: function () {
+      try {
+        if (window.Native && Native.readClipboard) return String(Native.readClipboard() || '');
+      } catch (e) {}
+      return '';
+    },
+    /* 打开网址：先在系统浏览器里打开；网页版回退新标签页 */
+    openUrl: function (url) {
+      var u = String(url == null ? '' : url).replace(/^\s+|\s+$/g, '');
+      if (!u) return;
+      if (!/^https?:\/\//i.test(u)) { showToast('网址要以 http:// 或 https:// 开头'); return; }
+      try {
+        if (window.Native && Native.openUrl) { Native.openUrl(u); return; }
+        if (window.open) { window.open(u, '_blank'); return; }
+      } catch (e) {}
+      showToast('打不开这个网址');
+    },
+    /* 发通知：原生通知栏；网页版退回页面内提示 */
+    notify: function (title, text) {
+      var t = String(title == null ? '' : title).replace(/^\s+|\s+$/g, '') || '提醒';
+      var x = String(text == null ? '' : text);
+      try {
+        if (window.Native && Native.notify) {
+          // Android 13+ 默认不给通知权限：第一次用时先问一次，别让用户以为"发了但没反应"
+          var 允许 = true;
+          try { if (Native.notifAllowed) 允许 = !!Native.notifAllowed(); } catch (e) {}
+          if (!允许) {
+            try { if (Native.askNotif) Native.askNotif(); } catch (e) {}
+            showToast('请在弹窗里允许通知，之后才会显示在通知栏');
+            return;
+          }
+          Native.notify(t, x);
+          return;
+        }
+      } catch (e) {}
+      showToast(t + (x ? '：' + x : ''));
+    },
     /* 等待若干秒（在 async 事件里用 await 调用），界面不卡死 */
     wait: function (sec) {
       var n = Number(sec); if (!isFinite(n) || n < 0) n = 0;
@@ -1601,6 +1666,14 @@ function 启动走秒(node, fmt) {
     setTabs: function (id, v) {
       var r = compRoot(id); if (!r) return;
       var 钮 = r.querySelectorAll('.rt-tab'); if (!钮.length) return;
+      var n = Math.floor(Number(v)); if (!isFinite(n)) return;
+      n = Math.max(0, Math.min(钮.length - 1, n));
+      r.__val = n;
+      Array.prototype.forEach.call(钮, function (b, i) { b.classList.toggle('on', i === n); });
+    },
+    setBottomNav: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var 钮 = r.querySelectorAll('.rt-navbtn'); if (!钮.length) return;
       var n = Math.floor(Number(v)); if (!isFinite(n)) return;
       n = Math.max(0, Math.min(钮.length - 1, n));
       r.__val = n;
@@ -1751,6 +1824,7 @@ function 启动走秒(node, fmt) {
       if (cls.indexOf('progress') >= 0) return RT.setProgress(id, v);
       if (cls.indexOf('ring') >= 0) return RT.setProgress(id, v);
       if (cls.indexOf('tabs') >= 0) return RT.setTabs(id, v);
+      if (cls.indexOf('bottomNav') >= 0) return RT.setBottomNav(id, v);
       if (cls.indexOf('rating') >= 0) return RT.setRating(id, v);
       if (cls.indexOf('collapse') >= 0) return RT.setCollapse(id, v);
       if (cls.indexOf('badge') >= 0) return RT.setBadge(id, v);

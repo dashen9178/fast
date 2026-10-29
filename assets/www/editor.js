@@ -1225,7 +1225,8 @@
   }
   // 帮助里给「控件」配图的条目（容器 / 表格 / 图表）本身不是代码块，
   // 直接按类型名画会报 "Invalid block definition"，这里映射到最相关的真积木。
-  var 控件条目块 = { container: ['act_show', 'container1'], table: ['act_set_data', 'table1'], chart: ['act_set_data', 'chart1'] };
+  var 控件条目块 = { container: ['act_show', 'container1'], scroll: ['act_show', 'scroll1'],
+    bottomNav: ['act_show', 'nav1'], table: ['act_set_data', 'table1'], chart: ['act_set_data', 'chart1'] };
   function 块默认XML(t) {
     if (块默认缓存[t] !== undefined) return 块默认缓存[t];
     var out = 抠工具箱块(t);
@@ -1250,6 +1251,7 @@
     act_set_pos: '移到指定位置', act_set_size: '设置尺寸', act_set_options: '设置选项',
     act_set_progress: '设置进度', act_timer_start: '开始计时', act_timer_stop: '停止计时', act_timer_countup: '正计时',
     act_list_add: '列表加一项', act_copy: '复制文本', act_exit: '退出应用', act_keep_screen: '保持常亮',
+    val_clipboard: '剪贴板文字', act_open_url: '打开网址', act_notify: '发通知',
     act_set_brightness: '设置亮度', cloud_rows: '查询所有行', cloud_add: '新增一行', cloud_update: '更新一行',
     cloud_delete: '删除一行', cloud_field: '取字段', cloud_sql: 'SQL 查询', cloud_count: '行数', cloud_row_by_id: '按 Id 取一行',
     controls_if: '如果…否则…', controls_repeat_ext: '重复 N 次', controls_whileUntil: '重复当…直到', controls_for: '循环变量',
@@ -1464,6 +1466,7 @@
     [/弹出提示/, 'act_toast'], [/跳转到页面/, 'act_goto'], [/返回上一页/, 'act_back'],
     [/设备/, 'val_device_info'], [/震动/, 'act_vibrate'], [/屏幕亮度/, 'act_set_brightness'], [/常亮/, 'act_keep_screen'],
     [/复制文本|复制/, 'act_copy'], [/退出应用|退出/, 'act_exit'],
+    [/剪贴板/, 'val_clipboard'], [/打开网址/, 'act_open_url'], [/发通知/, 'act_notify'],
     [/读取网址|GET/, 'act_http_get'], [/提交到网址|POST/, 'act_http_post'],
     [/拍照|选图/, 'act_pick_image'], [/表格|图表/, 'act_set_data'],
     [/计时器|倒计时/, 'act_timer_start'], [/显示到/, 'act_set_text'],
@@ -1761,6 +1764,12 @@
         { t: 'container', sig: '容器（把控件装在一起）',
           desc: '真正的分组控件：放进容器的控件会跟着容器一起动，坐标相对于容器，拖出容器就回到页面。',
           use: '先放一个"容器"，再把别的控件卡片上的 ⇲ 点一下装进去；容器里的控件点 ↰ 可以移出。设计、排版、运行三处位置完全一致。' },
+        { t: 'scroll', sig: '滚动区（内容比它高时可以上下滑动）',
+          desc: '可以装别的控件的容器；里面的内容比它高时，运行时上下滑动查看，不会把页面撑破。',
+          use: '先放"滚动区"，再把控件卡片的 ⇲ 装进去；适合长列表、长说明。' },
+        { t: 'bottomNav', sig: '底部导航（底部一排按钮）',
+          desc: '底部一排按钮，点一下高亮切换；属性里写"导航项（每行一个）"和默认选中第几个。',
+          use: '放在页面最下方；配"当〔底部导航〕的值变了"就能在切换时换内容。' },
         { t: 'table', sig: '表格（表头 + 多行数据）',
           desc: '按行按列显示数据；属性面板里写"表头（逗号分隔）"和"每行数据（一行一条）"。',
           use: '固定数据直接写在属性面板；要动态换数据就用代码块"把〔表格〕的数据设为〔文字〕"。' },
@@ -2401,6 +2410,11 @@
     }
     else if (c.type === 'dateRange') base = (c.start || '未设') + ' 至 ' + (c.end || '未设');
     else if (c.type === 'colorPicker') base = '颜色 ' + String(c.value || '#6750a4');
+    else if (c.type === 'scroll') base = '滚动区，里面 ' + ((c.children || []).length) + ' 个控件';
+    else if (c.type === 'bottomNav') {
+      var 导航们 = (c.items || []);
+      base = '导航 ' + 导航们.length + ' 项，当前「' + (导航们[Number(c.value) || 0] || 导航们[0] || '') + '」';
+    }
     else base = c.text || c.value || (c.items ? '列表：' + c.items.length + ' 项' : (c.hint || TYPE_META[c.type].desc));
     if (c.x != null && c.y != null) base += '（坐标 ' + c.x + ',' + c.y + '）';
     return base;
@@ -2426,7 +2440,7 @@
           if (移出容器(c.id)) { renderCompList(); if (state.inLayout) renderLayout(); autosave(); }
         });
         ops.appendChild(out);
-      } else if (c.type !== 'container') {
+      } else if (!是容器(c)) {
         // 顶层控件：可以"放进容器"（有容器时才显示这个按钮）
         var 容器们 = 所有容器();
         if (容器们.length) {
@@ -2468,7 +2482,7 @@
     sc.components.forEach(function (c, idx) {
       box.appendChild(建卡片(c, false, null));
       // 容器里的子控件紧跟着列出来（缩进显示），选中/删除都和平常一样
-      if (c.type === 'container' && c.children && c.children.length) {
+      if (是容器(c) && c.children && c.children.length) {
         c.children.forEach(function (k) { box.appendChild(建卡片(k, true, c)); });
       }
     });
@@ -2511,13 +2525,15 @@
   })();
   /* ---------------- 容器（真正的父子布局，路线图 1.2） ----------------
      数据：容器自己是普通组件，子控件放在它的 children 里，坐标**相对容器左上角**。
-     三处必须一致（不变量）：设计页列表 / 布局页 / 运行时都用同一套相对坐标。 */
+     三处必须一致（不变量）：设计页列表 / 布局页 / 运行时都用同一套相对坐标。
+     2026-10-29：「滚动区」也是容器（多一条可上下滑动），所以判断统一走 是容器()。 */
+  function 是容器(c) { return !!c && (c.type === 'container' || c.type === 'scroll'); }
   function 找控件(id) {
     var sc = curScreen();
     for (var i = 0; i < sc.components.length; i++) {
       var c = sc.components[i];
       if (c.id === id) return { c: c, list: sc.components, parent: null, index: i };
-      if (c.type === 'container' && c.children) {
+      if (是容器(c) && c.children) {
         for (var j = 0; j < c.children.length; j++) if (c.children[j].id === id) {
           return { c: c.children[j], list: c.children, parent: c, index: j };
         }
@@ -2527,7 +2543,7 @@
   }
   function 所有容器() {
     var sc = curScreen(), out = [];
-    sc.components.forEach(function (c) { if (c.type === 'container') out.push(c); });
+    sc.components.forEach(function (c) { if (是容器(c)) out.push(c); });
     return out;
   }
   /** 把一个顶层控件放进容器（坐标换算成相对坐标，并按容器大小夹住） */
@@ -3190,6 +3206,15 @@
       host.appendChild(ppField('展开后的内容', areaInput(c.body, mark(function (v) { c.body = v; }))));
       host.appendChild(ppField('初始状态', segInput([['收起', false], ['展开', true]], !!c.open, mark(function (v) { c.open = v; }))));
     }
+    if (c.type === 'bottomNav') {
+      host.appendChild(ppField('导航项（每行一个）', areaInput((c.items || []).join('\n'), mark(function (v) {
+        c.items = v.split('\n').filter(function (s) { return s.trim() !== ''; });
+        c.value = Math.max(0, Math.min(c.items.length - 1, Number(c.value) || 0));
+      }))));
+      host.appendChild(ppField('默认选中第几个（从 1 开始）', numInput(validN(c.value) ? (Number(c.value) + 1) : 1, '1', mark(function (v) {
+        c.value = Math.max(1, Math.round(Number(v) || 1)) - 1;   // 存的是序号（从 0 开始）
+      }))));
+    }
     if (c.type === 'rating') {
       var rtRow = el('div', 'pp-row2');
       rtRow.appendChild(ppField('最多几颗星', numInput(c.max, '5', mark(function (v) { c.max = v; }))));
@@ -3285,7 +3310,7 @@
     if (c.type === 'button' || c.type === 'input' || c.type === 'list' || c.type === 'select'
       || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider' || c.type === 'progress'
       || c.type === 'tabs' || c.type === 'collapse' || c.type === 'ring'
-      || c.type === 'badge') {
+      || c.type === 'badge' || c.type === 'bottomNav' || c.type === 'scroll') {
       var bgFallback = (c.type === 'button' || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider'
         || c.type === 'progress' || c.type === 'ring') ? '#6750a4'
         : '#ffffff';
@@ -6110,6 +6135,18 @@
       d.appendChild(el('span', 'lv-label', '画布'));
     } else if (c.type === 'container') {
       d.className = 'lv-container';
+    } else if (c.type === 'scroll') {
+      d.className = 'lv-container lv-scroll';
+    } else if (c.type === 'bottomNav') {
+      d.className = 'lv-bottomnav';
+      var 导航项 = (c.items && c.items.length) ? c.items : ['首页', '消息', '我的'];
+      var 导航选 = Math.max(0, Math.min(导航项.length - 1, Number(c.value) || 0));
+      // 横排容器本身是真实子元素：布局页只搬子元素，类名留在它身上才不丢排版
+      var 导航条 = el('div', 'lv-navbar');
+      导航项.slice(0, 5).forEach(function (it, i) {
+        导航条.appendChild(el('span', 'lv-nav' + (i === 导航选 ? ' on' : ''), String(it == null ? '' : it)));
+      });
+      d.appendChild(导航条);
     } else if (c.type === 'table') {
       d.className = 'lv-table';
       var tb = el('table');
@@ -6484,8 +6521,8 @@
         bindLitemDrag(item, c);
           if (c.id === state.selectedCompId) 加缩放手柄(item, c);
         stage.appendChild(item);
-        // 容器：把子控件嵌在容器里画出来（相对坐标，和运行时完全一样）
-        if (c.type === 'container' && c.children && c.children.length) {
+        // 容器 / 滚动区：把子控件嵌在里面画出来（相对坐标，和运行时完全一样）
+        if (是容器(c) && c.children && c.children.length) {
           item.classList.add('has-kids');
           c.children.forEach(function (k) {
             var ci = el('div', 'litem litem-kid t-' + k.type + (k.id === state.selectedCompId ? ' sel' : ''));
@@ -6964,29 +7001,57 @@
     // 云端比本地旧：开发者还没上传新包。明确说出来，别让用户以为是新版本点下去降级。
     return '云端最新是 ' + m[1] + '，比你当前的 ' + mine + ' 还旧（开发者还没上传新包）';
   }
+  /** 更新按钮右上角红点：只在云端有新版本时亮；点开「检查更新」后熄灭 */
+  function 设更新红点(on) {
+    var d = $('updDot');
+    if (d) d.classList.toggle('hidden', !on);
+    var b = $('btnUpdate');
+    if (b) b.title = on ? '检查更新（发现新版本）' : '检查更新';
+  }
+  /** 云端这一版是不是比本机新（本机是开发态/没有构建号时一律不算） */
+  function 有新版本(ver) {
+    var m = String(ver || '').match(/(\d+\.\d+\.\d+\.\d+)/);
+    var mine = 本地版本号();
+    if (!m || !mine) return false;
+    return 比版本(m[1], mine) > 0;
+  }
+  /** 从「更新」表取最新那一行（打开弹窗与后台点亮红点共用这一条路） */
+  async function 拉更新最新行() {
+    var d, gateway, uuid, resp;
+    if (用中转()) {
+      d = await editorCloudHttp('GET', 中转链接('/api/v2.1/dtable/app-access-token/'), null, null, { headers: 中转头() });
+      if (!d || !d.access_token) throw new Error('鉴权失败');
+      resp = await editorCloudHttp('GET', 中转链接('/api/v2/dtables/' + UPDATE_CFG.uuid + '/rows/?table_name=' + encodeURIComponent(UPDATE_CFG.table) + '&u=' + UPDATE_CFG.uuid), null, null, { headers: 中转头() });
+    } else {
+      d = await editorCloudHttp('GET', UPDATE_CFG.server + '/api/v2.1/dtable/app-access-token/', null, (UPDATE_CFG.token || null));
+      if (!d || !d.access_token) throw new Error('鉴权失败');
+      gateway = (d.dtable_server || UPDATE_CFG.server + '/api-gateway/').replace(/\/+$/, '');
+      uuid = d.dtable_uuid || UPDATE_CFG.uuid;
+      resp = await editorCloudHttp('GET', gateway + '/api/v2/dtables/' + uuid + '/rows/?table_name=' + encodeURIComponent(UPDATE_CFG.table), null, d.access_token);
+    }
+    var list = (resp && resp.rows) || [];
+    return list.length ? (取最新版本(list) || null) : null;
+  }
+  var 更新红点已查 = false;
+  /** 开机背景查一次：有新版本就亮红点；查不到（欠费/断网）就静悄悄算了 */
+  async function 后台查更新红点() {
+    if (更新红点已查) return;
+    更新红点已查 = true;
+    try {
+      var r = await 拉更新最新行();
+      设更新红点(!!(r && 有新版本(r['0000'])));
+    } catch (e) { 设更新红点(false); }
+  }
   async function openUpdateDialog() {
     $('updateMask').classList.remove('hidden');
     $('updateStatus').textContent = '正在检查更新…';
     $('updateList').innerHTML = '';
     updateLatest = null;
     $('updateGo').disabled = true;
+    设更新红点(false);   // 用户已经点开看了，红点使命结束
     try {
-      // 走中转：token 在服务端，「更新」表由服务端按 UUID 参数（u=）指定
-      var d, gateway, uuid, resp;
-      if (用中转()) {
-        d = await editorCloudHttp('GET', 中转链接('/api/v2.1/dtable/app-access-token/'), null, null, { headers: 中转头() });
-        if (!d || !d.access_token) throw new Error('鉴权失败');
-        resp = await editorCloudHttp('GET', 中转链接('/api/v2/dtables/' + UPDATE_CFG.uuid + '/rows/?table_name=' + encodeURIComponent(UPDATE_CFG.table) + '&u=' + UPDATE_CFG.uuid), null, null, { headers: 中转头() });
-      } else {
-        d = await editorCloudHttp('GET', UPDATE_CFG.server + '/api/v2.1/dtable/app-access-token/', null, (UPDATE_CFG.token || null));
-        if (!d || !d.access_token) throw new Error('鉴权失败');
-        gateway = (d.dtable_server || UPDATE_CFG.server + '/api-gateway/').replace(/\/+$/, '');
-        uuid = d.dtable_uuid || UPDATE_CFG.uuid;
-        resp = await editorCloudHttp('GET', gateway + '/api/v2/dtables/' + uuid + '/rows/?table_name=' + encodeURIComponent(UPDATE_CFG.table), null, d.access_token);
-      }
-      var list = (resp && resp.rows) || [];
-      if (!list.length) { $('updateStatus').textContent = '暂无更新包'; return; }
-      var r = 取最新版本(list) || {};
+      var r = await 拉更新最新行();
+      if (!r) { $('updateStatus').textContent = '暂无更新包'; return; }
       updateLatest = r;
       var ver = r['0000'] || '最新版本';
       var files = r['etRB'] || [];
@@ -10695,6 +10760,8 @@
     /** 测试用：检查更新只取"最新一行"+提示文案（纯函数，不联网） */
     __updatePick: function (rows) { return 取最新版本(rows) || null; },
     __updateHint: function (ver, mine) { return 校验更新提示(ver, mine); },
+    /** 测试用：点亮/熄灭「检查更新」上的红点，返回当前是否可见 */
+    __updateDot: function (on) { 设更新红点(!!on); var d = $('updDot'); return !!d && !d.classList.contains('hidden'); },
     __aiCatalog: function () { return aiCatalog(); },    __aiScreenSummary: function () { return aiScreenSummary(); },
     /** 测试用：从脏返回里抢救 XML */
     __aiSalvageXml: function (s) { return aiSalvageXml(s); },
@@ -13338,6 +13405,7 @@
     if (window.Native && Native.restoreDisplay) Native.restoreDisplay();
 
     renderHome();
+    setTimeout(function () { 后台查更新红点(); }, 1500);   // 开机静默查一次，有新版本就在按钮上亮红点
 
     // 从社区点「运行」回来的：停在「账号 → 社区」那一栏（用户要求），别跳进编辑器
     if (消费运行来源() === 'community') {

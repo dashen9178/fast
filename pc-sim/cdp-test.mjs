@@ -3702,6 +3702,215 @@ await check('新控件③：徽章/时钟/二维码 三处渲染一致，运行�
   return { 控件: '3 种', 布局页: '结构齐全 ✓', 运行时: '改徽章/停时钟/换二维码 ✓' };
 });
 
+// 阶段 4：容器类控件 —— 滚动区（可上下滑动 + 装子控件）/ 底部导航（一排按钮切换）
+// 验收口径与容器一致：设计页能建、布局页有预览、运行时能交互，三处结构/坐标一致。
+await check('阶段4：滚动区/底部导航 三处渲染一致，运行时能滑动、能切换', async () => {
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '阶段4控件' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+  const 建 = await js(`(function(){
+    var App = window.EditorApp;
+    document.getElementById('tabDesign').click();
+    var ids = App.__aiComps().map(function (c) { return c.id; });
+    if (ids.length) App.__aiApplyComponents(ids.map(function (id) { return { op:'remove', id: id }; }));
+    document.querySelector('[data-add="scroll"]').click();
+    document.querySelector('[data-add="button"]').click();
+    var 钮 = App.__aiComps().filter(function (c) { return c.type === 'button'; })[0];
+    var inBtn = 钮 ? document.querySelector('#compList .compcard[data-id="' + 钮.id + '"] .iconbtn.in') : null;
+    if (inBtn) inBtn.click();
+    document.querySelector('[data-add="bottomNav"]').click();
+    var 后 = App.__aiComps();
+    var 卷 = 后.filter(function (c) { return c.type === 'scroll'; })[0];
+    var 导 = 后.filter(function (c) { return c.type === 'bottomNav'; })[0];
+    var 字 = function (c) {
+      var n = c ? document.querySelector('#compList .compcard[data-id="' + c.id + '"] .t2') : null;
+      return n ? n.textContent : '';
+    };
+    return { 卷: 卷 ? 卷.id : '', 导: 导 ? 导.id : '', 子: (卷 && 卷.children && 卷.children[0]) || null,
+             有放进按钮: !!inBtn, 顶层数: 后.length, 卷字: 字(卷), 导字: 字(导) };
+  })()`);
+  await sleep(300);
+  if (!建.卷 || !建.导) throw new Error('滚动区/底部导航没建出来：' + JSON.stringify(建));
+  if (建.顶层数 !== 2) throw new Error('滚动区应装的按钮没进容器（顶层应只剩滚动区+导航）：' + JSON.stringify(建));
+  if (!建.有放进按钮 || !建.子) throw new Error('按钮没进滚动区：' + JSON.stringify(建));
+  if (建.卷字.indexOf('里面 1 个控件') < 0) throw new Error('设计页滚动区描述不对：' + 建.卷字);
+  if (建.导字.indexOf('导航 3 项') < 0) throw new Error('设计页底部导航描述不对：' + 建.导字);
+
+  // 布局页：滚动区要带子控件；底部导航要画出横排三栏、当前项高亮
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1500);
+  const 布局 = await js(`(function(){
+    var stage = document.getElementById('layStage');
+    var 卷 = stage.querySelector('.litem.t-scroll');
+    var 导 = stage.querySelector('.litem.t-bottomNav');
+    var 导航 = 导 ? 导.querySelectorAll('.lv-navbar .lv-nav') : [];
+    var 亮 = 导 ? 导.querySelector('.lv-navbar .lv-nav.on') : null;
+    return {
+      卷有子: !!(卷 && 卷.querySelector('.litem-kid')),
+      导栏数: 导航.length,
+      导首项: 导航.length ? 导航[0].textContent : '',
+      导高亮: 亮 ? 亮.textContent : '',
+      子相对: (卷 && 卷.querySelector('.litem-kid')) ? (卷.querySelector('.litem-kid').style.left + ',' + 卷.querySelector('.litem-kid').style.top) : ''
+    };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (!布局.卷有子) throw new Error('布局页滚动区没画出子控件：' + JSON.stringify(布局));
+  if (布局.导栏数 !== 3 || 布局.导首项 !== '首页' || 布局.导高亮 !== '首页') throw new Error('布局页底部导航不对：' + JSON.stringify(布局));
+
+  // 运行时：滚动区能上下滑、子控件在容器里；底部导航点了切换，代码也能读写
+  const exp = await js(`(function(){ return window.EditorApp.__exportPreview(); })()`);
+  if (!exp || exp.错误) throw new Error('导出预览失败：' + JSON.stringify(exp));
+  let 就绪 = false;
+  for (let attempt = 0; attempt < 2 && !就绪; attempt++) {
+    await js(`location.href='runtime.html?v=' + Date.now()`);
+    就绪 = await waitFor(`!!document.querySelector('#screen .comp.scroll')`, 15000);
+    if (!就绪) await sleep(700);
+  }
+  if (!就绪) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没有渲染出滚动区（已切回编辑器）');
+  }
+  const 运行 = await js(`(function(){
+    var 报 = [];
+    var 卷 = document.querySelector('#screen .comp.scroll');
+    var 导 = document.querySelector('#screen .comp.bottomNav');
+    if (!卷) 报.push('滚动区缺失');
+    else if (!卷.querySelector('.comp')) 报.push('滚动区里没有子控件');
+    else {
+      var cs = getComputedStyle(卷);
+      if (cs.overflowY !== 'auto') 报.push('滚动区没能上下滑（overflowY=' + cs.overflowY + '）');
+      if (cs.overscrollBehaviorY !== 'contain') 报.push('滚动区没兜住滑动（overscrollBehaviorY=' + cs.overscrollBehaviorY + '）');
+    }
+    if (!导) 报.push('底部导航缺失');
+    else {
+      var 钮 = 导.querySelectorAll('.rt-navbtn');
+      if (钮.length !== 3) 报.push('底部导航按钮数 ' + 钮.length);
+      var 导Id = 导.getAttribute('data-id');
+      if (window.RT.getValue(导Id) !== 0) 报.push('底部导航初始值 ' + window.RT.getValue(导Id));
+      钮[2].click();
+      var 亮 = 导.querySelector('.rt-navbtn.on');
+      if (!亮 || 亮.textContent !== '我的') 报.push('点了第三项没高亮（' + (亮 && 亮.textContent) + '）');
+      if (window.RT.getValue(导Id) !== 2) 报.push('点击后取值 ' + window.RT.getValue(导Id));
+      window.RT.setComponent(导Id, 1);
+      var 亮2 = 导.querySelector('.rt-navbtn.on');
+      if (!亮2 || 亮2.textContent !== '消息') 报.push('代码切换后没高亮（' + (亮2 && 亮2.textContent) + '）');
+      if (window.RT.getValue(导Id) !== 1) 报.push('代码切换后取值 ' + window.RT.getValue(导Id));
+      window.RT.setComponent(导Id, 99);
+      if (window.RT.getValue(导Id) !== 2) 报.push('超范围应夹到最后一项，实际 ' + window.RT.getValue(导Id));
+    }
+    return { 报: 报 };
+  })()`);
+  await shot('t25e-滚动区与底部导航运行时');
+  if (运行.报.length) throw new Error('运行时有问题：' + JSON.stringify(运行));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  await js(`(function(){
+    try {
+      var App = window.EditorApp;
+      var ids = App.__aiComps().map(function (c) { return c.id; });
+      if (ids.length) App.__aiApplyComponents(ids.map(function (id) { return { op:'remove', id: id }; }));
+      return App.__aiComps().length;
+    } catch (e) { return 'skip: ' + e.message; }
+  })()`);
+  return { 滚动区: '子控件在容器里 + 可上下滑 ✓', 底部导航: '三栏点击切换 / 代码读写 ✓', 布局页: '预览一致 ✓' };
+});
+
+// 阶段 5：设备能力块 —— 读剪贴板 / 打开网址 / 发通知（原生桥 + 网页回退）
+await check('阶段5：剪贴板/打开网址/发通知 三块定义、生成代码、工具箱、帮助齐全', async () => {
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '阶段5设备块' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+  const r = await js(`(function(){
+    var 类型 = ['val_clipboard', 'act_open_url', 'act_notify'];
+    var xmlText = String(window.buildToolboxXml(null));
+    var ws = new Blockly.Workspace();
+    try {
+      Blockly.JavaScript.init(ws);
+      function 生成(t, txt) {
+        var b = ws.newBlock(t);
+        Object.keys(txt).forEach(function (k) {
+          var s = ws.newBlock('text'); s.setFieldValue(txt[k], 'TEXT');
+          s.outputConnection.connect(b.getInput(k).connection);
+        });
+        var c = Blockly.JavaScript.blockToCode(b);
+        return String(Array.isArray(c) ? c[0] : c).trim();
+      }
+      var 设备组 = ((window.BB_HELP || {}).general || []).filter(function (g) { return g.cat === '设备'; })[0] || { blocks: [] };
+      return {
+        代码: {
+          剪贴板: 生成('val_clipboard', {}),
+          网址: 生成('act_open_url', { URL: 'https://example.com' }),
+          通知: 生成('act_notify', { TITLE: '提醒', TEXT: '该喝水啦' })
+        },
+        定义: 类型.filter(function (t) { return !!Blockly.Blocks[t] && typeof Blockly.JavaScript.forBlock[t] === 'function'; }),
+        工具箱: 类型.filter(function (t) { return xmlText.indexOf('"' + t + '"') >= 0; }),
+        帮助: (设备组.blocks || []).length
+      };
+    } finally { try { ws.dispose(); } catch (e) {} }
+  })()`);
+  if (3 - r.定义.length) throw new Error('有块没有定义/生成器：' + JSON.stringify(r.定义));
+  if (r.工具箱.length !== 3) throw new Error('工具箱「设备」分类缺块：' + JSON.stringify(r.工具箱));
+  if (!/^RT\.readClipboard\(\)/.test(r.代码.剪贴板)) throw new Error('读剪贴板代码不对：' + r.代码.剪贴板);
+  if (!/^RT\.openUrl\(/.test(r.代码.网址) || r.代码.网址.indexOf('https://example.com') < 0) throw new Error('打开网址代码不对：' + r.代码.网址);
+  if (!/^RT\.notify\(/.test(r.代码.通知) || r.代码.通知.indexOf('提醒') < 0) throw new Error('发通知代码不对：' + r.代码.通知);
+  if (r.帮助 < 9) throw new Error('帮助「设备」分类条目没补全：' + r.帮助);
+
+  // 运行时：三个 RT 方法都在；没有原生桥时 readClipboard 返回空文字、notify 退回页面提示、openUrl 拦非法网址
+  const exp = await js(`(function(){ return window.EditorApp.__exportPreview(); })()`);
+  if (!exp || exp.错误) throw new Error('导出预览失败：' + JSON.stringify(exp));
+  let 就绪 = false;
+  for (let attempt = 0; attempt < 2 && !就绪; attempt++) {
+    await js(`location.href='runtime.html?v=' + Date.now()`);
+    就绪 = await waitFor(`!!window.RT && typeof window.RT.notify === 'function'`, 15000);
+    if (!就绪) await sleep(700);
+  }
+  if (!就绪) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没起来（已切回编辑器）');
+  }
+  const 运行 = await js(`(function(){
+    var 报 = [];
+    ['readClipboard', 'openUrl', 'notify'].forEach(function (n) {
+      if (typeof window.RT[n] !== 'function') 报.push('RT.' + n + ' 不是函数');
+    });
+    try { var v = window.RT.readClipboard(); if (typeof v !== 'string') 报.push('readClipboard 没返回文字：' + v); } catch (e) { 报.push('readClipboard 抛错：' + e.message); }
+    try { window.RT.notify('提醒', '内容'); } catch (e) { 报.push('notify 抛错：' + e.message); }
+    try { window.RT.openUrl('不是网址'); } catch (e) { 报.push('openUrl 抛错：' + e.message); }
+    return { 报: 报 };
+  })()`);
+  if (运行.报.length) throw new Error('运行时设备块有问题：' + JSON.stringify(运行));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  return { 代码: r.代码.网址.replace(/\n$/, ''), 工具箱: '3 块 ✓', 帮助: r.帮助 + ' 条', 运行时: '原生优先 + 网页回退 ✓' };
+});
+
 // 阶段 3 第二批动作块：位置 / 大小 / 选项（运行时生效：RT.setPos / setSize / setOptions）
 await check('动作块②：设置位置/大小/选项 运行时生效并写回数据', async () => {
   const 工程 = {
@@ -5000,18 +5209,21 @@ await check('上下文压缩：长历史折成摘要发送，token 明显下降'
     var 末 = 消息[消息.length - 1] || {};
     var 摘要 = 消息.filter(function (m) { return String(m.content).indexOf('【早前对话摘要') === 0; })[0];
     var 老历史 = 历史.slice(0, 历史.length - 6).reduce(function (n, m) { return n + String(m.content).length; }, 0);
+    // 末条除了原问题，还挂着「当前页面控件 / 已有代码 / 用户要求」这些动态上下文 ——
+    // 它们**必须**原样发出去（压缩不能把它们丢掉），所以算压缩比时要扣掉，只看历史本身。
+    var 末条上下文 = Math.max(0, String(末.content).length - String(历史[历史.length - 1].content).length);
     return { 原文长度: 原文, 发出长度: 发出, 条数: 消息.length,
              老历史长度: 老历史, 摘要长度: 摘要 ? String(摘要.content).length : 0,
-             摘要条数: 摘要 ? 1 : 0,
+             摘要条数: 摘要 ? 1 : 0, 末条上下文: 末条上下文,
              末条有页面上下文: String(末.content).indexOf('【当前页面控件】') >= 0,
              末条有用户要求: String(末.content).indexOf('最后一次：点了没反应') >= 0,
-             比例: Math.round(发出 / 原文 * 100) };
+             比例: Math.round((发出 - 末条上下文) / 原文 * 100) };
   })()`);
   if (r.摘要条数 !== 1) throw new Error('长历史没有被压缩成摘要：' + JSON.stringify(r));
   if (r.条数 > 9) throw new Error('发出去的条数还是太多：' + JSON.stringify(r));
   if (!r.末条有页面上下文 || !r.末条有用户要求) throw new Error('压缩把最后一轮的上下文弄丢了：' + JSON.stringify(r));
   if (r.摘要长度 > 1500) throw new Error('摘要本身太长了：' + JSON.stringify(r));
-  if (r.比例 > 80) throw new Error('压缩后还是太长（' + r.比例 + '%）：' + JSON.stringify(r));
+  if (r.比例 > 80) throw new Error('压缩后历史还是太长（' + r.比例 + '%，已扣掉当前页面上下文）：' + JSON.stringify(r));
   return { 原文: r.原文长度 + ' 字', 发出: r.发出长度 + ' 字（' + r.比例 + '%）',
            老历史: r.老历史长度 + ' 字 → 摘要 ' + r.摘要长度 + ' 字', 条数: r.条数 };
 });
@@ -6578,6 +6790,57 @@ await check('首页右上角显示当前版本号（在「检查更新」左边�
   if (!/^(v|开发版)/.test(r.文字)) throw new Error('版本号格式不对：' + JSON.stringify(r));
   if (!r.在更新钮左边 || !r.同一行) throw new Error('版本号位置不对（应在检查更新左边）：' + JSON.stringify(r));
   return { 版本: r.文字, 位置: '检查更新左边 ✓' };
+});
+
+// 2026-10-29 用户要求：有新版本时「检查更新」右上角亮红点；布局按钮和右边的 ▾ 连成一体
+await check('检查更新红点：默认不亮，有新版本时亮在按钮右上角', async () => {
+  const r = await js(`(function(){
+    var App = window.EditorApp;
+    var b = document.getElementById('btnUpdate'), d = document.getElementById('updDot');
+    if (!b || !d) return { 缺元素: { 钮: !!b, 点: !!d } };
+    var 初 = !d.classList.contains('hidden');
+    var 亮 = App.__updateDot(true);
+    var br = b.getBoundingClientRect(), dr = d.getBoundingClientRect();
+    var 右上 = { 靠右: (br.right - dr.right) < 12, 靠上: (dr.top - br.top) < 12,
+                在钮内: dr.left >= br.left - 1 && dr.right <= br.right + 1 };
+    var 题 = b.title;
+    var 灭 = App.__updateDot(false);
+    return { 初: 初, 亮: 亮, 压: 右上, 题: 题, 灭后还亮: 灭, 红: getComputedStyle(d).backgroundColor };
+  })()`);
+  if (r.缺元素) throw new Error('首页缺红点元素：' + JSON.stringify(r));
+  if (r.初) throw new Error('开机默认不该亮红点');
+  if (!r.亮) throw new Error('有新版本时红点没亮');
+  if (!r.压.靠右 || !r.压.靠上 || !r.压.在钮内) throw new Error('红点不在按钮右上角：' + JSON.stringify(r.压));
+  if (!/发现新版本/.test(r.题)) throw new Error('亮红点时按钮提示没变：' + r.题);
+  if (r.灭后还亮) throw new Error('熄灭红点失败');
+  if (!/rgb\(229, 72, 77\)/.test(r.红)) throw new Error('红点颜色不对：' + r.红);
+  return { 默认: '不亮 ✓', 新版本: '亮在右上角 ✓', 颜色: r.红 };
+});
+
+await check('顶栏「布局」按钮和右边 ▾ 连成一体（无缝隙 / 中间一条分隔线）', async () => {
+  if (!(await ensureProject())) throw new Error('工程没打开，看不到顶栏的布局按钮');
+  const r = await js(`(function(){
+    var a = document.getElementById('btnLayout'), b = document.getElementById('btnLayoutCaret');
+    if (!a || !b) return { 缺元素: { 布局: !!a, 箭头: !!b } };
+    var ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    var ca = getComputedStyle(a), cb = getComputedStyle(b);
+    return {
+      同容器: a.parentNode === b.parentNode && a.parentNode.classList.contains('layout-split'),
+      缝隙: Math.round((rb.left - ra.right) * 10) / 10,
+      同高: Math.abs(ra.height - rb.height) < 1,
+      左圆角: ca.borderTopLeftRadius,
+      右圆角: cb.borderTopRightRadius,
+      中缝: ca.borderTopRightRadius === '0px' && cb.borderTopLeftRadius === '0px',
+      分隔线: cb.borderLeftWidth !== '0px'
+    };
+  })()`);
+  if (r.缺元素) throw new Error('顶栏缺按钮：' + JSON.stringify(r));
+  if (!r.同容器) throw new Error('两个按钮不在同一个连体容器里');
+  if (Math.abs(r.缝隙) > 0.5) throw new Error('布局按钮和 ▾ 之间有缝隙：' + r.缝隙 + 'px');
+  if (!r.同高) throw new Error('两个按钮高度不一致');
+  if (!r.中缝) throw new Error('中间没连起来（圆角应内侧为 0）：' + JSON.stringify(r));
+  if (!r.分隔线) throw new Error('中间缺少分隔线');
+  return { 缝隙: r.缝隙 + 'px', 圆角: r.左圆角 + ' / ' + r.右圆角, 分隔线: '有 ✓' };
 });
 
 // 2026-10-27 用户要求：检查更新不再列版本列表，只显示最新版本，点安装只装这一个

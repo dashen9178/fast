@@ -32,7 +32,16 @@ ok('导出 FAST_COMP 工具方法', API && typeof API.sizeOf === 'function'
   && typeof API.defaultsOf === 'function' && typeof API.naturalOf === 'function');
 
 const types = Object.keys(C || {});
-ok('控件类型数量为 36', types.length === 36, '实际 ' + types.length + '：' + types.join(','));
+ok('控件类型数量为 38', types.length === 38, '实际 ' + types.length + '：' + types.join(','));
+// 阶段 4 的两件容器类控件：注册表里必须有、尺寸与默认数据要对得上
+ok('滚动区：尺寸 300×220 且默认 children 为空数组', (() => {
+  const s = C.scroll; return !!s && s.size.w === 300 && s.size.h === 220
+    && Array.isArray(s.def.children) && s.def.children.length === 0;
+})(), JSON.stringify(C.scroll && C.scroll.def));
+ok('底部导航：默认三栏且选中第 0 个', (() => {
+  const s = C.bottomNav; return !!s && Array.isArray(s.def.items) && s.def.items.length === 3
+    && Number(s.def.value) === 0 && s.size.h === 58;
+})(), JSON.stringify(C.bottomNav && C.bottomNav.def));
 
 // 每个条目的字段完整性
 const bad = [];

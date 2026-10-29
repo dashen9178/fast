@@ -163,6 +163,13 @@ input, textarea { font-family: inherit; }
   content: ''; position: absolute; top: 5px; right: 5px; width: 9px; height: 9px;
   border-radius: 50%; background: var(--tertiary); border: 2px solid var(--surface);
 }
+/* 「检查更新」右上角的红点：只在云端有新版本时显示（点开检查后熄灭） */
+#btnUpdate { position: relative; }
+.upd-dot {
+  position: absolute; top: 5px; right: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #e5484d; border: 2px solid var(--surface);
+  pointer-events: none;
+}
 /* 账号弹窗（登录 / 注册） */
 /* 账号弹窗（登录 / 注册）：故意做得很紧凑 —— 手机横屏只有 360 上下，
    以前按普通弹窗的尺寸会超屏变成"能滚的一整页"，用户明确不要那种。 */
@@ -926,9 +933,18 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 /* ================= 顶栏下拉菜单（popover） ================= */
 .tb.caret { font-size: 18px; }
 .screen-menu { min-width: 116px; padding: 0 18px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-/* 布局 + 「如何预览」下拉（2026-10-28）：按钮和箭头分两段，箭头窄一点，整组往左让出运行区 */
-.layout-split { flex: 0 0 auto; display: flex; align-items: stretch; gap: 4px; }
-.layout-split .layout-caret { width: 26px; padding: 0; font-size: 15px; }
+/* 布局 + 「如何预览」下拉（2026-10-29）：两段连成一个整体 —— 只有最左/最右有圆角，
+   中间一条细分隔线，和右边「运行 + ▾」那种拆分按钮统一 */
+.layout-split {
+  flex: 0 0 auto; display: flex; align-items: stretch; gap: 0; height: 40px;
+  border-radius: 20px; overflow: hidden; box-shadow: var(--shadow);
+}
+.layout-split .tb { border: none; }
+.layout-split #btnLayout { border-radius: 20px 0 0 20px; }
+.layout-split .layout-caret {
+  width: 26px; padding: 0; font-size: 15px;
+  border-radius: 0 20px 20px 0; border-left: 1px solid var(--outline-var);
+}
 .lay-orient-title {
   flex: 0 0 auto; padding: 8px 14px 6px; font-size: 12px; font-weight: 600;
   color: var(--on-surface-var);
@@ -1772,6 +1788,16 @@ body.ai-dragging #aiPanel { opacity: .35; }
 
 /* ---- 表格 / 图表：设计页与布局页的预览（类名/结构跟运行时的 .rt-* 对齐） ---- */
 .lv-container { width: 100%; height: 100%; border: 1px solid #e0e0e0; border-radius: 14px; background: #fff; }
+/* 滚动区 / 底部导航（阶段 4，2026-10-29）。滚动区在布局页只做虚线提示，
+   真正能上下滑动的是运行时；底部导航的横排容器是真实子元素，所以这里直接给它排版。 */
+.lv-scroll { border-style: dashed; }
+.lv-bottomnav { width: 100%; height: 100%; border-radius: 14px; background: #ECE6F0; overflow: hidden; }
+.lv-navbar { display: flex; align-items: stretch; width: 100%; height: 100%; gap: 4px; padding: 4px; box-sizing: border-box; }
+.lv-nav {
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: #49454f; white-space: nowrap; border-radius: 10px;
+}
+.lv-nav.on { color: #6750a4; font-weight: 700; background: rgba(103,80,164,.12); }
 .lv-table { width: 100%; overflow: hidden; }
 .lv-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lv-table th, .lv-table td { border: 1px solid #e0e0e0; padding: 3px 5px; text-align: left; }

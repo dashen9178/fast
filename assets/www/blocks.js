@@ -490,6 +490,34 @@
       this.setTooltip('把一段文字复制到手机剪贴板，之后可粘贴到其它应用');
     }
   };
+  // 设备：读取剪贴板（值块）
+  B.Blocks['val_clipboard'] = {
+    init: function () {
+      this.appendDummyInput().appendField('剪贴板里的文字');
+      this.setOutput(true, null);
+      this.setColour(C_DEV);
+      this.setTooltip('读取手机剪贴板里的文字；剪贴板是空的、或系统不让读时得到空文字');
+    }
+  };
+  // 设备：用浏览器打开网址
+  B.Blocks['act_open_url'] = {
+    init: function () {
+      this.appendValueInput('URL').appendField('打开网址');
+      this.setInputsInline(true);
+      this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(C_DEV);
+      this.setTooltip('用手机浏览器打开一个网址；只支持 http:// 或 https:// 开头的链接');
+    }
+  };
+  // 设备：发一条通知
+  B.Blocks['act_notify'] = {
+    init: function () {
+      this.appendValueInput('TITLE').appendField('发通知 标题');
+      this.appendValueInput('TEXT').appendField('内容');
+      this.setInputsInline(true);
+      this.setPreviousStatement(true); this.setNextStatement(true); this.setColour(C_DEV);
+      this.setTooltip('在手机通知栏弹一条通知，点一下回到 App。首次使用需要允许通知权限');
+    }
+  };
 
   var C_CTRL = '#607D8B';
   // 控制：等待若干秒（事件处理为异步，等待期间界面不卡死）
@@ -708,6 +736,18 @@
   JS.forBlock['act_copy'] = function (b) {
     var v = JS.valueToCode(b, 'V', JS.ORDER_ATOMIC) || "''";
     return "RT.copyText(" + v + ");\n";
+  };
+  JS.forBlock['val_clipboard'] = function () {
+    return ["RT.readClipboard()", JS.ORDER_ATOMIC];
+  };
+  JS.forBlock['act_open_url'] = function (b) {
+    var u = JS.valueToCode(b, 'URL', JS.ORDER_ATOMIC) || "''";
+    return "RT.openUrl(" + u + ");\n";
+  };
+  JS.forBlock['act_notify'] = function (b) {
+    var t = JS.valueToCode(b, 'TITLE', JS.ORDER_ATOMIC) || "''";
+    var x = JS.valueToCode(b, 'TEXT', JS.ORDER_ATOMIC) || "''";
+    return "RT.notify(" + t + ", " + x + ");\n";
   };
   JS.forBlock['act_wait'] = function (b) {
     var s = JS.valueToCode(b, 'SECS', JS.ORDER_ATOMIC) || '1';
@@ -1651,6 +1691,9 @@
       + '<block type="act_set_brightness">' + numSh('V', '80') + '</block>'
       + '<block type="act_keep_screen">' + boolSh('V', 'TRUE') + '</block>'
       + '<block type="act_copy">' + txtSh('V', '要复制的文字') + '</block>'
+      + plain('val_clipboard')
+      + '<block type="act_open_url">' + txtSh('URL', 'https://example.com') + '</block>'
+      + '<block type="act_notify">' + txtSh('TITLE', '提醒') + txtSh('TEXT', '该喝水啦') + '</block>'
       + plain('act_exit')
       + plain('act_pick_image') + '</category>';
     x += '<category name="控制" colour="#607D8B">'
@@ -1806,6 +1849,9 @@
         { sig: '设置屏幕亮度(0~100)为（数值）', desc: '调节本 App 的屏幕亮度，0 最暗、100 最亮。', use: '只影响本 App，不改系统设置；可配合滑块做亮度调节。' },
         { sig: '保持屏幕常亮（真/假）', desc: '接“真”时 App 运行期间屏幕不自动熄灭。', use: '常用于视频、展示类页面；接“假”恢复系统自动熄屏。' },
         { sig: '复制文本到剪贴板（文本）', desc: '把文字复制到手机剪贴板。', use: '之后可在其它应用粘贴，如复制订单号、链接。' },
+        { t: 'val_clipboard', sig: '剪贴板里的文字', desc: '读取手机剪贴板里的文字。', use: '可接到“显示到”“设置组件文本”里，做“粘贴”功能；剪贴板为空时得到空文字。' },
+        { t: 'act_open_url', sig: '打开网址（文本）', desc: '用手机自带的浏览器打开一个网址。', use: '缺口接以 http:// 或 https:// 开头的文字，如 https://example.com。' },
+        { t: 'act_notify', sig: '发通知 标题（文本）内容（文本）', desc: '在手机通知栏弹一条通知，点一下回到 App。', use: '第一次用时系统会问是否允许通知，选允许即可；适合提醒、待办。' },
         { sig: '退出应用', desc: '关闭并退出当前 App。', use: '一般放在“退出”按钮里。' }
       ]},
       { cat: '控制', colour: '#607D8B', blocks: [
