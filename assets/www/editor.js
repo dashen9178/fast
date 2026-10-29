@@ -2374,6 +2374,13 @@
     if (pt && document.activeElement !== pt) pt.value = cur.title || '';
     if (state.inLayout) renderLayout();
   }
+  /** 时钟控件在「设计/布局」页显示的示例文字（运行时由 runtime.js 自己走秒） */
+  function 时钟示例(fmt) {
+    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    if (fmt === 'hms') return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    if (fmt === 'mdhm') return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    return p(d.getHours()) + ':' + p(d.getMinutes());
+  }
   function compName(c) { return (c.name && c.name.trim()) ? c.name.trim() : (TYPE_META[c.type].label + ' (' + c.id + ')'); }
   function compDesc(c) {
     var base;
@@ -2384,6 +2391,9 @@
     else if (c.type === 'collapse') base = (c.text || '折叠面板') + '：' + (c.open ? '展开' : '收起');
     else if (c.type === 'rating') base = '评分 ' + (validN(c.value) ? c.value : 0) + ' / ' + (c.max || 5);
     else if (c.type === 'ring') base = '进度 ' + (validN(c.value) ? c.value : 0) + ' / ' + (c.max || 100);
+    else if (c.type === 'badge') base = (c.text || '徽章') + '（状态点）';
+    else if (c.type === 'clock') base = '时钟 ' + ({ hm: '时:分', hms: '时:分:秒', mdhm: '日期+时:分' }[c.format] || '时:分');
+    else if (c.type === 'qr') base = c.value ? '二维码：' + String(c.value).slice(0, 24) : '二维码（还没填内容）';
     else if (c.type === 'multiSelect') {
       var 已选 = Array.isArray(c.value) ? c.value
         : String(c.value == null ? '' : c.value).split(/[,，、\n]/).filter(function (s) { return s !== ''; });
@@ -3192,6 +3202,23 @@
       rgRow.appendChild(ppField('当前值', numInput(c.value, '0', mark(function (v) { c.value = v; }))));
       host.appendChild(rgRow);
     }
+    if (c.type === 'badge') {
+      host.appendChild(ppField('徽章文字', txtInput(c.text, '新', mark(function (v) { c.text = v; }))));
+      host.appendChild(ppField('圆点颜色', colorInput(c.dot, '#e5484d', mark(function (v) { c.dot = v; }))));
+    }
+    if (c.type === 'clock') {
+      host.appendChild(ppField('显示格式', selectInput([
+        ['14:05（时:分）', 'hm'], ['14:05:09（时:分:秒）', 'hms'], ['10月29日 14:05', 'mdhm']
+      ], c.format || 'hm', mark(function (v) { c.format = v || 'hm'; }))));
+    }
+    if (c.type === 'qr') {
+      host.appendChild(ppField('二维码内容（网址或一段文字）', areaInput(c.value, mark(function (v) { c.value = v; }))));
+      if (String(c.value || '').length > 213) {
+        var 超长 = el('div', 'pp-field'); 超长.style.color = '#c62828';
+        超长.textContent = '内容超过 213 字节，二维码放不下，请换短一点的网址';
+        host.appendChild(超长);
+      }
+    }
     if (c.type === 'video' || c.type === 'audio') {
       var isVid = c.type === 'video';
       host.appendChild(ppField(isVid ? '视频地址（网络链接，留空用本地）' : '音频地址（网络链接，留空用本地）',
@@ -3257,7 +3284,8 @@
     host.appendChild(ppField('文字颜色', colorInput(c.color, c.type === 'button' ? '#ffffff' : '#1f2329', mark(function (v) { c.color = v; }))));
     if (c.type === 'button' || c.type === 'input' || c.type === 'list' || c.type === 'select'
       || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider' || c.type === 'progress'
-      || c.type === 'tabs' || c.type === 'collapse' || c.type === 'ring') {
+      || c.type === 'tabs' || c.type === 'collapse' || c.type === 'ring'
+      || c.type === 'badge') {
       var bgFallback = (c.type === 'button' || c.type === 'switch' || c.type === 'checkbox' || c.type === 'slider'
         || c.type === 'progress' || c.type === 'ring') ? '#6750a4'
         : '#ffffff';
@@ -6150,6 +6178,25 @@
       环.appendChild(el('i', 'lv-ring-in'));
       环.appendChild(el('span', 'lv-ring-t', Math.round(环百分比) + '%'));
       d.appendChild(环);
+    } else if (c.type === 'badge') {
+      d.className = 'lv-badge';
+      var 徽点 = el('i', 'lv-badge-dot');
+      徽点.style.background = c.dot || '#e5484d';
+      d.appendChild(徽点);
+      d.appendChild(el('span', 'lv-label', c.text || '徽章'));
+    } else if (c.type === 'clock') {
+      d.className = 'lv-clock';
+      d.appendChild(el('span', 'lv-label', 时钟示例(c.format)));
+    } else if (c.type === 'qr') {
+      d.className = 'lv-qr';
+      var 码边 = Math.max(40, Math.min(validN(c.w) ? c.w : 150, validN(c.h) ? c.h : 150));
+      var 码盒 = el('div', 'lv-qr-box');
+      码盒.style.width = 码边 + 'px'; 码盒.style.height = 码边 + 'px';
+      try {
+        码盒.innerHTML = (window.FAST_QR && c.value) ? window.FAST_QR.svg(c.value, 码边, c.color || '#000000', c.bg || '#ffffff') : '';
+      } catch (e) { 码盒.innerHTML = ''; }
+      if (!码盒.firstChild) 码盒.appendChild(el('span', 'lv-qr-ph', '二维码'));
+      d.appendChild(码盒);
     } else if (c.type === 'multiSelect') {
       d.className = 'lv-select lv-multi';
       var 多选值 = Array.isArray(c.value) ? c.value
@@ -9523,7 +9570,7 @@
   // 早先只放开了内容类，用户让 AI"帮我调一下排版"时它只能回"我没有位置、大小、间距、对齐
   // 这类属性，所以没法帮你调排版"（真机反馈）—— 属性面板里明明有这些字段，这里一并放开。
   var AI_COMP_PROPS = ['name', 'text', 'value', 'hint', 'alt', 'checked', 'min', 'max', 'items', 'url', 'src',
-                       'start', 'end',
+                       'start', 'end', 'dot', 'format',
                        'x', 'y', 'w', 'h', 'align', 'fs', 'spacing', 'bold', 'color', 'bg', 'radius', 'rot', 'opacity', 'inputType', 'variant', 'caretColor'];
   // 数值型属性的合理区间（设计像素）。null 是合法值，含义是"恢复自动排列 / 自适应"。
   var AI_NUM_RANGE = {
@@ -9537,7 +9584,7 @@
     x: 'X距左', y: 'Y距顶', w: '宽度', h: '高度', align: '对齐', fs: '字号',
     spacing: '字间距', bold: '加粗', color: '文字颜色', bg: '背景颜色', radius: '圆角',
     rot: '旋转角度', opacity: '透明度', inputType: '输入框类型', variant: '下拉样式', caretColor: '箭头颜色',
-    start: '开始日期', end: '结束日期'
+    start: '开始日期', end: '结束日期', dot: '圆点颜色', format: '时间格式'
   };
 
   // 占位符：模型说"居中"时不用自己算数字（算错就偏，用户真机反馈过"弄得有点偏右"）

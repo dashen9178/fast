@@ -494,7 +494,8 @@ public class MainActivity extends Activity {
                     if (downloadUri != null && downloadUri.startsWith("content://")) uri = Uri.parse(downloadUri);
                     if (uri == null) {
                         java.io.File master = new java.io.File(path);
-                        if (!master.exists() || master.length() < 10000) {
+                        // 审计加固：纯路径只认本 App 目录内的真 APK（外来的任意文件不许直接交给安装器）
+                        if (!master.exists() || master.length() < 10000 || !是本机安装包(master)) {
                             toast("安装文件不存在或不完整，请重新导出"); return;
                         }
                         // 交给安装器的是一次性副本，避免部分 ROM 安装结束后清掉原件
@@ -510,9 +511,37 @@ public class MainActivity extends Activity {
             }}).start();
         }
 
+        /** 纯路径安装包的安全门槛（审计加固）：必须在本 App 自己的目录里、后缀 .apk、ZIP 魔数正确。
+            导出/更新下载都落在 getFilesDir()（downloads、install_stage），走 content:// 时不经过这里。 */
+        private boolean 是本机安装包(java.io.File f) {
+            try {
+                java.io.File 真 = f.getCanonicalFile();
+                boolean 在目录内 = false;
+                java.io.File[] 根 = { getFilesDir(), getCacheDir(), getExternalFilesDir(null) };
+                for (java.io.File r : 根) {
+                    if (r == null) continue;
+                    String rp = r.getCanonicalPath();
+                    if (真.getPath().startsWith(rp + java.io.File.separator)) { 在目录内 = true; break; }
+                }
+                if (!在目录内) return false;
+                if (!真.isFile() || !真.getName().toLowerCase().endsWith(".apk")) return false;
+                java.io.FileInputStream in = new java.io.FileInputStream(真);
+                int b0 = in.read(), b1 = in.read(), b2 = in.read(), b3 = in.read();
+                in.close();
+                return b0 == 'P' && b1 == 'K' && b2 == 3 && b3 == 4;
+            } catch (Exception e) { return false; }
+        }
         /** 下载指定 URL 的安装包到私有目录，完成后回调 EditorApp.onApkDownloaded(cbId, 本地路径, 错误) */
         @JavascriptInterface
         public void downloadApk(final String cbId, final String url, final String saveName) {
+            // 审计加固：只允许 http/https。否则 file:// 之类的地址能把本机任意文件
+            // 复制成 .apk 再走安装流程（配合网页控件里的第三方页面，是个不该开的口子）。
+            String scheme = (url == null ? "" : url.trim()).toLowerCase();
+            if (!(scheme.startsWith("http://") || scheme.startsWith("https://"))) {
+                evalJs("window.EditorApp&&EditorApp.onApkDownloaded(" + jsStr(cbId) + ",'',"
+                        + jsStr("下载地址无效（只支持 http/https）") + ")");
+                return;
+            }
             new Thread(new Runnable() { @Override public void run() {
                 try {
                     java.io.File dir = new java.io.File(getFilesDir(), "downloads"); dir.mkdirs();

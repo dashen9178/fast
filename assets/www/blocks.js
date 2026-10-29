@@ -1240,7 +1240,10 @@
     { key: 'ring',     label: '进度环', types: ['ring'],     colour: '#00695C', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
     { key: 'multiSelect', label: '多选下拉', types: ['multiSelect'], colour: '#00695C', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
     { key: 'dateRange', label: '日期范围', types: ['dateRange'], colour: '#4E342E', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
-    { key: 'colorPicker', label: '颜色选择器', types: ['colorPicker'], colour: '#AD1457', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] }
+    { key: 'colorPicker', label: '颜色选择器', types: ['colorPicker'], colour: '#AD1457', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'badge',    label: '徽章',   types: ['badge'],    colour: '#C62828', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'clock',    label: '时钟',   types: ['clock'],    colour: '#00838F', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] },
+    { key: 'qr',       label: '二维码', types: ['qr'],       colour: '#37474F', shapes: ['show', 'hide', 'opacity', 'rot', 'enable', 'disable'] }
   ];
   function prevNext(b) { b.setPreviousStatement(true); b.setNextStatement(true); }
   var SHAPE_BUILD = {
@@ -1489,6 +1492,9 @@
     multiSelect: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '选项一,选项二') + '</block>'] },
     dateRange: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '2025-01-01~2025-01-31') + '</block>'] },
     colorPicker: { head: [plain('ev_change')], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '#6750A4') + '</block>'] },
+    badge: { head: [], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '新') + '</block>'] },
+    clock: { head: [], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', '08:30') + '</block>'] },
+    qr: { head: [], tail: ['<block type="val_comp_value"/>', '<block type="act_comp_set">' + txtSh('VALUE', 'https://example.com') + '</block>'] },
     video: { head: [], tail: [plain('act_video_play'), plain('act_video_pause'), plain('act_video_seek'), '<block type="act_video_src">' + txtSh('URL', 'https://视频地址.mp4') + '</block>'] },
     audio: { head: [], tail: [plain('act_audio_play'), plain('act_audio_pause'), plain('act_audio_seek'), '<block type="act_audio_src">' + txtSh('URL', 'https://音频地址.mp3') + '</block>'] },
     web: { head: [], tail: ['<block type="act_web_url">' + txtSh('URL', 'https://example.com') + '</block>'] }
@@ -1704,7 +1710,8 @@
     '开关': 'Sw', '复选框': '✓', '滑块': 'Sl', '进度条': 'Pr',
     '视频播放器': '▶', '音频播放': '♪', '网页': 'W',
     '事件': '▶', '页面': '⇄', '控件': '⊞', '设备': 'Dev', '控制': 'Ctl', '逻辑': '&',
-    '数学': '∑', '文本': 'T', '数据列表': '[ ]', '网络': '⇅', '云列表': '☁', '颜色': '●', '变量': 'x'
+    '数学': '∑', '文本': 'T', '数据列表': '[ ]', '网络': '⇅', '云列表': '☁', '颜色': '●', '变量': 'x',
+    '徽章': '●', '时钟': '🕒', '二维码': '▩'
   };
 
   /* ================= 使用帮助数据（帮助页右侧说明，顺序与工具箱完全一致） ================= */

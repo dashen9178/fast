@@ -121,7 +121,16 @@
                  def: { start: '', end: '' } },
     colorPicker: { label: '颜色选择器', ico: '🎨',  desc: '点一下选一个颜色',
                  size: { w: 200, h: 48 },  nat: { w: 200, h: 48 },
-                 def: { value: '#6750a4' } }
+                 def: { value: '#6750a4' } },
+    badge:     { label: '徽章',        ico: '●',    desc: '小圆点 + 文字，用来提示状态',
+                 size: { w: 120, h: 32 },  nat: { mode: 'text', field: 'text', fs: 14, pad: 50, minW: 76, h: 32 },
+                 def: { text: '新', dot: '#e5484d', bg: '' } },
+    clock:     { label: '时钟',        ico: '🕒',   desc: '显示当前时间，自动走秒',
+                 size: { w: 170, h: 44 },  nat: { w: 170, h: 44 },
+                 def: { format: 'hm' } },
+    qr:        { label: '二维码',      ico: '▩',    desc: '把网址或文字画成二维码',
+                 size: { w: 150, h: 150 }, nat: { w: 150, h: 150 },
+                 def: { value: 'https://' } }
   };
 
   /** 兜底尺寸：编辑器 defaultSize 与运行时 defaultBox 都取这里，防止两处走偏 */

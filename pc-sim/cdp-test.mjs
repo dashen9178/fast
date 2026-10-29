@@ -3582,6 +3582,126 @@ await check('新控件②：多选下拉/日期范围/颜色选择器 三处渲�
   return { 控件: '3 种', 布局页: '结构齐全 ✓', 运行时: '连选/改日期/挑颜色 + 代码读写 ✓' };
 });
 
+// 阶段 2 收尾控件：徽章 / 时钟 / 二维码
+await check('新控件③：徽章/时钟/二维码 三处渲染一致，运行时能读写', async () => {
+  const 工程就绪 = `(function(){ try { var a = window.EditorApp; var s = a && a.__aiScreens ? a.__aiScreens() : null; return !!(s && s.length); } catch (e) { return false; } })()`;
+  if (!(await js(工程就绪))) {
+    await clickText('#viewHome button', '创建新 ?App|新建');
+    const 弹窗了 = await waitFor(`(function(){var m=document.getElementById('createMask');return !!m && !m.classList.contains('hidden') && !!m.querySelector('input')})()`);
+    if (!弹窗了) throw new Error('新建弹窗没出来（当前视图：' + await viewsVisible() + '）');
+    await js(`(function(){
+      var i = document.querySelector('#createMask input');
+      i.value = '收尾控件' + Date.now().toString().slice(-6);
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('createGo').click();
+    })()`);
+    if (!(await waitFor(工程就绪, 15000))) throw new Error('新建后工程没打开');
+    await sleep(600);
+  }
+  const 加的 = await js(`(function(){
+    var App = window.EditorApp;
+    var 配置 = [
+      { type:'badge', props:{ x:24, y:60,  w:120, h:32, text:'新', dot:'#e5484d' } },
+      { type:'clock', props:{ x:24, y:120, w:170, h:44, format:'hms' } },
+      { type:'qr',    props:{ x:24, y:180, w:150, h:150, value:'https://example.com' } }
+    ];
+    var 加的 = [];
+    配置.forEach(function (one) {
+      var before = App.__aiComps().length;
+      App.__aiApplyComponents([{ op:'add', type:one.type, props:one.props }]);
+      var cs = App.__aiComps();
+      if (cs.length <= before) return;
+      加的.push({ type: one.type, id: cs[0].id });
+    });
+    return 加的;
+  })()`);
+  await sleep(300);
+  if (加的.length !== 3) throw new Error('有控件没建出来：' + JSON.stringify(加的));
+
+  // 布局页：断言子元素结构（舞台会丢掉视觉根节点的 class，和之前几批同一套做法）
+  await js(`document.getElementById('btnLayout').click()`);
+  await sleep(1500);
+  const 布局 = await js(`(function(){
+    var stage = document.getElementById('layStage');
+    var pick = function (t) { return stage.querySelector('.litem.t-' + t); };
+    var 徽 = pick('badge'), 钟 = pick('clock'), 码 = pick('qr');
+    var 字 = function (n) { var l = n && n.querySelector('.lv-label'); return l ? l.textContent : ''; };
+    return {
+      徽点: !!(徽 && 徽.querySelector('.lv-badge-dot')),
+      徽字: 字(徽),
+      钟字: 字(钟),
+      码图: !!(码 && 码.querySelector('.lv-qr-box svg'))
+    };
+  })()`);
+  await js(`document.getElementById('layBack').click()`);
+  await sleep(400);
+  if (!布局.徽点 || 布局.徽字 !== '新') throw new Error('布局页徽章不对：' + JSON.stringify(布局));
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(布局.钟字)) throw new Error('布局页时钟文字不对：' + JSON.stringify(布局));
+  if (!布局.码图) throw new Error('布局页二维码没画出来：' + JSON.stringify(布局));
+
+  // 运行时：徽章能改文字、时钟设了文字就停走秒、二维码能换内容重画
+  const exp = await js(`(function(){ return window.EditorApp.__exportPreview(); })()`);
+  if (!exp || exp.错误) throw new Error('导出预览失败：' + JSON.stringify(exp));
+  let 就绪 = false;
+  for (let attempt = 0; attempt < 2 && !就绪; attempt++) {
+    await js(`location.href='runtime.html?v=' + Date.now()`);
+    就绪 = await waitFor(`!!document.querySelector('#screen .comp.qr .rt-qr')`, 15000);
+    if (!就绪) await sleep(700);
+  }
+  if (!就绪) {
+    await js(`location.href='editor.html'`);
+    await waitFor(`!!window.EditorApp`, 15000);
+    throw new Error('运行时没有渲染出二维码（已切回编辑器）');
+  }
+  const 运行 = await js(`(function(){
+    var 报 = [];
+    var 徽 = document.querySelector('#screen .comp.badge');
+    var 钟 = document.querySelector('#screen .comp.clock');
+    var 码 = document.querySelector('#screen .comp.qr');
+    var 徽Id = 徽 && 徽.getAttribute('data-id'), 钟Id = 钟 && 钟.getAttribute('data-id'), 码Id = 码 && 码.getAttribute('data-id');
+
+    if (!徽 || !徽.querySelector('.rt-badge-dot')) 报.push('徽章结构缺失');
+    else {
+      if (window.RT.getValue(徽Id) !== '新') 报.push('徽章初始 ' + window.RT.getValue(徽Id));
+      window.RT.setComponent(徽Id, '已读');
+      if (window.RT.getValue(徽Id) !== '已读') 报.push('徽章赋值后 ' + window.RT.getValue(徽Id));
+      var t = 徽.querySelector('.rt-badge-t');
+      if (!t || t.textContent !== '已读') 报.push('徽章文字 ' + (t && t.textContent));
+    }
+
+    if (!钟 || !钟.querySelector('.rt-clock')) 报.push('时钟结构缺失');
+    else {
+      var 钟字 = 钟.querySelector('.rt-clock');
+      if (!/^\\d{2}:\\d{2}:\\d{2}$/.test(钟字.textContent)) 报.push('时钟初始文字 ' + 钟字.textContent);
+      window.RT.setComponent(钟Id, '08:30');
+      if (钟字.textContent !== '08:30') 报.push('时钟赋值后 ' + 钟字.textContent);
+      if (window.RT.getValue(钟Id) !== '08:30') 报.push('时钟取值 ' + window.RT.getValue(钟Id));
+    }
+
+    if (!码 || !码.querySelector('.rt-qr svg')) 报.push('二维码没画出来');
+    else {
+      window.RT.setComponent(码Id, 'https://fast.example');
+      var svg = 码.querySelector('.rt-qr svg');
+      if (!svg) 报.push('换内容后二维码没了');
+      if (window.RT.getValue(码Id) !== 'https://fast.example') 报.push('二维码取值 ' + window.RT.getValue(码Id));
+    }
+    return { 报: 报 };
+  })()`);
+  await shot('t25d-徽章时钟二维码运行时');
+  if (运行.报.length) throw new Error('运行时交互有问题：' + JSON.stringify(运行));
+  await js(`location.href='editor.html'`);
+  await waitFor(`!!window.EditorApp`, 15000);
+  await sleep(600);
+  await js(`(function(){
+    try {
+      var App = window.EditorApp;
+      App.__aiApplyComponents(${JSON.stringify(加的.map(c => ({ op:'remove', id: c.id })))});
+      return App.__aiComps().length;
+    } catch (e) { return 'skip: ' + e.message; }
+  })()`);
+  return { 控件: '3 种', 布局页: '结构齐全 ✓', 运行时: '改徽章/停时钟/换二维码 ✓' };
+});
+
 // 阶段 3 第二批动作块：位置 / 大小 / 选项（运行时生效：RT.setPos / setSize / setOptions）
 await check('动作块②：设置位置/大小/选项 运行时生效并写回数据', async () => {
   const 工程 = {

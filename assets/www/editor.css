@@ -1115,6 +1115,19 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .lv-ring-in { position: absolute; inset: 15%; border-radius: 50%; background: #fff; }
 .lv-ring-t { position: relative; font-size: 16px; font-weight: 600; color: inherit; }
 
+/* 徽章 / 时钟 / 二维码（拖动布局预览）。样式对齐 runtime.css 的 .rt-* */
+.lv-badge { display: flex; align-items: center; gap: 7px; width: 100%; height: 100%;
+  padding: 0 10px; border-radius: 999px; background: #fff; border: 1px solid #e0e0e0; }
+.lv-badge-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: #e5484d; }
+.lv-clock { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.lv-qr { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.lv-qr-box { display: flex; align-items: center; justify-content: center; background: #fff;
+  border-radius: 6px; overflow: hidden; }
+.lv-qr-box svg { width: 100%; height: 100%; display: block; }
+.lv-qr-ph { font-size: 12px; color: #8a8794; }
+.litem.t-badge { border: 1px solid #e0e0e0; border-radius: 999px; background: #fff; }
+.litem.t-qr { background: #fff; border-radius: 6px; }
+
 /* 多选下拉 / 日期范围 / 颜色选择器（拖动布局预览）。样式对齐 runtime.css 的 .rt-* */
 .lv-multi, .lv-daterange, .lv-color { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; }
 .lv-multi { justify-content: space-between; }

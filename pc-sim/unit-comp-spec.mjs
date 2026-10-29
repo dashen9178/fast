@@ -32,7 +32,7 @@ ok('导出 FAST_COMP 工具方法', API && typeof API.sizeOf === 'function'
   && typeof API.defaultsOf === 'function' && typeof API.naturalOf === 'function');
 
 const types = Object.keys(C || {});
-ok('控件类型数量为 33', types.length === 33, '实际 ' + types.length + '：' + types.join(','));
+ok('控件类型数量为 36', types.length === 36, '实际 ' + types.length + '：' + types.join(','));
 
 // 每个条目的字段完整性
 const bad = [];
@@ -97,9 +97,15 @@ const idxRtSpec = runtimeHtml.indexOf('src="comp-spec.js');
 const idxRt = runtimeHtml.indexOf('src="runtime.js');
 ok('editor.html 先加载 comp-spec.js 再 blocks.js', idxEdSpec >= 0 && idxEdBlocks >= 0 && idxEdSpec < idxEdBlocks);
 ok('runtime.html 先加载 comp-spec.js 再 runtime.js', idxRtSpec >= 0 && idxRt >= 0 && idxRtSpec < idxRt);
+// qr.js 是二维码控件的离线生成器：编辑器（布局页要画）与运行时都要有，导出壳也必须带上
+const idxEdQr = editorHtml.indexOf('src="qr.js');
+const idxRtQr = runtimeHtml.indexOf('src="qr.js');
+ok('editor.html / runtime.html 都加载了 qr.js',
+  idxEdQr >= 0 && idxRtQr >= 0 && idxEdQr > idxEdSpec && idxRtQr > idxRtSpec);
 
 const buildPs1 = read(path.join(ROOT, 'build.ps1'));
 ok('build.ps1 把 comp-spec.js 复制进导出壳', /assets\\www\\comp-spec\.js/.test(buildPs1));
+ok('build.ps1 把 qr.js 复制进导出壳', /assets\\www\\qr\.js/.test(buildPs1));
 
 console.log('\n===== 结果：通过 ' + pass + ' 项，失败 ' + fail + ' 项 =====');
 process.exit(fail ? 1 : 0);

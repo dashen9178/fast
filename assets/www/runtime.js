@@ -13,6 +13,31 @@ var swipeHandlers = [], lastSwipe = { dir: '', dx: 0, dy: 0, dist: 0, ms: 0 };
 var 渲染父宽 = null;
 // 计时器 / 画布 的运行时状态（按控件 id 存）
 var timers = {}, canvasMap = {};
+/* 时钟控件：一个全局 1 秒定时器统一刷新所有 .rt-clock 节点。
+   用"先查询再更新"而不是给每个控件各开一个 interval：控件随页面切换被销毁时，
+   下一个 tick 用 document.body.contains 一判就把它剔掉，不会留下悬空定时器。 */
+var 时钟表 = [];
+function 时钟文字(fmt) {
+  var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+  if (fmt === 'hms') return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  if (fmt === 'mdhm') return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function 启动走秒(node, fmt) {
+  node.textContent = 时钟文字(fmt);
+  node.__fmt = fmt;
+  时钟表.push({ node: node, fmt: fmt });
+  if (时钟表.定时) return;
+  时钟表.定时 = setInterval(function () {
+    for (var i = 时钟表.length - 1; i >= 0; i--) {
+      var x = 时钟表[i];
+      if (!document.body.contains(x.node)) { 时钟表.splice(i, 1); continue; }
+      if (x.node.__frozen) continue;          // 代码里设过文字就不再走秒
+      x.node.textContent = 时钟文字(x.fmt);
+    }
+    if (!时钟表.length) { clearInterval(时钟表.定时); 时钟表.定时 = 0; }
+  }, 1000);
+}
   // “当页面首次启动时”只在本次运行进程内记录；杀掉后台/重新打开 App（页面重新加载）会重新执行
   var firstFired = Object.create(null);
   // 页面渲染代号：每次 render 自增。启动事件改为渲染完成后的异步任务，跳转离开后旧任务作废
@@ -844,6 +869,42 @@ var timers = {}, canvasMap = {};
       环盒.appendChild(环字);
       wrap.__val = 环值; wrap.__max = 环最大;
       wrap.appendChild(环盒);
+    } else if (c.type === 'badge') {
+      // 徽章：小圆点 + 文字，纯展示（没有点击事件）；__val = 文字
+      var 徽盒 = el('div', 'rt-badge');
+      var 徽点 = el('i', 'rt-badge-dot');
+      徽点.style.background = c.dot || '#e5484d';
+      徽盒.appendChild(徽点);
+      var 徽字 = el('span', 'rt-badge-t', c.text || '');
+      if (c.color) 徽字.style.color = c.color;
+      if (validNum(c.fs)) 徽字.style.fontSize = px(c.fs);
+      徽盒.appendChild(徽字);
+      if (c.bg) 徽盒.style.background = c.bg;
+      if (validNum(c.radius)) 徽盒.style.borderRadius = px(c.radius);
+      wrap.__val = String(c.text == null ? '' : c.text);
+      wrap.appendChild(徽盒);
+    } else if (c.type === 'clock') {
+      // 时钟：默认走真实时间（1 秒刷新）；代码设过文字后停走秒，设空串恢复走秒
+      var 钟字 = el('div', 'rt-clock');
+      applyTextStyle(钟字, c);
+      if (validNum(c.h)) 钟字.style.height = px(c.h);
+      wrap.__val = 时钟文字(c.format || 'hm');
+      wrap.appendChild(钟字);
+      启动走秒(钟字, c.format || 'hm');
+    } else if (c.type === 'qr') {
+      // 二维码：纯前端离线生成（qr.js），内容就是 __val；太长/为空的画占位文字
+      var 码盒 = el('div', 'rt-qr');
+      wrap.__val = String(c.value == null ? '' : c.value);
+      var 画码 = function () {
+        var 边 = Math.max(40, Math.min(validNum(c.w) ? c.w : 150, validNum(c.h) ? c.h : 150));
+        码盒.innerHTML = '';
+        var svg = (window.FAST_QR && wrap.__val) ? window.FAST_QR.svg(wrap.__val, 边, c.color || '#000000', c.bg || '#ffffff') : '';
+        if (svg) 码盒.innerHTML = svg;
+        else 码盒.appendChild(el('span', 'rt-qr-ph', wrap.__val ? '内容太长，放不进二维码' : '二维码'));
+      };
+      画码();
+      wrap.appendChild(码盒);
+      wrap.__画码 = 画码;
     } else if (c.type === 'multiSelect') {
       // 多选下拉：自绘列表，点一行切换一行（可以连选多项）；__val = 选中的值数组
       function 多变数组(v) {
@@ -1606,6 +1667,25 @@ var timers = {}, canvasMap = {};
         d.classList.toggle('on', String(d.getAttribute('data-c') || '').toLowerCase() === hex.toLowerCase());
       });
     },
+    /* 徽章 / 时钟 / 二维码：用代码改值 */
+    setBadge: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var t = r.querySelector('.rt-badge-t');
+      r.__val = String(v == null ? '' : v);
+      if (t) t.textContent = r.__val;
+    },
+    setClock: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      var t = r.querySelector('.rt-clock'); if (!t) return;
+      var s = String(v == null ? '' : v);
+      if (s) { t.textContent = s; t.__frozen = true; r.__val = s; }   // 设了文字就停走秒
+      else { t.__frozen = false; t.textContent = 时钟文字(t.__fmt || 'hm'); r.__val = t.textContent; }
+    },
+    setQR: function (id, v) {
+      var r = compRoot(id); if (!r) return;
+      r.__val = String(v == null ? '' : v);
+      if (r.__画码) r.__画码();
+    },
     /* ---- 新增控件的取值 / 赋值 ---- */
     getValue: function (id) { var r = compRoot(id); return r && r.__val != null ? r.__val : ''; },
     getNumber: function (id) { var r = compRoot(id); var n = Number(r && r.__val); return isFinite(n) ? n : 0; },
@@ -1673,6 +1753,9 @@ var timers = {}, canvasMap = {};
       if (cls.indexOf('tabs') >= 0) return RT.setTabs(id, v);
       if (cls.indexOf('rating') >= 0) return RT.setRating(id, v);
       if (cls.indexOf('collapse') >= 0) return RT.setCollapse(id, v);
+      if (cls.indexOf('badge') >= 0) return RT.setBadge(id, v);
+      if (cls.indexOf('clock') >= 0) return RT.setClock(id, v);
+      if (cls.indexOf('qr') >= 0) return RT.setQR(id, v);
       if (cls.indexOf('input') >= 0) return RT.setText(id, v);
       if (cls.indexOf('timer') >= 0 || cls.indexOf('text') >= 0) return RT.setText(id, v);
     },
