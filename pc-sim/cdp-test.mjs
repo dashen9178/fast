@@ -358,6 +358,8 @@ await check('设置是整页，左侧三栏分类能切换、内容没被挤扁'
   await js(`document.getElementById('btnSettings').click()`);
   await sleep(700);   // 等切页动画结束，否则量到的是动画中的尺寸（踩过）
   const m = await js(`(function(){
+    // 设置重新进来时会回到上次那一栏，这里先明确切回「常规」
+    document.querySelector('#setRail .acct-item[data-cat="general"]').click();
     var groups=Array.prototype.map.call(document.querySelectorAll('#setPaneGeneral .set-group'), function(g){
       var b=g.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height) };
     });
@@ -386,6 +388,10 @@ await check('设置是整页，左侧三栏分类能切换、内容没被挤扁'
   if (m.主题色块数 < 5) throw new Error('主题色块没渲染出来：' + JSON.stringify(m));
   const squashed = m.分组.filter(function (g) { return g.w < 150 || g.h < 20; });
   if (squashed.length) throw new Error('有分组被挤扁：' + JSON.stringify(m));
+  const 各组宽 = m.分组.map(function (g) { return g.w; });
+  if (Math.max.apply(null, 各组宽) - Math.min.apply(null, 各组宽) > 1) {
+    throw new Error('设置分组宽窄不一（看着会不齐）：' + 各组宽.join(' / '));
+  }
   if (m.显示模式宽 < 140) throw new Error('显示模式按钮被挤扁：' + JSON.stringify(m));
   if (m.AI输入框宽 < 150) throw new Error('AI Key 输入框太窄：' + JSON.stringify(m));
   if (m.左栏.length !== 3 || m.左栏.map(function (x) { return x.名; }).join(',') !== '常规,AI,反馈') {
@@ -395,6 +401,58 @@ await check('设置是整页，左侧三栏分类能切换、内容没被挤扁'
   if (!m.切到AI.常规隐藏 || !m.切到AI.AI显示) throw new Error('点「AI」没切过去：' + JSON.stringify(m.切到AI));
   if (m.排序默认 !== 'auto') throw new Error('「作品如何排序」默认应勾「自动调整」，实际：' + m.排序默认);
   if (m.动画默认 !== 'on') throw new Error('「界面动画」默认应勾「开启」，实际：' + m.动画默认);
+  return m;
+});
+
+// 用户 2026-10-29 报的 bug：选了某一栏、返回、再进设置，标签还是上次那栏、内容却变回常规
+await check('设置重新进入时左侧标签和右侧内容对得上（滑块也停对位置）', async () => {
+  await js(`document.getElementById('btnSettings').click()`);
+  await sleep(600);
+  await js(`document.querySelector('#setRail .acct-item[data-cat="feedback"]').click()`);
+  await sleep(200);
+  await js(`document.getElementById('btnSettingsBack').click()`);
+  await sleep(300);
+  await js(`document.getElementById('btnSettings').click()`);
+  await sleep(700);
+  const m = await js(`(function(){
+    var on = document.querySelector('#setRail .acct-item.on');
+    var panes = Array.prototype.slice.call(document.querySelectorAll('#viewSettings .acct-pane'))
+      .filter(function (p) { return !p.classList.contains('hidden'); });
+    var pill = document.querySelector('#setRail .seg-pill');
+    var pr = pill ? pill.getBoundingClientRect() : null, or = on ? on.getBoundingClientRect() : null;
+    var out = { 选中: on ? on.getAttribute('data-cat') : '',
+                显示: panes.map(function (p) { return p.id.replace('setPane', '').toLowerCase(); }),
+                滑块对位: !!(pr && or && Math.abs(pr.top - or.top) < 2 && Math.abs(pr.height - or.height) < 2) };
+    document.getElementById('btnSettingsBack').click();
+    return out;
+  })()`);
+  await sleep(300);
+  if (m.选中 !== 'feedback') throw new Error('重新进入应回到上次那一栏 feedback，实际：' + m.选中);
+  if (m.显示.join(',') !== 'feedback') throw new Error('标签与内容对不上：' + JSON.stringify(m));
+  if (!m.滑块对位) throw new Error('左侧滑块没跟着停到选中项上：' + JSON.stringify(m));
+  return m;
+});
+
+// 用户 2026-10-29 报的 bug：在设置里点「查看 / 导出诊断信息」没反应（以前只有打开过工程才绑上）
+await check('设置里点「查看 / 导出诊断信息」能弹出诊断内容', async () => {
+  await js(`document.getElementById('btnSettings').click()`);
+  await sleep(600);
+  await js(`document.querySelector('#setRail .acct-item[data-cat="feedback"]').click()`);
+  await sleep(250);
+  await js(`document.getElementById('btnDiag').click()`);
+  await sleep(500);
+  const m = await js(`(function(){
+    var s = document.getElementById('diagSheet');
+    var pre = s ? s.querySelector('.diag-pre') : null;
+    return { 有浮层: !!s, 有内容: !!(pre && pre.textContent && pre.textContent.length > 20),
+             头一行: pre ? String(pre.textContent).split('\\n')[0] : '',
+             设置已收起: document.getElementById('viewSettings').classList.contains('hidden') };
+  })()`);
+  await shot('t13b-诊断信息');
+  if (!m.有浮层 || !m.有内容) throw new Error('点「查看诊断信息」没反应：' + JSON.stringify(m));
+  if (!m.设置已收起) throw new Error('打开诊断信息后设置页应该收起：' + JSON.stringify(m));
+  await js(`(function(){ var s=document.getElementById('diagSheet'); if (s && s.parentNode) s.parentNode.removeChild(s); })()`);
+  await sleep(200);
   return m;
 });
 
@@ -7291,13 +7349,21 @@ await check('检查更新提示区分「有新版本 / 已最新 / 云端更旧�
 await check('检查更新右上角有「更新日志」，能列出最近几版的改动', async () => {
   const r = await js(`(function(){
     var m = document.getElementById('updateMask');
+    if (m) m.classList.remove('hidden');       // 只量布局，不点真实入口（真实入口会联网查版本）
     var row = m ? m.querySelector('.mtitle') : null;
     var btn = document.getElementById('updateLog');
     if (!btn) return { 没有按钮: true };
     btn.click();
     var mask = document.getElementById('updLogMask');
     var items = Array.prototype.slice.call(document.querySelectorAll('#updLogList .updlog-item'));
+    var contact = document.getElementById('updateContact');
+    var modal = m ? m.querySelector('.modal') : null;
+    var br = btn.getBoundingClientRect();
+    var cr = contact ? contact.getBoundingClientRect() : null;
+    var mr = modal ? modal.getBoundingClientRect() : null;
     var out = { 在标题栏: !!(row && row.contains(btn)), 文字: btn.textContent.trim(),
+                在联系开发者左边: !!(cr && br.right <= cr.left + 1),
+                右差: (mr && cr) ? Math.round(mr.right - cr.right) : -1,   // 量最后一个按钮到弹窗右边的距离
                 弹窗显示: !!mask && !mask.classList.contains('hidden'), 条数: items.length,
                 版本: items.map(function (n) { return (n.querySelector('.updlog-ver') || {}).textContent || ''; }),
                 日期: items.map(function (n) { return (n.querySelector('.updlog-date') || {}).textContent || ''; }),
@@ -7307,13 +7373,16 @@ await check('检查更新右上角有「更新日志」，能列出最近几版�
                 }).length };
     document.getElementById('updLogClose').click();
     out.关闭后隐藏 = mask.classList.contains('hidden');
+    if (m) m.classList.add('hidden');
     return out;
   })()`);
   if (r.没有按钮) throw new Error('检查更新弹窗里没有「更新日志」按钮');
   if (!r.在标题栏 || r.文字 !== '更新日志') throw new Error('「更新日志」应在标题栏右上角：' + JSON.stringify(r));
+  if (!r.在联系开发者左边) throw new Error('「更新日志」应在「联系开发者」左边：' + JSON.stringify(r));
+  if (r.右差 < 0 || r.右差 > 48) throw new Error('「更新日志」没有成组贴在右边（被 space-between 顶到中间了）：' + JSON.stringify(r));
   if (!r.弹窗显示) throw new Error('点「更新日志」没弹出内容：' + JSON.stringify(r));
   if (r.条数 < 4) throw new Error('更新日志至少要有最近 4 版：' + JSON.stringify(r));
-  if (!/^v1\.0\.116\.137$/.test(r.版本[0])) throw new Error('更新日志第一条应是最新版本：' + JSON.stringify(r.版本));
+  if (!/^v1\.0\.116\.13[89]$/.test(r.版本[0])) throw new Error('更新日志第一条应是最新版本：' + JSON.stringify(r.版本));
   if (r.日期.filter(function (x) { return !/^\d{4}-\d{2}-\d{2}$/.test(x); }).length) {
     throw new Error('更新日志缺日期：' + JSON.stringify(r.日期));
   }
@@ -7327,6 +7396,7 @@ await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另�
   await js(`(function(){ var h=document.getElementById('btnHome'); if(h) h.click(); })()`);
   await sleep(800);
   const 前 = await js(`(function(){
+    try { localStorage.removeItem('__bb_proj_sort'); } catch (e) {}   // 从"没设置过"的状态开始测
     var cards = Array.prototype.slice.call(document.querySelectorAll('#projectList .proj-card'));
     if (cards.length < 2) return { 数: cards.length };
     var a = cards[0].getBoundingClientRect(), b = cards[1].getBoundingClientRect();
@@ -7347,12 +7417,13 @@ await check('首页作品卡长按可拖动排序（长按 0.5 秒后拖到另�
              残留槽: document.querySelectorAll('#projectList .proj-slot').length,
              还在拖: document.querySelectorAll('.proj-dragging').length };
   })()`);
-  if (后.排序 !== 'manual') throw new Error('长按拖完应切成「不调整排序」，实际：' + 后.排序);
+  // 用户 2026-10-29 要求：拖动**不能**顺手把「自动调整 / 不调整排序」这个设置改掉
+  if (后.排序 !== null) throw new Error('拖动不该改动排序设置（应保持没设置过 = 自动调整），实际：' + 后.排序);
   if (后.名.join(',') === 前.名.join(',')) throw new Error('拖完顺序没变：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
   if (后.名.indexOf(前.名[0]) !== 1) throw new Error('第一张卡没落到第二位：' + JSON.stringify({ 前: 前.名, 后: 后.名 }));
   if (后.残留槽 || 后.还在拖) throw new Error('拖完页面留下残渣（占位槽/拖动中的卡）：' + JSON.stringify(后));
-  // 收尾：恢复「自动调整」，别让后面的用例受影响
-  await js(`(function(){ try { localStorage.setItem('__bb_proj_sort','auto'); } catch(e) {}
+  // 收尾：清掉排序设置（回到默认「自动调整」），别让后面的用例受影响
+  await js(`(function(){ try { localStorage.removeItem('__bb_proj_sort'); } catch(e) {}
     document.getElementById('btnHome').click(); })()`);
   await sleep(500);
   return { 前后: 前.名[0] + ' → 第 2 位' };

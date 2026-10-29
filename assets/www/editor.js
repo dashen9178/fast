@@ -1903,12 +1903,36 @@
   /**
    * 长按卡片（约 0.5 秒）后拖动换位置。
    * 移动中：卡片 position:fixed 跟手；原位放一块 .proj-slot 占位；其余卡片 FLIP 平滑让位。
-   * 松手：按 DOM 里的最终顺序写回存储，并把排序切到「不调整排序」——否则下次自动排序又把顺序打乱。
+   * 松手：把卡片放回占位那个洞里（**不重画首页**，重画会整页闪一下），
+   *       顺序写回存储，但**不改「自动调整 / 不调整排序」这个设置**（用户 2026-10-29 明确要求）。
    */
   function bindHomeReorder(card, id) {
     var 计时 = null, 起X = 0, 起Y = 0, 抓x = 0, 抓y = 0, 拖 = false, 占位 = null;
+    var 指针X = 0, 指针Y = 0, 滚RAF = 0;
     function 清计时() { if (计时) { clearTimeout(计时); 计时 = null; } }
     function 拦滚动(e) { if (拖 && e.cancelable) e.preventDefault(); }
+    /** 首页那个真正能滚的容器（#viewHome 自己就是滚动容器） */
+    function 滚动容器() {
+      var n = $('viewHome');
+      if (!n) return null;
+      return n.scrollHeight > n.clientHeight + 4 ? n : null;
+    }
+    /** 手指拖到屏幕上下边缘时自动滚屏：不然挡住的那几张卡永远拖不过去 */
+    function 滚一步() {
+      滚RAF = 0;
+      if (!拖) return;
+      var sc = 滚动容器(); if (!sc) return;
+      var 高 = window.innerHeight || document.documentElement.clientHeight;
+      var 边 = Math.max(70, Math.min(130, 高 * .16));
+      var v = 0;
+      if (指针Y < 边) v = -Math.max(6, Math.round((边 - 指针Y) / 边 * 16));
+      else if (指针Y > 高 - 边) v = Math.max(6, Math.round((指针Y - (高 - 边)) / 边 * 16));
+      if (!v) return;
+      var 先前 = sc.scrollTop;
+      sc.scrollTop = 先前 + v;
+      if (sc.scrollTop !== 先前) 排位(指针X, 指针Y);   // 滚了才重排，没滚就别白算
+      滚RAF = requestAnimationFrame(滚一步);
+    }
     function 起拖() {
       var r = card.getBoundingClientRect();
       拖 = true;
@@ -1922,40 +1946,62 @@
       占位.style.height = r.height + 'px';
       card.parentNode.insertBefore(占位, card);
       document.body.appendChild(card);
-      // 手指已经按在卡片上时，只有拦下 touchmove 才能阻止页面跟着滚
+      // 手指已经按在卡片上时，只有拦下 touchmove 才能阻止页面跟着滚（pointermove 拦不住滚屏）
       document.addEventListener('touchmove', 拦滚动, { passive: false });
-      try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+      指针X = 起X; 指针Y = 起Y;
+      滚一步();
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
     }
-    /** 手指位置对应的插入点：返回要插在它前面的那张卡；返回 null = 插到最后 */
+    /** 手指位置对应的插入点：返回要插在它前面的那张卡；返回 null = 插到最后。
+        算法：先找"中心离手指最近"的那张卡，再看手指落在它的左右/上下哪一边。
+        以前是逐张判"上半部分之上 / 同一行左半边"——同一行时会被第一张卡吃掉，
+        拖到右边那张卡身上反而没反应（用户 2026-10-29 报的"手感很奇怪"）。 */
     function 插入点(x, y) {
-      var kids = Array.prototype.slice.call($('projectList').children);
+      var kids = Array.prototype.slice.call($('projectList').children).filter(function (n) {
+        return n !== card && n !== 占位 && n.classList && n.classList.contains('proj-card');
+      });
+      var 最近 = null, 最近距 = Infinity, 放它后面 = false;
       for (var i = 0; i < kids.length; i++) {
-        var n = kids[i];
-        if (n === card || n === 占位 || !n.classList.contains('proj-card')) continue;
-        var r = n.getBoundingClientRect();
-        if (y < r.top + r.height / 2) return n;                       // 在它上半部分之上
-        if (y < r.bottom && x < r.left + r.width / 2) return n;       // 同一行、左半边
+        var r = kids[i].getBoundingClientRect();
+        var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        var dx = x - cx, dy = y - cy;
+        var d = dx * dx + dy * dy * 1.4;      // 纵向权重高一点：换行比换列更"重"
+        if (d < 最近距) {
+          最近距 = d;
+          最近 = kids[i];
+          放它后面 = (y > cy + r.height * .1) || (Math.abs(y - cy) <= r.height * .1 && x > cx);
+        }
       }
-      return null;
+      if (!最近) return null;
+      if (!放它后面) return 最近;
+      var nx = 最近.nextElementSibling;
+      while (nx && (nx === 占位 || nx === card)) nx = nx.nextElementSibling;
+      return nx;                              // null = 插到末尾
     }
     function 排位(x, y) {
       var box = $('projectList'), ref = 插入点(x, y);
-      if (!占位) return;
-      if (ref === 占位 || ref === 占位.nextSibling) return;           // 位置没变
-      var 兄弟 = Array.prototype.slice.call(box.children).filter(function (n) { return n !== card && n !== 占位; });
-      兄弟.forEach(function (n) { n.style.transition = 'none'; n.style.transform = ''; });
+      if (!box || !占位) return;
+      if (ref === 占位) return;
+      if ((ref || null) === 占位.nextElementSibling) return;            // 已经在这个位置，别重复 FLIP
+      var 兄弟 = Array.prototype.slice.call(box.children).filter(function (n) {
+        return n !== card && n !== 占位 && n.classList && n.classList.contains('proj-card');
+      });
+      兄弟.forEach(function (n) { n.classList.remove('proj-shift'); n.style.transform = ''; });
       var 前 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
       box.insertBefore(占位, ref || null);
       void box.offsetHeight;
       var 后 = 兄弟.map(function (n) { var r = n.getBoundingClientRect(); return [r.left, r.top]; });
+      var 有动 = false;
       兄弟.forEach(function (n, i) {
         var dx = 前[i][0] - 后[i][0], dy = 前[i][1] - 后[i][1];
-        if (dx || dy) n.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        if (dx || dy) { n.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; 有动 = true; }
       });
+      if (!有动) return;
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
           兄弟.forEach(function (n) {
-            n.style.transition = 'transform .2s cubic-bezier(.2,0,0,1)';
+            if (!n.style.transform) return;
+            n.classList.add('proj-shift');
             n.style.transform = '';
           });
         });
@@ -1966,9 +2012,11 @@
         if (Math.abs(e.clientX - 起X) > 9 || Math.abs(e.clientY - 起Y) > 9) 清计时();  // 在滚动列表，不算长按
         return;
       }
+      指针X = e.clientX; 指针Y = e.clientY;
       card.style.left = (e.clientX - 抓x) + 'px';
       card.style.top = (e.clientY - 抓y) + 'px';
       排位(e.clientX, e.clientY);
+      if (!滚RAF) 滚一步();
     }
     function 松手() {
       document.removeEventListener('pointermove', 移动);
@@ -1976,6 +2024,7 @@
       document.removeEventListener('pointercancel', 松手, true);
       document.removeEventListener('touchmove', 拦滚动);
       清计时();
+      if (滚RAF) { cancelAnimationFrame(滚RAF); 滚RAF = 0; }
       if (!拖) return;
       拖 = false;
       var box = $('projectList');
@@ -1985,28 +2034,21 @@
         if (n === 占位) 顺序.push(id);
         else if (n.classList && n.classList.contains('proj-card') && n.dataset.id) 顺序.push(n.dataset.id);
       });
+      // 卡片放回占位那个洞：DOM 自己就对了，不用重画首页（重画会闪一下，用户 2026-10-29 报的）
+      if (占位 && 占位.parentNode) box.insertBefore(card, 占位);
       card.classList.remove('proj-dragging');
       card.style.cssText = '';
       if (占位 && 占位.parentNode) 占位.remove();
-      if (card.parentNode) card.remove();
-      兄弟复位();
+      占位 = null;
+      Array.prototype.forEach.call(box.children, function (n) {
+        n.classList.remove('proj-shift'); n.style.transform = ''; n.style.transition = '';
+      });
       var s = loadStore(), map = {};
       s.items.forEach(function (it) { map[it.id] = it; });
       var 新 = 顺序.map(function (i) { return map[i]; }).filter(Boolean);
-      if (新.length !== s.items.length) return renderHome();      // 顺序对不上就别乱写
-      s.items = 新; saveStore(s);
-      var 之前 = getProjSort();
-      try { localStorage.setItem(PROJ_SORT_KEY, 'manual'); } catch (e) {}
-      renderHome();
-      if (之前 !== 'manual') snack('已按你的顺序排列（设置 → 常规 可改回自动调整）');
+      if (新.length === s.items.length) { s.items = 新; saveStore(s); }
+      // 只写顺序，**不动** __bb_proj_sort：用户选的"自动调整 / 不调整排序"保持原样
     }
-    function 兄弟复位() {
-      if (!box()) return;
-      Array.prototype.forEach.call(box().children, function (n) {
-        n.style.transform = ''; n.style.transition = '';
-      });
-    }
-    function box() { return $('projectList'); }
     card.addEventListener('pointerdown', function (e) {
       if (e.button !== undefined && e.button !== 0) return;
       if (e.target.closest && e.target.closest('button')) return;   // 卡片上的分享/编辑/删除按钮不参与
@@ -7225,7 +7267,10 @@
     try { localStorage.setItem(UI_ANIM_KEY, on ? '1' : '0'); } catch (e) {}
     applyUiAnim(); buildSettings();
   }
+  var 上次设置分类 = 'general';    // 关掉设置再进来，回到上次看的那一栏（标签和内容才不会对不上）
   function setSettingsCat(cat) {
+    if (!cat) cat = 'general';
+    上次设置分类 = cat;
     ['general', 'ai', 'feedback'].forEach(function (k) {
       var pane = $('setPane' + (k === 'general' ? 'General' : (k === 'ai' ? 'Ai' : 'Feedback')));
       if (pane) pane.classList.toggle('hidden', k !== cat);
@@ -7266,7 +7311,7 @@
   function openSettings(cat) {
     设置来源 = ($('viewEditor') && !$('viewEditor').classList.contains('hidden')) ? 'editor' : 'home';
     buildSettings();
-    setSettingsCat(cat || 'general');
+    setSettingsCat(cat || 上次设置分类);
     // 打开设置时把"模型/深度思考"两个控件的显示同步一次 ——
     // 否则上次选了 flash，这里还显示 HTML 里写死的 v4-pro（显示和实际不一致）
     try { aiSyncThinkUI(); } catch (e) {}
@@ -7281,7 +7326,12 @@
       if (stt) stt.textContent = cur ? ('已保存到本机：' + aiKeyMask(cur)) : '还没有填 Key';
     } catch (e) {}
     var v = $('viewSettings');
-    if (v) { v.classList.remove('hidden'); 切页(v, 'fwd'); }
+    if (v) {
+      v.classList.remove('hidden');
+      同步分段药丸();   // 页面刚显示出来才能量到尺寸；不重算的话滑块会停在上次那一栏（用户 2026-10-29 报的）
+      切页(v, 'fwd');
+      requestAnimationFrame(function () { try { 同步分段药丸(); } catch (e) {} });
+    }
   }
   function closeSettings() {
     var v = $('viewSettings');
@@ -7533,6 +7583,17 @@
      云端「更新」表只有版本号 + 附件，没有正文列，所以正文写死在这里最省事。
      发版时只在数组最前面加一条（新的在上、旧的在下），不用动云端表结构。 */
   var CHANGELOG = [
+    { v: '1.0.116.138', d: '2026-10-29', t: [
+      '首页长按拖动：不再顺手改掉「自动调整 / 不调整排序」这个设置',
+      '拖动松手后不再整页闪一下',
+      '卡片拖到屏幕上下边缘会自动滚屏，底下的作品也能拖过去',
+      '拖动跟手和卡片让位重做，不再乱跳',
+      '修：从设置返回再进，左侧标签和右侧内容对不上',
+      '修：设置里点「查看 / 导出诊断信息」没反应',
+      '设置页重新排版：左栏、卡片宽度与间距按手机重新调过',
+      '「更新日志」按钮挪到「联系开发者」左边',
+      '换头像：去掉几个默认色块头像，只留相册选图'
+    ] },
     { v: '1.0.116.137', d: '2026-10-29', t: [
       '预览边框默认改成「显示」',
       '修：预览选「不显示边框」时，容器、徽章仍带着边框',
@@ -10544,9 +10605,18 @@
       var ce = console.error;
       console.error = function () { try { diagPush('console', Array.prototype.map.call(arguments, function (a) { return (a && a.message) ? a.message : String(a); }).join(' ')); } catch (e) {} return ce.apply(console, arguments); };
     } catch (e) {}
+    wireDiagBtn();
+  }
+  /** 「查看 / 导出诊断信息」的点击绑定。
+      以前这个绑定写在 wireDiag()（只有打开工程、初始化画布时才跑）——
+      所以从首页直接进设置点它是没反应的（用户 2026-10-29 报的）。现在 init 里也会调一次，重复调用无副作用。 */
+  function wireDiagBtn() {
     var btn = $('btnDiag');
-    if (btn) btn.addEventListener('click', function () {
-      var txt = diagText();
+    if (!btn || btn.__diagWired) return;
+    btn.__diagWired = true;
+    btn.addEventListener('click', function () {
+      var txt = '';
+      try { txt = diagText(); } catch (e) { txt = '诊断信息读取失败：' + ((e && e.message) || e); }
       closeSettings();
       openDiagSheet(txt);
     });
@@ -13280,31 +13350,17 @@
   /* ---- 选图（换头像 / 上传应用图标共用一套） ----
      应用图标（分享到社区 / 管理分享）**只保留用户自己上传那一套**：
      不再给预设色块、也没有「恢复默认」——没上传就不让发布（见 doPublishCommunity）。
-     头像那套不受影响，仍可选预设。 */
-  var PICK_PRESETS = ['#6750A4', '#00696D', '#B3261E', '#386A20', '#F9A825', '#7D5260'];
+     头像的默认色块头像也删了（用户 2026-10-29 要求）：只剩「从相册选」和「恢复默认」。 */
   var pickTarget = '';
   function openPick(target) {
     pickTarget = target;
     var 上传图标 = (target === 'share' || target === 'manage');
     var t = $('pickTitle');
-    if (t) t.textContent = 上传图标 ? '上传应用图标' : '选择头像';
+    if (t) t.textContent = 上传图标 ? '上传应用图标' : '更换头像';
     var grid = $('pickGrid'); if (!grid) return;
     grid.innerHTML = '';
-    grid.classList.toggle('hidden', 上传图标);
+    grid.classList.add('hidden');     // 预设头像 / 预设图标都不给，只走相册
     if ($('pickClear')) $('pickClear').classList.toggle('hidden', 上传图标);
-    if (!上传图标) {
-      PICK_PRESETS.forEach(function (c, i) {
-        var b = el('button', 'pick-it', String(i + 1)); b.type = 'button';
-        b.setAttribute('data-c', c);
-        b.style.background = 'linear-gradient(135deg,' + c + ',#00000022)';
-        b.addEventListener('click', function () {
-          Array.prototype.forEach.call(grid.querySelectorAll('.pick-it'), function (x) { x.classList.remove('on'); });
-          b.classList.add('on');
-        });
-        grid.appendChild(b);
-      });
-      var first = grid.querySelector('.pick-it'); if (first) first.classList.add('on');
-    }
     $('pickMask').classList.remove('hidden');
   }
   function closePick() { 关遮罩($('pickMask')); }
@@ -13826,7 +13882,7 @@
     });
     $('modalCancel').addEventListener('click', hideModal);
     // 设置：独立整页（左侧 常规 / AI / 反馈）
-    $('btnSettings').addEventListener('click', function () { openSettings('general'); });
+    $('btnSettings').addEventListener('click', function () { openSettings(); });   // 不带分类 = 回到上次看的那一栏
     $('btnSettingsBack').addEventListener('click', closeSettings);
     Array.prototype.forEach.call(document.querySelectorAll('#setRail .acct-item'), function (b) {
       b.addEventListener('click', function () { setSettingsCat(b.getAttribute('data-cat')); });
@@ -13836,6 +13892,7 @@
     // 检查更新 → 更新日志
     $('updateLog').addEventListener('click', openUpdateLog);
     $('updLogClose').addEventListener('click', function () { $('updLogMask').classList.add('hidden'); });
+    try { wireDiagBtn(); } catch (e) {}    // 从首页直接进设置也能点「查看诊断信息」
     applyUiAnim();
     $('viewHome').addEventListener('scroll', function () { $('homeHead').classList.toggle('scrolled', this.scrollTop > 4); });
 

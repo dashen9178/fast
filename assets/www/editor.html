@@ -764,9 +764,11 @@
   <div class="modal sheet-modal fill" style="max-width:430px">
     <div class="mtitle upd-title-row">
       <span>检查更新</span>
-      <!-- 右上角：更新日志（看这一版改了什么）+ 联系开发者 -->
-      <button type="button" id="updateLog" class="contact-chip">更新日志</button>
-      <button type="button" id="updateContact" class="contact-chip">联系开发者</button>
+      <!-- 右上角：更新日志 + 联系开发者，两个按钮成组贴在右边 -->
+      <div class="upd-title-btns">
+        <button type="button" id="updateLog" class="contact-chip">更新日志</button>
+        <button type="button" id="updateContact" class="contact-chip">联系开发者</button>
+      </div>
     </div>
     <div class="mbody compact">
       <div id="updateStatus" class="upd-status">正在检查更新…</div>

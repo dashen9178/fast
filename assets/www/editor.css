@@ -233,9 +233,15 @@ input, textarea { font-family: inherit; }
 /* 首页卡片长按拖动换位：浮起来的那张 fixed 跟手，原位用一块同高占位撑着，其余卡片用 FLIP 让位 */
 .proj-card.proj-dragging {
   position: fixed; z-index: 90; margin: 0; pointer-events: none;
-  box-shadow: 0 10px 30px rgba(0,0,0,.28); opacity: .97; transition: none;
+  box-shadow: 0 12px 32px rgba(0,0,0,.24); opacity: .98; transition: none;
+  transform: scale(1.02); cursor: grabbing;
+  will-change: left, top;
 }
-.proj-slot { border: 1px dashed var(--outline); border-radius: var(--r-lg); background: transparent; }
+/* 占位块跟着"卡片的洞"走：淡淡的底色 + 虚线，比纯虚线框稳（拖动时不会来回闪） */
+.proj-slot { border-radius: var(--r-lg); background: var(--secondary-c);
+  outline: 1.5px dashed var(--outline-var); outline-offset: -1.5px; }
+/* 拖动期间其余卡片让位：只跑 transform，时长压短一点，别拖泥带水 */
+.proj-card.proj-shift { transition: transform .16s cubic-bezier(.2,0,0,1); }
 .proj-card {
   position: relative;
   background: var(--c-low); border: 1px solid transparent; border-radius: var(--r-lg);
@@ -1346,9 +1352,11 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 #updateGo[disabled] { opacity: .5; pointer-events: none; }
 /* 检查更新：右上角“联系开发者”胶囊按钮 + 联系开发者弹窗 */
 .upd-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* 两个按钮必须成组贴在标题栏右边（之前直接挂在 flex 里，被 space-between 顶到中间） */
+.upd-title-btns { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .contact-chip { flex: 0 0 auto; border: 1.5px solid var(--primary); color: var(--primary);
   background: transparent; border-radius: 999px; font-size: 12.5px; font-weight: 700;
-  padding: 6px 14px; cursor: pointer; font-family: inherit; }
+  padding: 6px 14px; cursor: pointer; font-family: inherit; white-space: nowrap; }
 .contact-chip:active { background: var(--c-high); }
 .contact-line { font-size: 16px; line-height: 1.7; color: var(--on-surface); word-break: break-all; }
 .contact-id { color: var(--primary); font-size: 19px; font-weight: 800; letter-spacing: .5px;
@@ -2043,14 +2051,43 @@ body.no-anim *, body.no-anim *::before, body.no-anim *::after {
 }
 
 /* ================= 设置（整页，左侧分类） =================
-   复用账号页那套 .acct 布局（固定整页 + 窄列表 + 右侧内容），只是分类换成 常规/AI/反馈。 */
-.set-page .acct-rail { flex: 0 0 104px; }
-.set-page .settings-grid { display: flex; flex-direction: column; gap: 22px; }
-.set-page .set-group { margin-bottom: 0; }
-.set-page .seed-swatch { width: 34px; height: 34px; }
-.set-page .seed-row { gap: 10px; }
-.set-hint { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--on-surface-var); }
-.set-ver { font-size: 12px; line-height: 1.8; color: var(--on-surface-var); }
+   复用账号页那套 .acct 骨架（固定整页 + 窄列表 + 右侧内容），但尺寸全部按"设置"重新定：
+   顶栏 56、左栏 128、内容区居中限宽 680、每组是一张卡片。别直接照搬账号页的窄列表。 */
+.set-page .help-topbar { height: 56px; padding: 0 16px; border-bottom: 1px solid var(--outline-var); }
+.set-page .help-h-title { font-size: 17px; font-weight: 600; }
+.set-page .acct-rail { flex: 0 0 128px; padding: 12px 10px; gap: 2px; }
+.set-page .acct-item { height: 44px; padding: 0 14px; border-radius: 12px; font-size: 14px;
+  display: flex; align-items: center; margin-bottom: 6px; }
+.set-page .acct-content { padding: 22px 26px 40px; }
+.set-page .settings-grid { display: flex; flex-direction: column; gap: 16px;
+  max-width: 680px; margin: 0 auto; }
+.set-page .set-group { margin-bottom: 0; padding: 16px 18px; border-radius: 16px;
+  background: var(--c-low); }
+.set-page .set-label { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.set-page .seed-swatch { width: 36px; height: 36px; }
+.set-page .seed-row { gap: 12px; }
+.set-page .mode-seg { max-width: 480px; height: 40px; border-radius: 999px;
+  border-color: var(--outline-var); }
+.set-page .mode-seg button { height: 40px; font-size: 14px; border-radius: 0; }
+.set-page .set-ver { font-size: 15px; font-weight: 500; }
+.set-hint { margin-top: 10px; font-size: 12.5px; line-height: 1.65; color: var(--on-surface-var); }
+.set-ver { font-size: 13px; line-height: 1.8; color: var(--on-surface-var); }
+/* 手机窄屏：左栏收窄、内容区留白收一点，别把按钮挤到换行 */
+@media (max-width: 560px) {
+  .set-page .acct-rail { flex: 0 0 92px; padding: 10px 8px; }
+  .set-page .acct-item { height: 40px; padding: 0 10px; font-size: 13px; }
+  .set-page .acct-content { padding: 14px 14px 32px; }
+  .set-page .set-group { padding: 14px 14px; border-radius: 14px; }
+  .set-page .seed-swatch { width: 32px; height: 32px; }
+  .set-page .mode-seg button { font-size: 13px; }
+}
+/* 矮屏（横屏手机）：组内留白再收 */
+@media (max-height: 480px) {
+  .set-page .acct-content { padding-top: 12px; }
+  .set-page .settings-grid { gap: 10px; }
+  .set-page .set-group { padding: 12px 14px; }
+  .set-page .set-label { margin-bottom: 8px; }
+}
 
 /* 检查更新 → 更新日志：一条版本一块，只读不选 */
 .updlog-modal { max-width: 400px; }
