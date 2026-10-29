@@ -1101,7 +1101,9 @@ stage.style.top  = Math.round((frame.h - ch) / 2) + 'px';
 - 「更新」表 row `FOOp4StsQ6KDI9Y_Ob_bKw`（下载 200、大小/哈希一致）；
   「工程」表 row `BmezD9tkS2COIQtK2MKmTg`（`FAST-full-1.0.116.134.zip` **1032 条目 / 21,354,477 字节**，
   备份 APK 自动改名 `FAST_v1.0.116.134 (1).apk`）。
-- GitHub Release **v1.0.116.134**（`dashen9178/Fast`）；源码同步提交见 GitHub 提交记录。
+- GitHub Release **v1.0.116.134**（`dashen9178/Fast`，资产 1,891,804 字节 / digest 与本地一致）；
+  源码同步提交 `cd0bcca`（8 个文件：`editor.css`、`editor.js`、`runtime.js`、`cdp-test.mjs`、
+  `MainActivity.java`、`VERSION`、`NEXT.md`、规划文档）。
 - 版本号已自增到 `252`（下次打包出 1.0.116.135）。
 
 **下一步**：真机试三件——设计页长按卡片拖到容器上、布局页把控件拖进容器框、通知权限被关时点发通知
