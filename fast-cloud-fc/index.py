@@ -451,6 +451,33 @@ def _mirror_to_github(key, data):
             _STATE["error"] = ("GitHub 备份失败：%s" % e)[:160]
 
 
+# ---------------------------------------------------------------- 双库一致性校准
+def _rows_of(raw):
+    """把 OSS/GitHub 里的表文件解析成 rows 列表；解析失败返回 None。"""
+    if raw is None:
+        return None
+    try:
+        obj = json.loads(raw.decode("utf-8"))
+        rows = obj.get("rows") if isinstance(obj, dict) else obj
+        return rows if isinstance(rows, list) else []
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _rows_digest(rows):
+    data = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def _rows_last_time(rows):
+    t = ""
+    for r in rows or []:
+        v = str((r or {}).get("_mtime") or (r or {}).get("_ctime") or "")
+        if v > t:
+            t = v
+    return t
+
+
 def _table_read(table):
     key = TABLE_FILES.get(table)
     if not key:
@@ -1073,6 +1100,77 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, None, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"},
                    raw=html.encode("utf-8"))
 
+    def _serve_reconcile(self):
+        """阿里云 OSS 主库 与 GitHub 备份库 的一致性检查 / 校准。
+
+        口径：OSS 是主库，GitHub 是备份。
+          · 两边都能读但内容不同 → 默认把 OSS 推给 GitHub（apply=1 时执行）
+          · OSS 读不到/为空、GitHub 有数据 → 从 GitHub 恢复到 OSS
+          · prefer=github → 强制用 GitHub 覆盖 OSS（应急回滚用）
+        不带 apply=1 时只报告，不写任何东西。
+        """
+        if not self._guard():
+            return
+        if not self._authed():
+            self._send(401, {"error": "未授权：X-App-Token 不正确"})
+            return
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        except Exception:  # noqa: BLE001
+            qs = {}
+        apply = str((qs.get("apply") or [""])[0]).lower() in ("1", "true", "yes")
+        prefer = str((qs.get("prefer") or [""])[0]).lower()
+
+        items = []
+        for table, key in TABLE_FILES.items():
+            oss_raw = None
+            gh_raw = None
+            oss_err = gh_err = ""
+            if OSS_AK and OSS_SK:
+                try:
+                    oss_raw = _oss_get(key)
+                except Exception as e:  # noqa: BLE001
+                    oss_err = str(e)[:120]
+            try:
+                if GH_TOKEN:
+                    gh_raw, _sha = _gh_get(key)
+                else:
+                    gh_err = "未配置 GH_TOKEN"
+            except Exception as e:  # noqa: BLE001
+                gh_err = str(e)[:120]
+
+            oss_rows = _rows_of(oss_raw)
+            gh_rows = _rows_of(gh_raw)
+            oss_ok = oss_rows is not None
+            gh_ok = gh_rows is not None
+            consistent = oss_ok and gh_ok and _rows_digest(oss_rows) == _rows_digest(gh_rows)
+            action = ""
+            if apply:
+                try:
+                    if prefer == "github" and gh_ok and gh_raw is not None:
+                        if not oss_ok or _rows_digest(gh_rows) != _rows_digest(oss_rows):
+                            _oss_put(key, gh_raw, "application/json; charset=utf-8")
+                            action = "github→oss(强制)"
+                    elif oss_ok and oss_raw is not None and (not gh_ok or _rows_digest(oss_rows) != _rows_digest(gh_rows)):
+                        _gh_put(key, oss_raw, "fast-cloud: 校准 " + key)
+                        action = "oss→github"
+                    elif not oss_ok and gh_ok and gh_raw is not None:
+                        _oss_put(key, gh_raw, "application/json; charset=utf-8")
+                        action = "github→oss(恢复)"
+                except Exception as e:  # noqa: BLE001
+                    action = "失败：" + str(e)[:120]
+
+            items.append({
+                "table": table,
+                "key": key,
+                "consistent": consistent,
+                "oss": {"ok": oss_ok, "rows": len(oss_rows or []), "last": _rows_last_time(oss_rows), "error": oss_err},
+                "github": {"ok": gh_ok, "rows": len(gh_rows or []), "last": _rows_last_time(gh_rows), "error": gh_err},
+                "action": action,
+            })
+        self._send(200, {"ok": True, "apply": apply, "prefer": prefer or "oss", "items": items},
+                   {"Cache-Control": "no-store"})
+
     def _serve_ideas(self):
         """控件需求反馈（只读、无需口令）。
 
@@ -1218,6 +1316,10 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/ideas":
             # 只读的「控件需求」反馈面板：不要求口令，且只回作者/内容/时间/脱敏邮箱
             self._serve_ideas()
+            return
+        if p == "/api/admin/reconcile":
+            # OSS 主库 与 GitHub 备份 的一致性检查/校准（要口令；默认只检查）
+            self._serve_reconcile()
             return
         if raw_path.startswith("/api/") and not raw_path.startswith("/api/download"):
             self._relay_direct("GET")
