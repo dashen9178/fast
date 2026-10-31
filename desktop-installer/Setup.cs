@@ -101,12 +101,27 @@ namespace FastSetup
 
         private static void Fail(string msg)
         {
+            LogError(msg);
             if (Environment.GetEnvironmentVariable("FAST_SETUP_TEST") == "1")
             {
                 try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fast_setup_error.txt"), msg); } catch { }
                 return;
             }
             MessageBox.Show(msg, APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        /// <summary>把失败原因写到安装包所在目录（仅在非 C 盘时写，遵守不写 C 盘的要求）</summary>
+        private static void LogError(string msg)
+        {
+            try
+            {
+                var dir = AppDomain.CurrentDomain.BaseDirectory;
+                var root = Path.GetPathRoot(dir) ?? "";
+                if (root.TrimEnd('\\').Equals("C:", StringComparison.OrdinalIgnoreCase)) return;
+                File.AppendAllText(Path.Combine(dir, "fast_setup_error.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + (msg ?? "") + "\r\n");
+            }
+            catch { }
         }
 
         /// <summary>当前进程是不是管理员（安装到 D:\ 这类目录、或被杀软拦写时，需要提权重试）</summary>
@@ -247,32 +262,44 @@ namespace FastSetup
         }
 
         /// <summary>
-        /// 选一个能写的临时目录：优先安装目录内（同盘移动快），被安全软件/权限拦住时退回系统临时目录。
+        /// 选一个能写的临时目录：优先安装目录内（同盘移动快）。
+        /// 不在系统临时目录（多半在 C 盘）落任何文件。
         /// </summary>
         private static string 准备临时目录(string dir, out bool 在目标内)
         {
             在目标内 = true;
-            var t = Path.Combine(dir, ".fast_update_tmp");
-            try
+            Exception last = null;
+            // 先试安装目录里的两个名字（老版本用带点的名字，部分环境会拦，再试普通名字）
+            foreach (var name in new[] { ".fast_update_tmp", "fast_update_tmp" })
             {
-                if (Directory.Exists(t)) Directory.Delete(t, true);
-                Directory.CreateDirectory(t);
-                return t;
-            }
-            catch (Exception e1)
-            {
-                Trace("target temp denied: " + e1.Message);
+                var t = Path.Combine(dir, name);
+                try
+                {
+                    if (File.Exists(t)) File.Delete(t);
+                    if (Directory.Exists(t)) Directory.Delete(t, true);
+                    Directory.CreateDirectory(t);
+                    return t;
+                }
+                catch (Exception e) { last = e; }
             }
             在目标内 = false;
-            var t2 = Path.Combine(Path.GetTempPath(), "fast_update_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-            try { Directory.CreateDirectory(t2); return t2; }
-            catch (Exception e2)
+            // 退到安装目录所在盘的根目录（绝不写 C 盘）
+            string root;
+            try { root = Path.GetPathRoot(Path.GetFullPath(dir)); } catch { root = null; }
+            if (string.IsNullOrEmpty(root)) root = @"D:\";
+            if (root.TrimEnd('\\').Equals("C:", StringComparison.OrdinalIgnoreCase))
             {
-                throw new Exception("目标目录和安全临时目录都无法写入：\r\n" + dir +
-                    "\r\n\r\n可能被安全软件（如火绒）拦截，或当前账户没有写权限。" +
-                    "\r\n可以尝试：1) 右键安装包 → 以管理员身份运行；2) 把 FAST 加入安全软件白名单；3) 换一个安装位置。" +
-                    "\r\n\r\n详细信息：" + e2.Message);
+                throw new Exception("无法在安装目录创建临时文件：" + dir +
+                    "\r\n按设置不会往 C 盘写临时文件，请把安装位置改到 D 盘后重试。");
             }
+            var t2 = Path.Combine(root, "FAST_setup_tmp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try { Directory.CreateDirectory(t2); return t2; }
+            catch (Exception e) { last = e; }
+            string detail = last == null ? "未知错误" :
+                (last.GetType().Name + " 0x" + last.HResult.ToString("X8") + " " + last.Message);
+            throw new Exception("无法创建临时目录（目标：" + dir + "）：\r\n" + detail +
+                "\r\n\r\n可以尝试：1) 右键安装包 → 以管理员身份运行；" +
+                "2) 换一个安装位置（建议 D 盘）；3) 关闭正在占用该目录的程序后重试。");
         }
 
         /// <summary>解开内嵌的 payload.zip，替换安装目录里的程序（www 先旧→备份，成功后再删）</summary>
@@ -337,8 +364,8 @@ namespace FastSetup
                     // 尽力回滚 www，避免留一个半新半旧的目录
                     try { if (Directory.Exists(oldWww)) { if (Directory.Exists(newWww)) Directory.Delete(newWww, true); Directory.Move(oldWww, newWww); } } catch { }
                     throw new Exception("无法写入安装目录：" + dir +
-                        "\r\n可能是权限不足，或被安全软件（如火绒）拦截。" +
-                        "\r\n请右键安装包 → 以管理员身份运行，或把 FAST 加入安全软件白名单后重试。" +
+                        "\r\n可能是权限不足、文件被占用或磁盘异常。" +
+                        "\r\n请右键安装包 → 以管理员身份运行，或换一个安装位置后重试。" +
                         "\r\n\r\n详细信息：" + ex.Message);
                 }
                 if (Directory.Exists(oldWww)) { try { Directory.Delete(oldWww, true); } catch { } }
@@ -684,9 +711,10 @@ namespace FastSetup
                         {
                             if (err != null)
                             {
+                                LogError(err);
                                 SetBusy(false);
                                 string more = IsAdmin()
-                                    ? "\r\n\r\n当前已经是管理员权限。若仍失败，请把 FAST 加入安全软件（如火绒）白名单，或换一个安装位置。"
+                                    ? "\r\n\r\n当前已经是管理员权限。若仍失败，请换一个安装位置（建议 D 盘）后重试。"
                                     : "\r\n\r\n是否以管理员身份重新打开安装向导再试一次？";
                                 var r = MessageBox.Show(this, "安装失败：\r\n" + err + more,
                                     APP_TITLE, IsAdmin() ? MessageBoxButtons.OK : MessageBoxButtons.YesNo, MessageBoxIcon.Error);
