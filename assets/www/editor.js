@@ -226,9 +226,14 @@
   var STORE_KEY = '__bb_projects_v2';
   var LEGACY_KEY = '__editorAutosave_v1';
   var OPEN_KEY = '__bb_open_id'; // 正在编辑的工程，用于从运行预览返回时自动恢复
+  var WELCOME_KEY = '__fast_welcome_v1';   // 首次进入的欢迎弹窗（点「不再提示」后不再出现）
+  function 显示欢迎() {
+    try { if (localStorage.getItem(WELCOME_KEY) === '1') return; } catch (e) {}
+    var m = $('welcomeMask'); if (m) m.classList.remove('hidden');
+  }
   /* 当前构建号：打包脚本会把它同步成手机版的版本号（如 1.0.116.141）。
      桌面壳不会往 script 上写 ?v=（所以以前首页显示"开发版"），这里作为兜底值。 */
-  var 内置版本号 = '1.0.116.145';
+  var 内置版本号 = '1.0.0';
 
   var state = { itemId: null, project: null, curScreenId: null, selectedCompId: null, ws: null, wsInited: false, view: 'design', inLayout: false, newOrient: 'portrait', runMode: 'start',
     deskView: 'all',     // 电脑宽屏三段页签：'all'（全显）/ 'design'（控件）/ 'blocks'（代码）
@@ -7782,7 +7787,7 @@
          （用户 2026-10-31：预览里拖动组件时，控件列表没有选中对应的那一条） */
       state.selectedCompId = c.id;
       同步控件列表选中(c.id);
-      try { renderPropPanel(); } catch (err2) { }   // 右侧属性栏也要切到这个控件（用户 2026-10-31）
+      // 布局页点选/拖动**不弹出属性面板**（用户 2026-10-31 要求）；属性只在右下角控制台里手动看
       try { renderLaySheet(); } catch (err2) { }
     }
     function move(e) {
@@ -7916,7 +7921,7 @@
       }
       state.selectedCompId = c.id;
       同步控件列表选中(c.id);     // 预览页点选 → 控件列表同步高亮（双向联动）
-      try { renderPropPanel(); } catch (e0) { }   // 右侧属性栏跟着切（用户 2026-10-31）
+      // 不弹属性面板（用户 2026-10-31 要求）
       清孤立手柄();
       Array.prototype.forEach.call($('layStage').querySelectorAll('.litem'), function (n) {
         n.classList.toggle('sel', n.dataset.id === c.id);
@@ -8024,9 +8029,16 @@
     var menu = $('layPageMenu'); menu.innerHTML = '';
     var list = el('div', 'menu-list');           // 页面很多时仅此处滚动，操作行常驻
     state.project.screens.forEach(function (s) {
+      var row = el('div', 'menu-row');
       var b = el('button', 'menu-item' + (s.id === state.curScreenId ? ' on' : ''), (s.title || s.id));
       b.addEventListener('click', function () { closeMenus(); switchScreen(s.id); });
-      list.appendChild(b);
+      // 布局页也要能改页面名（电脑版以前没有这个 ✎，用户 2026-10-31 反馈）
+      var pen = el('button', 'menu-edit', '✎');
+      pen.title = '重命名页面';
+      pen.setAttribute('aria-label', '重命名页面');
+      pen.addEventListener('click', function (e) { e.stopPropagation(); 就地改页面名(row, s, buildLayPageMenu); });
+      row.appendChild(b); row.appendChild(pen);
+      list.appendChild(row);
     });
     menu.appendChild(list);
     var sep = el('div', 'menu-sep'); menu.appendChild(sep);
@@ -8106,7 +8118,7 @@
     });
   }
   /* 页面下拉里的就地改名：整行变输入框，回车/失焦保存，Esc 取消（空名不保存） */
-  function 就地改页面名(row, s) {
+  function 就地改页面名(row, s, 重建) {
     var inp = el('input', 'menu-rename');
     inp.type = 'text'; inp.value = s.title || ''; inp.placeholder = '页面名称';
     row.innerHTML = '';
@@ -8118,7 +8130,7 @@
         var v = String(inp.value || '').trim();
         if (v) s.title = v;
       }
-      buildScreenMenu();
+      (重建 || buildScreenMenu)();
       renderTabs();
       autosave();
       if (state.inLayout) renderLayout();
@@ -13755,6 +13767,61 @@
     more.classList.toggle('hidden', commState.shown >= 全部.length);
   }
   /**
+   * 作品介绍的 Markdown 渲染（用户 2026-10-31：介绍要支持 markdown）。
+   * 安全第一：先把原文**全部转义**，再只生成固定白名单标签；
+   * 链接只允许 http/https，杜绝 javascript: / data: 注入。
+   */
+  function 渲染Markdown(src) {
+    var s = String(src == null ? '' : src);
+    function esc(t) {
+      return String(t).replace(/[&<>"']/g, function (c) {
+        return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+      });
+    }
+    function inline(t) {
+      var x = esc(t);
+      x = x.replace(/`([^`]+)`/g, '<code>$1</code>');
+      x = x.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      x = x.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      x = x.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+      x = x.replace(/_([^_]+)_/g, '<em>$1</em>');
+      x = x.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, function (m, txt, url) {
+        return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + txt + '</a>';
+      });
+      return x;
+    }
+    var lines = s.replace(/\r\n?/g, '\n').split('\n');
+    var out = [], i = 0, inCode = false, code = [];
+    while (i < lines.length) {
+      var line = lines[i];
+      if (/^\s*```/.test(line)) {
+        if (inCode) { out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>'); code = []; }
+        inCode = !inCode; i++; continue;
+      }
+      if (inCode) { code.push(line); i++; continue; }
+      if (!line.trim()) { i++; continue; }
+      var h = /^(#{1,4})\s+(.*)$/.exec(line);
+      if (h) { var n = h[1].length; out.push('<h' + n + '>' + inline(h[2]) + '</h' + n + '>'); i++; continue; }
+      var m = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(line);
+      if (m) {
+        var ordered = /\d/.test(m[2]);
+        var items = [];
+        while (i < lines.length) {
+          var mm = /^(\s*)([-*]|\d+\.)\s+(.*)$/.exec(lines[i]);
+          if (!mm) break;
+          items.push('<li>' + inline(mm[3]) + '</li>'); i++;
+        }
+        out.push((ordered ? '<ol>' : '<ul>') + items.join('') + (ordered ? '</ol>' : '</ul>'));
+        continue;
+      }
+      if (/^>\s+/.test(line)) { out.push('<blockquote>' + inline(line.replace(/^>\s+/, '')) + '</blockquote>'); i++; continue; }
+      if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
+      out.push('<p>' + inline(line) + '</p>'); i++;
+    }
+    if (inCode && code.length) out.push('<pre><code>' + esc(code.join('\n')) + '</code></pre>');
+    return out.join('');
+  }
+  /**
    * 社区作品卡片（社区列表和「个人主页 → 已分享/收藏/点赞/浏览记录」共用同一套外观）。
    * opts.shared = 已分享：底部多一排「管理 / 删除分享」；opts.browsedAt = 浏览时间。
    */
@@ -13771,7 +13838,11 @@
     info.appendChild(el('div', 'comm-sub', '作者：' + (strOf(r[COMM_COL.user]) || '匿名')));
     // 作品介绍（发布时填的，没填就不占位）
     var intro = String(strOf(r[COMM_COL.intro]) || '').trim();
-    if (intro) info.appendChild(el('div', 'comm-intro', intro));
+    if (intro) {
+      var introEl = el('div', 'comm-intro');
+      introEl.innerHTML = 渲染Markdown(intro);
+      info.appendChild(introEl);
+    }
     var sid = strOf(r[COMM_COL.sid]).trim();
     var cnt = 评论条数(sid);
     info.appendChild(el('div', 'comm-sub comm-date',
@@ -13815,7 +13886,7 @@
     card.appendChild(info);
     // 整张卡片都可以点：进入作品详情页（基本信息 + 评论区）
     card.addEventListener('click', function (e) {
-      if (e.target.closest && e.target.closest('button')) return;
+      if (e.target.closest && (e.target.closest('button') || e.target.closest('a'))) return;
       打开评论(r);
     });
     return card;
@@ -14059,12 +14130,16 @@
       // 布局（用户 2026-10-31 补充）：左边**完整正方形作品图**，右边竖排四个按钮；
       // 介绍、评论区在下面。
       var hero = el('div', 'comm-dw-hero');
+      var left = el('div', 'comm-dw-left');
       var cover = el('div', 'comm-dw-cover');
       设封面(cover, r[COMM_COL.image], 名.slice(0, 1));
+      left.appendChild(cover);
       var side = el('div', 'comm-dw-side');
-      // 介绍放在图的右边；四个按钮在介绍下面、靠右（用户 2026-10-31 要求）
+      // 介绍放在图的右边；四个按钮移到作品图下方（用户 2026-10-31 最新要求）
       var intro = String(strOf(r[COMM_COL.intro]) || '').trim();
-      side.appendChild(el('div', 'comm-dw-intro', intro || '这个作品还没有写介绍。'));
+      var introEl = el('div', 'comm-dw-intro');
+      introEl.innerHTML = 渲染Markdown(intro || '这个作品还没有写介绍。');
+      side.appendChild(introEl);
       var acts = el('div', 'comm-dw-acts');
       commDwLikeBtn = el('button', 'tb like', '赞 ' + 互动数(r, 'like'));
       commDwLikeBtn.type = 'button';
@@ -14079,8 +14154,8 @@
       save.addEventListener('click', function () { 保存社区作品(r); });
       acts.appendChild(commDwLikeBtn); acts.appendChild(commDwFavBtn);
       acts.appendChild(run); acts.appendChild(save);
-      side.appendChild(acts);
-      hero.appendChild(cover); hero.appendChild(side);
+      left.appendChild(acts);
+      hero.appendChild(left); hero.appendChild(side);
       info.appendChild(hero);
       同步详情互动();
     }
@@ -15336,6 +15411,13 @@
     });
     if ($('commDwReplyCancel')) $('commDwReplyCancel').addEventListener('click', function () { 标回复(''); });
     if ($('commDwSend')) $('commDwSend').addEventListener('click', 发送评论);
+    // 首次进入的欢迎弹窗
+    if ($('welcomeClose')) $('welcomeClose').addEventListener('click', function () { 关遮罩($('welcomeMask')); });
+    if ($('welcomeNever')) $('welcomeNever').addEventListener('click', function () {
+      try { localStorage.setItem(WELCOME_KEY, '1'); } catch (e) {}
+      关遮罩($('welcomeMask'));
+    });
+    显示欢迎();
     if ($('acctAvatar')) $('acctAvatar').addEventListener('click', function () { openPick('account'); });
     if ($('acctNameSave')) $('acctNameSave').addEventListener('click', doSaveAccountName);
     if ($('acctMailBtn')) $('acctMailBtn').addEventListener('click', openMailChange);

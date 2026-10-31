@@ -2189,22 +2189,47 @@ body.ai-dragging #aiPanel { opacity: .35; }
 /* 基本信息：**左边完整正方形封面 + 右边四个操作按钮**（用户 2026-10-31 补充要求） */
 .comm-dw-info { padding: 14px 16px 6px; }
 .comm-dw-hero { display: flex; align-items: flex-start; gap: 14px; }
+/* 左列 = 正方形作品图 + 图下方的四个按钮；右列 = 作品介绍（用户 2026-10-31 要求） */
+.comm-dw-left { flex: 0 0 auto; width: clamp(150px, 32vw, 240px); display: flex; flex-direction: column; gap: 8px; }
 .comm-dw-cover {
-  flex: 0 0 auto; width: clamp(150px, 32vw, 240px); aspect-ratio: 1 / 1; height: auto;
+  width: 100%; aspect-ratio: 1 / 1; height: auto;
   border-radius: var(--r-lg); background-color: var(--c-low);
   background-position: center; background-repeat: no-repeat; background-size: contain;
   display: flex; align-items: center; justify-content: center;
   color: var(--on-surface-var); font-size: 34px; font-weight: 800; overflow: hidden;
 }
 .comm-dw-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-/* 按钮按文字长度自然宽，靠右换行；不拉满整行（用户 2026-10-31 要求） */
-.comm-dw-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.comm-dw-acts .tb { width: auto; height: 36px; padding: 0 16px; border-radius: 18px; font-size: 13px; }
+/* 按钮按文字长度自然宽，不拉满整行；在作品图下方靠左换行 */
+.comm-dw-acts { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+.comm-dw-acts .tb { width: auto; height: 34px; padding: 0 12px; border-radius: 17px; font-size: 12px; }
 .comm-dw-acts .tb.on { color: var(--primary); border-color: var(--primary); background: var(--primary-c); }
 .comm-dw-acts .tb.like.on { color: #e5484d; border-color: #e5484d; background: rgba(229,72,77,.10); }
+/* 介绍支持 Markdown（用户 2026-10-31）：只渲染白名单标签，样式在这里统一 */
 .comm-dw-intro { font-size: 13px; line-height: 1.6; color: var(--on-surface-var);
-  white-space: pre-wrap; word-break: break-word; }
+  word-break: break-word; }
 .comm-dw-side .comm-dw-intro { margin-top: 0; }
+.comm-dw-intro p, .comm-intro p { margin: 0 0 4px; }
+.comm-dw-intro h1, .comm-dw-intro h2, .comm-dw-intro h3, .comm-dw-intro h4 {
+  margin: 6px 0 4px; color: var(--on-surface); line-height: 1.35;
+}
+.comm-dw-intro h1 { font-size: 18px; } .comm-dw-intro h2 { font-size: 16px; }
+.comm-dw-intro h3 { font-size: 15px; } .comm-dw-intro h4 { font-size: 14px; }
+.comm-dw-intro ul, .comm-dw-intro ol { margin: 4px 0; padding-left: 18px; }
+.comm-dw-intro li { margin: 2px 0; }
+.comm-dw-intro code, .comm-intro code {
+  padding: 0 4px; border-radius: 4px; background: var(--c-high);
+  font: 12px/1.5 ui-monospace, Consolas, monospace; word-break: break-all;
+}
+.comm-dw-intro pre {
+  margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: var(--c-high);
+  white-space: pre-wrap; overflow-x: auto;
+}
+.comm-dw-intro pre code { padding: 0; background: transparent; }
+.comm-dw-intro a { color: var(--primary); text-decoration: underline; word-break: break-all; }
+.comm-dw-intro blockquote {
+  margin: 6px 0; padding: 2px 10px; border-left: 3px solid var(--outline); color: var(--on-surface-var);
+}
+.comm-intro strong, .comm-dw-intro strong { color: var(--on-surface); }
 .comm-dw-sec {
   padding: 12px 16px 2px; border-top: 1px solid var(--outline-var);
   font-size: 14px; font-weight: 700; color: var(--on-surface);
@@ -2303,7 +2328,9 @@ body.ai-dragging #aiPanel { opacity: .35; }
   }
   .acct-rail .seg-pill { display: none; }
   .acct-rail .acct-item { width: 44px; height: 44px; padding: 0; margin: 0; border-radius: 50%;
-    justify-content: center; font-size: 0; color: var(--on-surface-var); }
+    justify-content: center; font-size: 0; color: var(--on-surface-var);
+    transition: background-color .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease; }
+  .acct-rail .acct-item.on { transform: scale(1.06); }
   /* 必须盖过 .acct-rail.has-pill .acct-item.on 的 transparent —— 手机端只用底色表示选中，**不要描边** */
   .acct-rail.has-pill .acct-item.on { background: var(--secondary-c); color: var(--on-secondary-c);
     box-shadow: none; }
@@ -2312,9 +2339,12 @@ body.ai-dragging #aiPanel { opacity: .35; }
   .acct-content { padding: 10px 10px 132px; }   /* 留出竖向岛台高度 */
 
   .comm-search-top { flex: 1 1 auto; min-width: 0; max-width: none; }
+  /* 布局页：删掉左上角「←」，关闭改到右上角 ✕（用户 2026-10-31 要求） */
+  #viewLayout #layBack { display: none; }
+  #viewLayout .lay-dlg-close { display: inline-flex; }
   .comm-dw-hero { gap: 10px; }
-  .comm-dw-cover { width: clamp(120px, 36vw, 180px); }
-  .comm-dw-side .tb { height: 34px; font-size: 12px; }
+  .comm-dw-left { width: clamp(120px, 36vw, 180px); }
+  .comm-dw-acts .tb { height: 30px; padding: 0 9px; font-size: 11px; }
   .comm-dw-info { padding: 10px 12px 4px; }
   .comm-dw-head { padding: 8px 10px 8px 4px; }
   .acct-tabs { margin-top: 12px; }
@@ -2322,6 +2352,13 @@ body.ai-dragging #aiPanel { opacity: .35; }
   .comm-dw-list { padding: 4px 12px 10px; }
 }
 /* 电脑端也是同一个整页详情页：不再从右边抽一条抽屉出来 */
+
+/* 首次进入欢迎弹窗 */
+.welcome-modal { max-width: 440px; }
+.welcome-body p { margin: 0 0 10px; word-break: break-all; }
+.welcome-body a { color: var(--primary); text-decoration: underline; }
+.welcome-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
+.welcome-actions .tb { min-width: 92px; height: 40px; border-radius: 20px; }
 
 /* 发布到社区：作品介绍输入框（多行，跟着 M3 描边框样式） */
 .comm-intro-field { margin-top: 10px; }

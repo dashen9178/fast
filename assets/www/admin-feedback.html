@@ -13,13 +13,12 @@
   h1{font-size:20px;margin:0}
   .sub{color:var(--muted);font-size:12px}
   .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
-  .tokrow{display:flex;gap:8px;flex-wrap:wrap}
-  input[type=text],input[type=password]{flex:1 1 320px;min-width:0;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--low);color:var(--text);font-size:13px;outline:none}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input[type=text]{flex:1 1 320px;min-width:0;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--low);color:var(--text);font-size:13px;outline:none}
   input:focus{border-color:var(--primary)}
   button{height:40px;padding:0 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;cursor:pointer}
   button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
   button:disabled{opacity:.55;cursor:default}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
   .stat{margin-left:auto;color:var(--muted);font-size:12px}
   .list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
   .item{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
@@ -40,21 +39,17 @@
 <div class="wrap">
   <div class="head">
     <h1>控件需求反馈</h1>
-    <div class="sub">云端「评论」表 · 作品iD = __CONTROL_IDEA__</div>
+    <div class="sub">只读接口 · 无需口令 · 邮箱已脱敏</div>
   </div>
 
   <div class="card">
-    <div class="tokrow">
-      <input id="tok" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴云端口令（X-App-Token，只保存在本机浏览器）">
-      <button id="btnLoad" class="primary" type="button">保存并加载</button>
-      <button id="btnRefresh" type="button">刷新</button>
-    </div>
     <div class="toolbar">
-      <input id="q" type="text" placeholder="搜索需求内容 / 作者 / 邮箱" style="flex:1 1 240px">
+      <input id="q" type="text" placeholder="搜索需求内容 / 作者 / 邮箱">
+      <button id="btnRefresh" class="primary" type="button">刷新</button>
       <span id="stat" class="stat"></span>
     </div>
     <div id="err" class="err hidden"></div>
-    <div class="hint">口令不会写进页面；只存在这台设备的 localStorage。数据地址：阿里云函数计算 fast-mail-code 中转。</div>
+    <div class="hint">数据来自阿里云函数计算 <b>fast-mail-code</b> 的只读接口 <code>/api/ideas</code>；页面本身不含任何密钥。</div>
   </div>
 
   <div id="list" class="list"></div>
@@ -64,9 +59,7 @@
 <script>
 (function () {
   'use strict';
-  var TOK_KEY = '__fast_admin_token_v1';
-  var BASE = 'https://fast-mail-code-uzzxqcntro.cn-hangzhou.fcapp.run';
-  var API = '/api/v2/dtables/fast/rows/?table_name=评论&limit=1000';
+  var API = 'https://fast-mail-code-uzzxqcntro.cn-hangzhou.fcapp.run/api/ideas';
   var rows = [], query = '';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -76,10 +69,15 @@
     });
   }
   function fmtTime(n) {
+    // 毫秒；兼容秒级旧数据与 ISO 字符串
+    if (typeof n === 'string' && /\D/.test(n)) {
+      var d0 = new Date(n); if (!isNaN(d0.getTime())) return fmtDate(d0);
+    }
     var t = Number(n);
     if (!isFinite(t) || t <= 0) return '';
-    // 评论表的 时间 存的是毫秒；兼容秒级旧数据
-    var d = new Date(t < 1e11 ? t * 1000 : t);
+    return fmtDate(new Date(t < 1e11 ? t * 1000 : t));
+  }
+  function fmtDate(d) {
     var p = function (x) { return (x < 10 ? '0' : '') + x; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
@@ -88,33 +86,21 @@
     if (!msg) { e.textContent = ''; e.classList.add('hidden'); return; }
     e.textContent = msg; e.classList.remove('hidden');
   }
-  function token() { return String($('tok').value || '').trim(); }
-
   function load() {
-    var t = token();
-    if (!t) { setErr('请先粘贴云端口令'); $('tok').focus(); return; }
-    try { localStorage.setItem(TOK_KEY, t); } catch (e) {}
     setErr('');
-    $('btnLoad').disabled = true; $('btnRefresh').disabled = true;
-    var url = BASE + '/api?p=' + encodeURIComponent(API);
-    fetch(url, { headers: { 'X-App-Token': t } })
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
+    $('btnRefresh').disabled = true;
+    fetch(API, { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (d) {
-        var all = (d && d.rows) || [];
-        rows = all.filter(function (r) { return String(r['作品iD'] || '') === '__CONTROL_IDEA__'; })
-          .sort(function (a, b) { return Number(b['时间'] || 0) - Number(a['时间'] || 0); });
+        rows = ((d && d.items) || []).filter(function (r) { return r && r['内容']; });
         render();
       })
       .catch(function (e) { setErr('读取失败：' + (e && e.message || '网络错误')); })
-      .then(function () { $('btnLoad').disabled = false; $('btnRefresh').disabled = false; });
+      .then(function () { $('btnRefresh').disabled = false; });
   }
-
   function match(r) {
     if (!query) return true;
-    return String([r['内容'], r['作者'], r['用户邮箱'], r['时间']].join('\u0001')).toLowerCase().indexOf(query) >= 0;
+    return String([r['内容'], r['作者'], r['邮箱'], fmtTime(r['时间'])].join('\u0001')).toLowerCase().indexOf(query) >= 0;
   }
   function render() {
     var box = $('list'); box.innerHTML = '';
@@ -128,24 +114,18 @@
       var top = document.createElement('div'); top.className = 'item-top';
       top.innerHTML = '<span class="num">' + (i + 1) + '</span>' +
         '<span class="who">' + esc(r['作者'] || '匿名') + '</span>' +
-        '<span class="mail">' + esc(r['用户邮箱'] || '') + '</span>' +
+        '<span class="mail">' + esc(r['邮箱'] || '') + '</span>' +
         '<span class="time">' + esc(fmtTime(r['时间'])) + '</span>';
       var txt = document.createElement('div'); txt.className = 'txt';
-      txt.textContent = String(r['内容'] || '').replace(/^【控件需求】/, '').trim() || '（空内容）';
+      txt.textContent = String(r['内容'] || '').trim() || '（空内容）';
       item.appendChild(top); item.appendChild(txt);
       box.appendChild(item);
     });
   }
 
-  (function init() {
-    var saved = '';
-    try { saved = localStorage.getItem(TOK_KEY) || ''; } catch (e) {}
-    if (saved) { $('tok').value = saved; load(); }
-    $('btnLoad').addEventListener('click', load);
-    $('btnRefresh').addEventListener('click', load);
-    $('tok').addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
-    $('q').addEventListener('input', function () { query = String($('q').value || '').trim().toLowerCase(); render(); });
-  })();
+  $('btnRefresh').addEventListener('click', load);
+  $('q').addEventListener('input', function () { query = String($('q').value || '').trim().toLowerCase(); render(); });
+  load();
 })();
 </script>
 </body>

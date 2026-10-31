@@ -792,6 +792,16 @@ def _norm_key(*parts):
     return "/".join(segs)
 
 
+def _mask_email(v):
+    """公开接口里的邮箱脱敏：local 只留首字母，域名保留（a***@qq.com）。"""
+    s = str(v or "").strip()
+    if "@" not in s:
+        return ""
+    a, d = s.split("@", 1)
+    a = a.strip()
+    return ((a[0] if a else "") + "***@" + d) if d else ""
+
+
 def _attachment_disp(rel):
     """附件下载的 Content-Disposition。
 
@@ -1063,6 +1073,45 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, None, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"},
                    raw=html.encode("utf-8"))
 
+    def _serve_ideas(self):
+        """控件需求反馈（只读、无需口令）。
+
+        安全口径：
+          · 只读，不暴露 OSS/GitHub 凭据，也不接受任何写入参数；
+          · 只回「作者 / 内容 / 时间 / 脱敏邮箱」，邮箱本地部分只留首字母；
+          · 最多 200 条，避免整表拖垮函数。
+        """
+        if not self._guard():
+            return
+        try:
+            rows = _table_read("评论")
+        except Exception as e:  # noqa: BLE001
+            self._send(502, {"error": "读取反馈失败：%s" % e})
+            return
+        items = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("作品iD") or "") != "__CONTROL_IDEA__":
+                continue
+            txt = str(r.get("内容") or "")
+            if txt.startswith("【控件需求】"):
+                txt = txt[len("【控件需求】"):]
+            items.append({
+                "作者": str(r.get("作者") or "匿名"),
+                "内容": txt[:500],
+                "时间": r.get("时间") or r.get("_ctime") or 0,
+                "邮箱": _mask_email(r.get("用户邮箱")),
+            })
+        def _t(x):
+            try:
+                return float(str(x.get("时间") or 0)[:13])
+            except Exception:  # noqa: BLE001
+                return 0.0
+        items.sort(key=_t, reverse=True)
+        self._send(200, {"count": len(items), "items": items[:200]},
+                   {"Cache-Control": "no-store"})
+
     def _serve_apkfile(self):
         """把云端 `.apk.bin` 以真正的 `.apk` 文件名下发（URL 不带 .apk，绕开平台限制）。"""
         if not self._guard():
@@ -1165,6 +1214,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if p == "/api/apkfile":
             self._serve_apkfile()
+            return
+        if p == "/api/ideas":
+            # 只读的「控件需求」反馈面板：不要求口令，且只回作者/内容/时间/脱敏邮箱
+            self._serve_ideas()
             return
         if raw_path.startswith("/api/") and not raw_path.startswith("/api/download"):
             self._relay_direct("GET")

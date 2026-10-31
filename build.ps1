@@ -54,6 +54,8 @@ $VC = ($vLines[0] -replace '\s', '')
 if (-not $VC) { $VC = '1' }
 $prevVN = if ($vLines.Count -ge 2) { $vLines[1].Trim() } else { '' }
 if ($prevVN -match '^(.*\.)(\d+)$') { $VN = $Matches[1] + ([int]$Matches[2] + 1) } else { $VN = "1.0.$VC.1" }
+# 正式版可以固定版本名（例如发布 1.0.0）：FAST_VERSION_NAME=1.0.0，只覆盖 versionName，versionCode 仍递增
+if ($env:FAST_VERSION_NAME) { $VN = $env:FAST_VERSION_NAME }
 Write-Host "== versionCode=$VC  versionName=$VN =="
 
 function Check($what) { if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE)" } }
