@@ -1069,8 +1069,9 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .lay-dlg { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 /* 电脑端专有按钮：手机端一律不显示 */
 .lay-border-btn, .lay-dlg-close { display: none; }
-/* 上面那条会被后面的 .lay-back（它也有这个类）覆盖掉，这里用更高优先级压回去：
-   手机端布局页只有左上角「返回」，没有浮窗的 ✕；电脑端由文件末尾的 body.desk 规则打开 */
+/* 上面那条会被后面的 .lay-back（这两个按钮也带这个类）覆盖掉，这里用更高优先级压回去：
+   手机端布局页只有左上角「返回」，没有「显示边框」和浮窗的 ✕；电脑端由文件末尾的 body.desk 规则打开 */
+#viewLayout .lay-border-btn { display: none; }
 #viewLayout .lay-dlg-close { display: none; }
 /* 预览窗口四角的缩放把手（只缩放预览框本身，长宽比锁定）：电脑端才出现 */
 .lay-rs { display: none; }
@@ -2339,9 +2340,6 @@ body.ai-dragging #aiPanel { opacity: .35; }
   .acct-content { padding: 10px 10px 132px; }   /* 留出竖向岛台高度 */
 
   .comm-search-top { flex: 1 1 auto; min-width: 0; max-width: none; }
-  /* 布局页：删掉左上角「←」，关闭改到右上角 ✕（用户 2026-10-31 要求） */
-  #viewLayout #layBack { display: none; }
-  #viewLayout .lay-dlg-close { display: inline-flex; }
   .comm-dw-hero { gap: 10px; }
   .comm-dw-left { width: clamp(120px, 36vw, 180px); }
   .comm-dw-acts .tb { height: 30px; padding: 0 9px; font-size: 11px; }
@@ -2680,7 +2678,6 @@ body.desk #viewLayout .lay-topbar {
 body.desk #viewLayout .lay-topbar button,
 body.desk #viewLayout .lay-topbar input,
 body.desk #viewLayout .lay-topbar select { cursor: pointer; }
-body.desk #viewLayout #layBack { display: none; }
 body.desk #viewLayout .lay-border-btn,
 body.desk #viewLayout .lay-dlg-close { display: inline-flex; }
 body.desk #viewLayout .lay-border-btn.on { background: var(--secondary-c); color: var(--on-secondary-c); }

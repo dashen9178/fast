@@ -3381,7 +3381,7 @@
       if (on && !旧 && 源) { try { 加缩放手柄(n, 源.c || 源.源); } catch (e) { } }
       else if (!on && 旧) 旧.remove();
     });
-    try { renderLaySheet(); } catch (e) { }
+    try { 刷新布局面板(); } catch (e) { }
   }
 
   function delComp(id) {
@@ -7787,8 +7787,8 @@
          （用户 2026-10-31：预览里拖动组件时，控件列表没有选中对应的那一条） */
       state.selectedCompId = c.id;
       同步控件列表选中(c.id);
-      // 布局页点选/拖动**不弹出属性面板**（用户 2026-10-31 要求）；属性只在右下角控制台里手动看
-      try { renderLaySheet(); } catch (err2) { }
+      // 面板开着才刷新内容，关着不自动拉起（用户 2026-10-31 规则）
+      刷新布局面板();
     }
     function move(e) {
       if (state.__pinching) { active = false; item.classList.remove('dragging'); return; }   // 双指缩放期间不许挪控件
@@ -7880,7 +7880,7 @@
             c.cx = false;
             state.selectedCompId = c.id;
             $('layFab').classList.remove('hidden');
-            autosave(); renderLayStage(); renderLaySheet();
+            autosave(); renderLayStage(); 刷新布局面板();
             snack('已移出容器');
             return;
           }
@@ -7888,7 +7888,7 @@
           c.cx = false;
           state.selectedCompId = c.id;
           $('layFab').classList.remove('hidden');
-          autosave(); renderLayStage(); renderLaySheet();
+          autosave(); renderLayStage(); 刷新布局面板();
           return;
         }
         c.x = Math.round(parseFloat(item.style.left)); c.y = Math.round(parseFloat(item.style.top));
@@ -7905,7 +7905,7 @@
           if (移入容器(c.id, 目标.id)) {
             state.selectedCompId = c.id;
             $('layFab').classList.remove('hidden');
-            autosave(); renderLayStage(); renderLaySheet();
+            autosave(); renderLayStage(); 刷新布局面板();
             snack('已放进容器');
             return;
           }
@@ -7916,12 +7916,11 @@
         autosave();
         // 该组件已脱离自动流，其余自动组件会在运行时重新排列；重排舞台让预览立刻与运行时一致
         renderLayStage();
-        renderLaySheet();
+        刷新布局面板();
         return;
       }
       state.selectedCompId = c.id;
       同步控件列表选中(c.id);     // 预览页点选 → 控件列表同步高亮（双向联动）
-      // 不弹属性面板（用户 2026-10-31 要求）
       清孤立手柄();
       Array.prototype.forEach.call($('layStage').querySelectorAll('.litem'), function (n) {
         n.classList.toggle('sel', n.dataset.id === c.id);
@@ -7929,7 +7928,7 @@
         if (n.dataset.id === c.id) { if (!旧手柄) 加缩放手柄(n, c); }
         else if (旧手柄) 旧手柄.remove();
       });
-      renderLaySheet();
+      刷新布局面板();
       // 只选中、不自动弹出控制台；由右下角 FAB 手动展开
       $('layFab').classList.remove('hidden');
     }
@@ -7937,6 +7936,17 @@
     item.addEventListener('pointermove', move);
     item.addEventListener('pointerup', up);
     item.addEventListener('pointercancel', up);
+  }
+  /**
+   * 布局页点选控件时刷新面板（用户 2026-10-31 规则）：
+   * · 面板**本来开着** → 内容跟着换成当前选中的控件；
+   * · 面板**没开** → 绝不自动弹出来，之后手动打开时再取当前选中项。
+   */
+  function 刷新布局面板() {
+    var pp = $('propPanel');
+    if (pp && !pp.classList.contains('hidden')) { try { renderPropPanel(); } catch (e) {} }
+    var sh = $('laySheet');
+    if (sh && sh.classList.contains('open')) { try { renderLaySheet(); } catch (e) {} }
   }
   function renderLaySheet() {
     var c = selectedComp(), title = $('laySheetTitle'), body = $('laySheetBody');
@@ -15635,7 +15645,7 @@
       if (排 && !排.classList.contains('hidden')) closeLayout(); else openLayout();
     });
     $('layDlgClose').addEventListener('click', function (e) { e.stopPropagation(); closeLayout(); });
-    // 电脑端浮窗最左「显示边框」：点一下显示，再点不显示
+    // 电脑端浮窗最左「显示边框」：点一下显示，再点不显示（手机端这个按钮是隐藏的）
     $('layBorderBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       setPreviewBorder(!previewBorderOn());
