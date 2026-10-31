@@ -14,6 +14,7 @@
 //
 // 自动化测试：FAST_SETUP_TEST=1 时完全不弹窗，只写结果文件（保持原有测试链路可用）。
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -43,8 +44,22 @@ namespace FastSetup
         private static void Main()
         {
             Trace("enter");
-            bool test = Environment.GetEnvironmentVariable("FAST_SETUP_TEST") == "1";
+            var args = Environment.GetCommandLineArgs();
+            bool testArg = false, hasDirArg = false;
+            string dirArg = null;
+            foreach (var a in args)
+            {
+                if (a == null) continue;
+                if (a.Equals("--test", StringComparison.OrdinalIgnoreCase)) testArg = true;
+                if (a.StartsWith("--dir=", StringComparison.OrdinalIgnoreCase))
+                {
+                    dirArg = a.Substring(6).Trim().Trim('"');
+                    hasDirArg = dirArg.Length > 0;
+                }
+            }
+            bool test = testArg || Environment.GetEnvironmentVariable("FAST_SETUP_TEST") == "1";
             string forced = Environment.GetEnvironmentVariable("FAST_INSTALL_DIR");
+            if (string.IsNullOrEmpty(forced) && hasDirArg) forced = dirArg;
             Trace("test=" + test + " forced=" + forced);
 
             if (test)
@@ -61,15 +76,6 @@ namespace FastSetup
             {
                 MessageBox.Show("找不到安装位置：\r\n" + ex.Message, APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
-            }
-            // 以管理员身份重试时会把用户选的目录带回来（--dir "D:\xxx"）
-            foreach (var a in Environment.GetCommandLineArgs())
-            {
-                if (a != null && a.StartsWith("--dir=", StringComparison.OrdinalIgnoreCase))
-                {
-                    var v = a.Substring(6).Trim().Trim('"');
-                    if (v.Length > 0) dir = v;
-                }
             }
             Application.Run(new SetupWizard(dir));
         }
@@ -262,42 +268,50 @@ namespace FastSetup
         }
 
         /// <summary>
-        /// 选一个能写的临时目录：优先安装目录内（同盘移动快）。
-        /// 不在系统临时目录（多半在 C 盘）落任何文件。
+        /// 选一个能写的临时目录。顺序：
+        ///   1) 安装目录内（同盘移动最快）
+        ///   2) 安装包自己所在目录（这个目录一定是能读能执行的位置，通常也可写）
+        ///   3) 安装盘根目录
+        ///   4) %LOCALAPPDATA%\FAST\setup_tmp（最后兜底）
         /// </summary>
         private static string 准备临时目录(string dir, out bool 在目标内)
         {
             在目标内 = true;
             Exception last = null;
-            // 先试安装目录里的两个名字（老版本用带点的名字，部分环境会拦，再试普通名字）
+            var 候选 = new List<string>();
             foreach (var name in new[] { ".fast_update_tmp", "fast_update_tmp" })
+                if (Directory.Exists(dir)) 候选.Add(Path.Combine(dir, name));
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            候选.Add(Path.Combine(baseDir, "fast_setup_tmp"));
+            string root = null;
+            try { root = Path.GetPathRoot(Path.GetFullPath(dir)); } catch { }
+            if (!string.IsNullOrEmpty(root))
+                候选.Add(Path.Combine(root, "FAST_setup_tmp"));
+            try
             {
-                var t = Path.Combine(dir, name);
+                候选.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "FAST", "setup_tmp"));
+            }
+            catch { }
+
+            for (int i = 0; i < 候选.Count; i++)
+            {
+                var t = 候选[i];
                 try
                 {
+                    if (i >= 2) t = t + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
                     if (File.Exists(t)) File.Delete(t);
                     if (Directory.Exists(t)) Directory.Delete(t, true);
                     Directory.CreateDirectory(t);
+                    在目标内 = (i == 0 || i == 1);
                     return t;
                 }
                 catch (Exception e) { last = e; }
             }
-            在目标内 = false;
-            // 退到安装目录所在盘的根目录（绝不写 C 盘）
-            string root;
-            try { root = Path.GetPathRoot(Path.GetFullPath(dir)); } catch { root = null; }
-            if (string.IsNullOrEmpty(root)) root = @"D:\";
-            if (root.TrimEnd('\\').Equals("C:", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new Exception("无法在安装目录创建临时文件：" + dir +
-                    "\r\n按设置不会往 C 盘写临时文件，请把安装位置改到 D 盘后重试。");
-            }
-            var t2 = Path.Combine(root, "FAST_setup_tmp_" + Guid.NewGuid().ToString("N").Substring(0, 8));
-            try { Directory.CreateDirectory(t2); return t2; }
-            catch (Exception e) { last = e; }
             string detail = last == null ? "未知错误" :
                 (last.GetType().Name + " 0x" + last.HResult.ToString("X8") + " " + last.Message);
             throw new Exception("无法创建临时目录（目标：" + dir + "）：\r\n" + detail +
+                "\r\n用户：" + Environment.UserName + "  管理员：" + (IsAdmin() ? "是" : "否") +
                 "\r\n\r\n可以尝试：1) 右键安装包 → 以管理员身份运行；" +
                 "2) 换一个安装位置（建议 D 盘）；3) 关闭正在占用该目录的程序后重试。");
         }
