@@ -233,7 +233,41 @@
   }
   /* 当前构建号：打包脚本会把它同步成手机版的版本号（如 1.0.116.141）。
      桌面壳不会往 script 上写 ?v=（所以以前首页显示"开发版"），这里作为兜底值。 */
-  var 内置版本号 = '1.0.0';
+  var 内置版本号 = '1.0.1';
+
+  /* ================= 隐私政策与首次同意 =================
+     首次进入必须先同意隐私政策；同意之前不初始化界面、不发任何网络请求。
+     不同意则退出应用（走 Native.exitApp）。
+     用户同意后记在本机，之后可从「设置 → 反馈 → 隐私政策」重新查看。 */
+  var PRIVACY_KEY = '__fast_privacy_v1';
+  function 隐私已同意() {
+    try { return localStorage.getItem(PRIVACY_KEY) === '1'; } catch (e) { return false; }
+  }
+  function 显示隐私政策(只读, 同意后) {
+    var m = $('privacyMask'); if (!m) { if (同意后) 同意后(); return; }
+    var agree = $('privacyAgree'), deny = $('privacyDeny'), note = $('privacyDenyNote');
+    m.classList.remove('hidden');
+    if (note) note.classList.add('hidden');
+    if (只读) {
+      if (deny) deny.classList.add('hidden');
+      agree.textContent = '关闭';
+      agree.onclick = function () { m.classList.add('hidden'); };
+    } else {
+      if (deny) deny.classList.remove('hidden');
+      agree.textContent = '同意并继续';
+      agree.onclick = function () {
+        try { localStorage.setItem(PRIVACY_KEY, '1'); } catch (e) {}
+        m.classList.add('hidden');
+        if (同意后) 同意后();
+      };
+      deny.onclick = function () {
+        try { if (window.Native && Native.exitApp) { Native.exitApp(); return; } } catch (e) {}
+        try { window.close(); } catch (e) {}
+        // 网页环境没有原生退出：把提示留在弹窗里，不进入应用
+        if (note) note.classList.remove('hidden');
+      };
+    }
+  }
 
   var state = { itemId: null, project: null, curScreenId: null, selectedCompId: null, ws: null, wsInited: false, view: 'design', inLayout: false, newOrient: 'portrait', runMode: 'start',
     deskView: 'all',     // 电脑宽屏三段页签：'all'（全显）/ 'design'（控件）/ 'blocks'（代码）
@@ -594,6 +628,8 @@
     return { url: _u, bodyText: bodyText };
   }
   function editorCloudHttp(method, url, body, token, opts) {
+    // 隐私合规兜底：未同意隐私政策前一律不发网络请求（首次同意弹窗之外不应该有任何云访问）
+    if (!隐私已同意()) return Promise.reject(new Error('请先阅读并同意隐私政策'));
     var h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
     // 走云中转的请求**一律**带口令：只在某一处加容易漏（账号读表就漏过一次，
     // 表现是"账号没写进表格/社区一张卡都没有"），所以在 HTTP 层统一兜住。
@@ -8398,10 +8434,11 @@
     table: '更新'
   };
   var updateLatest = null;   // 只缓存"最新版本"那一行 —— 界面不再列版本列表
-  /** 本地构建号："v1.0.116.113" → "1.0.116.113"；开发态（没有构建号）返回空串 */
+  /** 本地构建号："v1.0.1" → "1.0.1"；开发态（没有构建号）返回空串。
+      兼容 3 段与 4 段版本号（以前只认 4 段，导致 1.0.0/1.0.1 这类正式版号永远查不到更新）。 */
   function 本地版本号() {
     var v = buildVersion();
-    return /^v?\d+\.\d+\.\d+\.\d+$/.test(v) ? v.replace(/^v/, '') : '';
+    return /^v?\d+(?:\.\d+){1,}$/.test(v) ? v.replace(/^v/, '') : '';
   }
   /** 按点分数字比大小：a>b 返回 1，相等 0，a<b 返回 -1（缺失位按 0 算） */
   function 比版本(a, b) {
@@ -8415,7 +8452,7 @@
   /** 更新表按行顺序 1A 2B 3C 往下排列，所以"最新的那一行"就是最后一行 */
   function 取最新版本(list) { return (list && list.length) ? list[list.length - 1] : null; }
   function 校验更新提示(ver, 本地) {
-    var m = String(ver || '').match(/(\d+\.\d+\.\d+\.\d+)/);
+    var m = String(ver || '').match(/(\d+\.\d+\.\d+(?:\.\d+)*)/);
     var mine = (本地 === undefined) ? 本地版本号() : String(本地 || '');
     if (!m) return '最新版本';
     if (!mine) return '云端最新版本 ' + m[1];
@@ -8434,7 +8471,7 @@
   }
   /** 云端这一版是不是比本机新（本机是开发态/没有构建号时一律不算） */
   function 有新版本(ver) {
-    var m = String(ver || '').match(/(\d+\.\d+\.\d+\.\d+)/);
+    var m = String(ver || '').match(/(\d+\.\d+\.\d+(?:\.\d+)*)/);
     var mine = 本地版本号();
     if (!m || !mine) return false;
     return 比版本(m[1], mine) > 0;
@@ -15695,6 +15732,8 @@
     });
     var 设置联系 = $('setContact');
     if (设置联系) 设置联系.addEventListener('click', function () { $('contactMask').classList.remove('hidden'); });
+    var 设置隐私 = $('setPrivacy');
+    if (设置隐私) 设置隐私.addEventListener('click', function () { 显示隐私政策(true); });
     // 检查更新 → 更新日志
     $('updateLog').addEventListener('click', openUpdateLog);
     $('updLogClose').addEventListener('click', function () { $('updLogMask').classList.add('hidden'); });
@@ -15899,5 +15938,9 @@
     } catch (e) {}
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', function () {
+    // 首次启动必须先同意隐私政策：同意前不初始化界面、不发网络请求
+    if (隐私已同意()) { init(); return; }
+    显示隐私政策(false, init);
+  });
 })();

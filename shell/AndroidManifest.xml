@@ -7,7 +7,7 @@
     <!-- 本文件是竖屏壳 / 横屏壳共用的唯一模板：打包脚本把下面的 @ORIENTATION@
          换成 portrait / landscape，因此无需再维护一份重复的 shell-land 清单 -->
     <!-- package / label / versionName 均由 AxmlRewriter 在导出时重写（长度任意） -->
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="30" />
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />

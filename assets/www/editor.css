@@ -2358,6 +2358,15 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .welcome-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; }
 .welcome-actions .tb { min-width: 92px; height: 40px; border-radius: 20px; }
 
+/* 隐私政策（首次同意 / 设置里重新查看） */
+.privacy-modal { max-width: 560px; width: min(92vw, 560px); }
+.privacy-body { max-height: 56vh; overflow-y: auto; text-align: left; line-height: 1.55; padding-right: 6px; }
+.privacy-body p { margin: 0 0 10px; color: var(--on-surface); font-size: 13px; }
+.privacy-body b { color: var(--on-surface); }
+.privacy-note { color: var(--outline) !important; font-size: 12.5px !important; }
+.privacy-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.privacy-actions .tb { min-width: 112px; height: 40px; border-radius: 20px; }
+
 /* 发布到社区：作品介绍输入框（多行，跟着 M3 描边框样式） */
 .comm-intro-field { margin-top: 10px; }
 .comm-intro { height: auto; min-height: 76px; padding: 10px 14px; line-height: 1.45; resize: none; }

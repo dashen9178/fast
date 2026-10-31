@@ -3,7 +3,7 @@
     package="com.fast.app">
     <!-- 版本号不在此写死，统一由 build.sh 从 VERSION 文件读取并传入，保证每次出包递增 -->
 
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="30" />
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -32,7 +32,7 @@
     </queries>
 
     <application
-        android:label="𝑭𝑨𝑺𝑻"
+        android:label="FAST"
         android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="true"

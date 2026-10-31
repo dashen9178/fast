@@ -145,6 +145,14 @@ Get-ChildItem -Path $WWW -Recurse -Include *.html -File | ForEach-Object {
   }
 }
 Write-Host ('== 版本号已注入页面: ?v=' + $VN + ' ==')
+# 兜底常量也同步成正式版本号：桌面壳没有 ?v= 参数时首页/检查更新都用它
+Get-ChildItem -Path $WWW -Recurse -Include *.js -File | ForEach-Object {
+  $t = [System.IO.File]::ReadAllText($_.FullName)
+  if ($t -match "内置版本号 = '(\d+(\.\d+)+)'") {
+    $t = $t -replace "内置版本号 = '(\d+(\.\d+)+)'", ("内置版本号 = '" + $VN + "'")
+    [System.IO.File]::WriteAllText($_.FullName, $t, (New-Object System.Text.UTF8Encoding($false)))
+  }
+}
 Add-ZipFiles "$STAGE\editor_base.apk" $WWW 'assets/www'
 & $ZIPALIGN -f -p 4 "$STAGE_REL\editor_base.apk" "$STAGE_REL\editor_aligned.apk"; Check 'zipalign editor'
 & $JAVA -cp $APKSIG com.android.apksigner.ApkSignerTool sign --ks keys\editor.p12 --ks-type PKCS12 `

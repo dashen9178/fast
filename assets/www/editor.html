@@ -128,6 +128,30 @@
   </div>
 </div>
 
+<!-- 隐私政策：首次启动必须先同意（同意前不初始化、不联网）；设置页可重新查看 -->
+<div id="privacyMask" class="mask hidden">
+  <div class="modal privacy-modal">
+    <div class="mtitle">隐私政策与用户协议</div>
+    <div class="mbody privacy-body">
+      <p><b>FAST 是一个本地积木编程编辑器。</b>我们尽量少收集数据，下面说明具体范围：</p>
+      <p><b>1. 保存在本机的数据</b><br>你创建的作品、页面、代码块、界面设置保存在本机；卸载后可能一并删除，请自行导出备份。</p>
+      <p><b>2. 账号与社区（可选）</b><br>只有你主动登录/发布时才会使用：邮箱用于登录验证和账号识别；发布到社区的作品名称、介绍、图标、作品文件以及评论内容会对其他用户公开可见；点赞、收藏、浏览记录用于展示个人主页。</p>
+      <p><b>3. 网络服务</b><br>账号、社区、评论、检查更新通过阿里云函数计算中转；安装包与作品附件存放在阿里云 OSS；数据另做 GitHub 私有仓库备份。AI 助手仅在你自行填写 DeepSeek API Key 后使用，请求直接发往 DeepSeek。</p>
+      <p><b>4. 设备权限</b><br>存储：导入/导出作品与安装包；通知：显示「作品正在运行」和结束入口；安装未知应用：安装你自己导出的作品或更新包。以上权限均只在你主动使用对应功能时使用。</p>
+      <p><b>5. 我们不收集</b><br>通讯录、短信、精确位置、相册全量内容、设备唯一标识用于广告画像等均不收集，也不接入广告 SDK。</p>
+      <p><b>6. 你的权利</b><br>可随时退出登录、删除自己发布的社区作品与评论；如需删除账号数据，可通过下方联系方式联系开发者处理。</p>
+      <p><b>7. 未成年人</b><br>请在监护人指导下使用；社区发布内容请勿包含个人隐私信息。</p>
+      <p><b>8. 联系方式</b><br>微信/抖音号：dashen1949，QQ：3457525474。政策更新会在应用内展示。</p>
+      <p class="privacy-note">点击「同意并继续」表示你已阅读并同意上述内容；不同意将直接退出应用。</p>
+      <p id="privacyDenyNote" class="privacy-note hidden">当前环境无法自动退出，请关闭应用。</p>
+    </div>
+    <div class="privacy-actions">
+      <button id="privacyDeny" class="tb" type="button">不同意并退出</button>
+      <button id="privacyAgree" class="tb primary" type="button">同意并继续</button>
+    </div>
+  </div>
+</div>
+
 <!-- 首次进入欢迎弹窗（用户 2026-10-31 要求） -->
 <div id="welcomeMask" class="mask hidden">
   <div class="modal welcome-modal">
@@ -840,6 +864,13 @@
               <button id="setContact" class="small" style="flex:1">打开联系方式</button>
             </div>
             <div class="ai-key-hint">微信 / 抖音号：dashen1949</div>
+          </div>
+          <div class="set-group">
+            <div class="set-label">隐私政策</div>
+            <div class="ai-key-row">
+              <button id="setPrivacy" class="small" style="flex:1">查看隐私政策与用户协议</button>
+            </div>
+            <div class="ai-key-hint">说明本应用收集哪些数据、联网访问哪些服务、需要哪些权限。</div>
           </div>
           <div class="set-group">
             <div class="set-label">版本</div>
