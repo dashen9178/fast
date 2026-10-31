@@ -11,11 +11,12 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Product>FAST 安装包</Product>
     <AssemblyTitle>FAST 安装包</AssemblyTitle>
-    <Version>1.0.3.0</Version>
+    <Version>1.0.7.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Management" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>

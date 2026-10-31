@@ -124,8 +124,14 @@ namespace FastSetup
                 var dir = AppDomain.CurrentDomain.BaseDirectory;
                 var root = Path.GetPathRoot(dir) ?? "";
                 if (root.TrimEnd('\\').Equals("C:", StringComparison.OrdinalIgnoreCase)) return;
+                int rid = IntegrityRid();
+                var env = "完整性级别=" + (rid == 0 ? "未知" : rid.ToString("X"))
+                    + "  管理员=" + (IsAdmin() ? "是" : "否")
+                    + "  用户=" + Environment.UserName
+                    + "  进程=" + Application.ExecutablePath
+                    + "\r\n";
                 File.AppendAllText(Path.Combine(dir, "fast_setup_error.log"),
-                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + (msg ?? "") + "\r\n");
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + env + (msg ?? "") + "\r\n");
             }
             catch { }
         }
@@ -140,6 +146,47 @@ namespace FastSetup
                     .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// 当前进程的完整性级别：0x1000 低（IDE/沙箱终端）、0x2000 中（普通双击）、0x3000 高（已提权）。
+        /// 低完整性时 IsAdmin() 仍然返回 true，但写 D:\ 会被系统拒绝。
+        /// </summary>
+        private static int IntegrityRid()
+        {
+            try
+            {
+                using (var id = System.Security.Principal.WindowsIdentity.GetCurrent())
+                {
+                    int len = 0;
+                    // TokenIntegrityLevel = 25；第一次调用只为取得所需缓冲区大小（必然返回 false）
+                    Native.GetTokenInformation(id.Token, 25, IntPtr.Zero, 0, out len);
+                    if (len <= 0) return 0;
+                    var buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(len);
+                    try
+                    {
+                        if (!Native.GetTokenInformation(id.Token, 25, buf, len, out len)) return 0;
+                        var sid = System.Runtime.InteropServices.Marshal.ReadIntPtr(buf); // TOKEN_MANDATORY_LABEL.Label.Sid
+                        int count = System.Runtime.InteropServices.Marshal.ReadByte(Native.GetSidSubAuthorityCount(sid));
+                        if (count <= 0) return 0;
+                        return System.Runtime.InteropServices.Marshal.ReadInt32(Native.GetSidSubAuthority(sid, count - 1));
+                    }
+                    finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(buf); }
+                }
+            }
+            catch { return 0; }
+        }
+
+        private static class Native
+        {
+            [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, int infoLength, out int returnLength);
+
+            [System.Runtime.InteropServices.DllImport("advapi32.dll")]
+            public static extern IntPtr GetSidSubAuthority(IntPtr sid, int index);
+
+            [System.Runtime.InteropServices.DllImport("advapi32.dll")]
+            public static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
         }
 
         /// <summary>以管理员身份重新启动安装向导，并带上用户选好的目录</summary>
@@ -221,6 +268,7 @@ namespace FastSetup
         private static bool StopFast(string dir)
         {
             var target = Path.GetFullPath(Path.Combine(dir, EXE)).ToLowerInvariant();
+            var pids = new List<int>();
             bool any = false;
             foreach (var p in Process.GetProcessesByName("FAST"))
             {
@@ -230,11 +278,12 @@ namespace FastSetup
                     try { exe = p.MainModule.FileName; } catch { }
                     if (exe != null && exe.ToLowerInvariant() != target) continue;
                     any = true;
+                    pids.Add(p.Id);
                     try { p.CloseMainWindow(); } catch { }
                 }
                 catch { any = true; }
             }
-            if (!any) return true;
+            if (!any) { 清理WebView2残留(pids); return true; }
             for (int i = 0; i < 12; i++)
             {
                 Thread.Sleep(200);
@@ -250,7 +299,7 @@ namespace FastSetup
                     }
                     catch { alive = true; }
                 }
-                if (!alive) return true;
+                if (!alive) { 清理WebView2残留(pids); return true; }
             }
             foreach (var p in Process.GetProcessesByName("FAST"))
             {
@@ -264,7 +313,47 @@ namespace FastSetup
                 catch { }
             }
             Thread.Sleep(500);
+            清理WebView2残留(pids);
             return true;
+        }
+
+        /// <summary>
+        /// FAST 的 WebView2 子进程可能比 FAST.exe 活得久，并继续占着 www 里的文件，
+        /// 这时把 www 改名会报“访问被拒绝”。按父子关系把它们一起清掉。
+        /// </summary>
+        private static void 清理WebView2残留(List<int> killed)
+        {
+            if (killed == null || killed.Count == 0) return;
+            try
+            {
+                var parent = new Dictionary<int, int>();
+                var webviews = new List<int>();
+                using (var s = new System.Management.ManagementObjectSearcher(
+                    "SELECT ProcessId, ParentProcessId, Name FROM Win32_Process"))
+                {
+                    foreach (var o in s.Get())
+                    {
+                        int pid = Convert.ToInt32(o["ProcessId"]);
+                        parent[pid] = Convert.ToInt32(o["ParentProcessId"]);
+                        if (string.Equals(o["Name"] as string, "msedgewebview2.exe", StringComparison.OrdinalIgnoreCase))
+                            webviews.Add(pid);
+                    }
+                }
+                foreach (var pid in webviews)
+                {
+                    int cur = pid;
+                    bool 属于目标 = false;
+                    for (int d = 0; d < 6 && cur > 0; d++)
+                    {
+                        cur = parent.ContainsKey(cur) ? parent[cur] : 0;
+                        if (killed.Contains(cur)) { 属于目标 = true; break; }
+                    }
+                    if (!属于目标) continue;
+                    try { Process.GetProcessById(pid).Kill(); } catch { }
+                }
+                Thread.Sleep(600);
+            }
+            catch { }
         }
 
         /// <summary>
@@ -312,6 +401,7 @@ namespace FastSetup
                 (last.GetType().Name + " 0x" + last.HResult.ToString("X8") + " " + last.Message);
             throw new Exception("无法创建临时目录（目标：" + dir + "）：\r\n" + detail +
                 "\r\n用户：" + Environment.UserName + "  管理员：" + (IsAdmin() ? "是" : "否") +
+                "  完整性级别：" + (IntegrityRid() == 0 ? "未知" : IntegrityRid().ToString("X")) +
                 "\r\n\r\n可以尝试：1) 右键安装包 → 以管理员身份运行；" +
                 "2) 换一个安装位置（建议 D 盘）；3) 关闭正在占用该目录的程序后重试。");
         }
@@ -359,18 +449,47 @@ namespace FastSetup
                 progress?.Invoke(72, "正在更新程序文件…");
                 var oldWww = Path.Combine(dir, "www.old");
                 var newWww = Path.Combine(dir, "www");
+                string stage = "准备更新 www";
                 try
                 {
-                    if (Directory.Exists(oldWww)) Directory.Delete(oldWww, true);
-                    if (Directory.Exists(newWww)) Directory.Move(newWww, oldWww);
-                    CopyDir(Path.Combine(temp, "www"), newWww);
+                    bool 已备份 = false;
+                    if (Directory.Exists(newWww))
+                    {
+                        for (int i = 0; i < 10 && !已备份; i++)
+                        {
+                            try
+                            {
+                                if (Directory.Exists(oldWww)) Directory.Delete(oldWww, true);
+                                stage = "把旧 www 备份成 www.old";
+                                Directory.Move(newWww, oldWww);
+                                已备份 = true;
+                            }
+                            catch { Thread.Sleep(400); } // 有进程短暂占用（杀软扫描、WebView2 句柄未释放）时重试
+                        }
+                    }
+
+                    if (已备份 || !Directory.Exists(newWww))
+                    {
+                        stage = "写入新的 www";
+                        CopyDir(Path.Combine(temp, "www"), newWww);
+                    }
+                    else
+                    {
+                        // 旧 www 实在改不了名（有文件被占用），那就原地覆盖程序文件
+                        stage = "原地覆盖 www（旧目录被占用）";
+                        CopyDir(Path.Combine(temp, "www"), newWww);
+                    }
+
                     progress?.Invoke(88, "正在更新运行库…");
+                    stage = "更新程序文件";
                     foreach (var f in Directory.GetFiles(temp, "*", SearchOption.TopDirectoryOnly))
                     {
                         File.Copy(f, Path.Combine(dir, Path.GetFileName(f)), true);
                     }
+                    stage = "更新运行库";
                     CopyDir(Path.Combine(temp, "runtimes"), Path.Combine(dir, "runtimes"));
                     // pack（导出 APK 用的运行时壳）：老安装包漏了这一步，全新安装后导出会失败
+                    stage = "更新打包壳";
                     CopyDir(Path.Combine(temp, "pack"), Path.Combine(dir, "pack"));
                 }
                 catch (Exception ex)
@@ -378,6 +497,7 @@ namespace FastSetup
                     // 尽力回滚 www，避免留一个半新半旧的目录
                     try { if (Directory.Exists(oldWww)) { if (Directory.Exists(newWww)) Directory.Delete(newWww, true); Directory.Move(oldWww, newWww); } } catch { }
                     throw new Exception("无法写入安装目录：" + dir +
+                        "\r\n失败步骤：" + stage +
                         "\r\n可能是权限不足、文件被占用或磁盘异常。" +
                         "\r\n请右键安装包 → 以管理员身份运行，或换一个安装位置后重试。" +
                         "\r\n\r\n详细信息：" + ex.Message);
@@ -727,18 +847,24 @@ namespace FastSetup
                             {
                                 LogError(err);
                                 SetBusy(false);
-                                string more = IsAdmin()
-                                    ? "\r\n\r\n当前已经是管理员权限。若仍失败，请换一个安装位置（建议 D 盘）后重试。"
-                                    : "\r\n\r\n是否以管理员身份重新打开安装向导再试一次？";
+                                int rid = IntegrityRid();
+                                bool low = rid > 0 && rid < 0x2000;
+                                string more = low
+                                    ? "\r\n\r\n当前进程被系统限制了写入权限（多见于从 IDE 内置终端或沙箱里启动安装包）。" +
+                                      "\r\n请关掉本窗口，直接在资源管理器里双击安装包运行。"
+                                    : IsAdmin()
+                                        ? "\r\n\r\n当前已经是管理员权限。若仍失败，请换一个安装位置（建议 D 盘）后重试。"
+                                        : "\r\n\r\n是否以管理员身份重新打开安装向导再试一次？";
                                 var r = MessageBox.Show(this, "安装失败：\r\n" + err + more,
-                                    APP_TITLE, IsAdmin() ? MessageBoxButtons.OK : MessageBoxButtons.YesNo, MessageBoxIcon.Error);
-                                if (!IsAdmin() && r == DialogResult.Yes)
+                                    APP_TITLE, (low || IsAdmin()) ? MessageBoxButtons.OK : MessageBoxButtons.YesNo, MessageBoxIcon.Error);
+                                if (!low && !IsAdmin() && r == DialogResult.Yes)
                                 {
                                     if (RestartElevated(target)) { Close(); return; }
                                 }
                                 ShowPage(1);
                                 return;
                             }
+                            SetBusy(false); // 安装成功后要恢复按钮，否则"完成"是灰的、点不动
                             _donePath.Text = target;
                             ShowPage(3);
                         }));
