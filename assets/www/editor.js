@@ -226,10 +226,15 @@
   var STORE_KEY = '__bb_projects_v2';
   var LEGACY_KEY = '__editorAutosave_v1';
   var OPEN_KEY = '__bb_open_id'; // 正在编辑的工程，用于从运行预览返回时自动恢复
+  /* 当前构建号：打包脚本会把它同步成手机版的版本号（如 1.0.116.141）。
+     桌面壳不会往 script 上写 ?v=（所以以前首页显示"开发版"），这里作为兜底值。 */
+  var 内置版本号 = '1.0.116.145';
 
   var state = { itemId: null, project: null, curScreenId: null, selectedCompId: null, ws: null, wsInited: false, view: 'design', inLayout: false, newOrient: 'portrait', runMode: 'start',
+    deskView: 'all',     // 电脑宽屏三段页签：'all'（全显）/ 'design'（控件）/ 'blocks'（代码）
     catMode: 'general',  // 代码分类栏上次所在分组：'general' | 'widget'
-    catSel: null };      // 代码分类栏上次选中的分类名（回到代码页时恢复）
+    catSel: null,        // 代码分类栏上次选中的分类名（回到代码页时恢复）
+    codePin: false };    // 代码栏图钉：钉住后电脑端切「控件」页也不收起代码栏（记在本机）
   var loadingWs = false; // 程序化装载代码时抑制变更监听，避免误存半成品
   var DEFAULT_BLOCK_SCALE = 0.68; // 代码默认缩放（原 0.85 偏大，调小）
   var ZOOM_GLOBAL_KEY = '__bb_block_zoom_v1'; // 跨所有 App 记住代码缩放
@@ -808,7 +813,7 @@
       var h = $('edgeHint'); if (h) { h.classList.remove('show'); h.style.transform = ''; }
       var t = e.changedTouches ? e.changedTouches[0] : null, dx = t ? t.clientX - sx : 0, dy = t ? t.clientY - sy : 0;
       if (!(dx > 64 && Math.abs(dx) > Math.abs(dy) * 1.4)) return;
-      var masks = ['createMask', 'colorMask', 'cloudCreateMask', 'cloudManageMask', 'blocklyDialogMask', 'confirmMask', 'exportMask', 'updLogMask', 'modalMask', 'authMask'];
+      var masks = ['createMask', 'colorMask', 'cloudCreateMask', 'cloudManageMask', 'blocklyDialogMask', 'confirmMask', 'exportMask', 'updLogMask', 'modalMask', 'authMask', 'ideaMask'];
       for (var i = 0; i < masks.length; i++) { var m = $(masks[i]); if (m && !m.classList.contains('hidden')) { m.classList.add('hidden'); return; } }
       if (state.inLayout) closeLayout();
     }
@@ -881,6 +886,9 @@
   function showHome() {
     saveCurrentWs(true); persist();
     try { localStorage.removeItem(OPEN_KEY); } catch (e) {}
+    // 从布局页直接返回首页时，布局浮窗必须一起收起来（用户 2026-10-30 报的"回首页浮窗还在"）
+    try { if (state.inLayout) closeLayout(); } catch (e) {}
+    $('viewLayout').classList.add('hidden');
     $('viewEditor').classList.add('hidden');
     $('viewHelp').classList.add('hidden');
     $('viewAccount').classList.add('hidden');
@@ -904,7 +912,8 @@
     try {
       var sc = document.querySelector('script[src*="editor.js?v="]');
       var v = sc ? String(sc.getAttribute('src')).split('?v=')[1] : '';
-      if (!v || v.indexOf('__BUILD__') === 0) return '开发版';
+      // 没打包（桌面壳/开发环境）时不再显示"开发版"，改用当前构建号 —— 用户 2026-10-30 要求
+      if (!v || v.indexOf('__BUILD__') === 0) return 'v' + 内置版本号;
       return 'v' + v;
     } catch (e) { return ''; }
   }
@@ -1867,7 +1876,7 @@
       card.appendChild(el('div', 'pmeta', it.project.screens.length + ' 个页面 · ' + n + ' 个组件\n更新于 ' + fmtTime(it.updatedAt).replace('\n', ' ')));
       card.querySelector('.pmeta').innerHTML = it.project.screens.length + ' 个页面 · ' + n + ' 个组件<br>更新于 ' + fmtTime(it.updatedAt);
       var ops = el('div', 'pops');
-      var open = el('button', null, '打开编辑'), dup = el('button', null, '复制'),
+      var open = el('button', null, '打开'), dup = el('button', null, '复制'),
           del = el('button', 'danger', '删除');
       open.addEventListener('click', function () { openItem(it.id); });
       dup.addEventListener('click', function () { duplicateItem(it.id); });
@@ -2038,8 +2047,16 @@
 
     function 移动(e) {
       if (!拖) {
-        if (Math.abs(e.clientX - 起X) > 9 || Math.abs(e.clientY - 起Y) > 9) 清计时();   // 在滚动列表，不算长按
-        return;
+        var 距 = Math.abs(e.clientX - 起X) + Math.abs(e.clientY - 起Y);
+        // 电脑端鼠标不需要长按：拖动超过 5px 就直接起拖（用户 2026-10-30：「首页卡片拖不动」）
+        if (isDesk() && 距 > 5) {
+          清计时();
+          起拖();
+          if (!拖) return;
+        } else if (距 > 9) {
+          清计时();   // 在滚动列表，不算长按
+          return;
+        }
       }
       指针X = e.clientX; 指针Y = e.clientY;
       if (影子) 影子.style.transform = 'translate3d(' + (e.clientX - 抓x) + 'px,' + (e.clientY - 抓y) + 'px,0) scale(1.02)';
@@ -2122,7 +2139,8 @@
       if (document.querySelector('.mask:not(.hidden)')) return;
       起X = e.clientX; 起Y = e.clientY;
       清计时();
-      计时 = setTimeout(起拖, 480);
+      // 手机端保持"长按 0.48 秒"再拖；电脑端在 pointermove 里一动就起拖（见 移动）
+      if (!isDesk()) 计时 = setTimeout(起拖, 480);
       document.addEventListener('pointermove', 移动);
       document.addEventListener('pointerup', 松手, true);
       document.addEventListener('pointercancel', 松手, true);
@@ -2221,14 +2239,18 @@
     requestAnimationFrame(function () { 同步分段药丸(); requestAnimationFrame(同步分段药丸); });
 
     $('appName').value = it.project.appName || '我的应用';
-    state.view = 'design'; state.inLayout = false;
-    $('viewDesign').classList.remove('hidden'); $('viewBlocks').classList.add('hidden'); $('viewLayout').classList.add('hidden');
+    state.view = 'design'; state.inLayout = false; state.deskView = 'all';
+    $('viewDesign').classList.remove('hidden'); $('viewBlocks').classList.toggle('hidden', !isDesk());
+    $('viewLayout').classList.add('hidden');
+    $('tabAll').classList.toggle('on', !!isDesk());
     $('tabDesign').classList.add('on'); $('tabBlocks').classList.remove('on');
     var _bl = $('btnLayout'); if (_bl) _bl.classList.remove('on');
     closeMenus();
     renderTabs(); renderCompList(); syncOrientSeg();
     if (state.wsInited) loadScreenToWs(curScreen());
     requestWsResize();
+    // 电脑宽屏：代码栏一进来就要能看见，工作区得先建好（否则 Blockly 空白）
+    if (isDesk()) { syncDeskTabLabels(true); applyDeskView(); initWorkspace(); }
     // 从试运行返回时恢复到运行前所在页（设计/代码），一次性消费，避免影响正常打开
     try {
       var retView = localStorage.getItem('__previewReturnView');
@@ -2527,6 +2549,9 @@
 
   /* ---------------- 工具 ---------------- */
   function curScreen() {
+    // 工程还没打开（页面刚重载、首页停留）时会被后台的 resize 定时器调到，
+    // 原来直接读 state.project.screens 会抛 TypeError（回归日志里的 "reading 'screens' of null"）
+    if (!state.project || !state.project.screens || !state.project.screens.length) return null;
     for (var i = 0; i < state.project.screens.length; i++)
       if (state.project.screens[i].id === state.curScreenId) return state.project.screens[i];
     return state.project.screens[0];
@@ -2575,6 +2600,16 @@
       return [n, c.id];
     });
     if (!out.length) out.push(['（请先在设计里添加对应组件）', 'NONE']);
+    /* 控件卡片点「</>」后指定的"默认控件"排到第一位：
+       Blockly 新建块（从浮层拖出来、复制、粘贴）时，控件下拉没有显式值时**取第一项**，
+       所以把它挪到最前面，新块默认就是它（用户 2026-10-31 要求的"下拉默认切到属于这个的控件"）。
+       已有的代码块不受影响：refresh 时按 id 保留原值，顺序变了下拉里的文字照样对。 */
+    var 默认 = state.preferComp && state.preferComp.id;
+    if (默认 && out.length) {
+      var 位 = -1;
+      for (var i = 0; i < out.length; i++) if (out[i] && out[i][1] === 默认) { 位 = i; break; }
+      if (位 > 0) out.unshift(out.splice(位, 1)[0]);
+    }
     return out;
   };
   window.__pageOptions = function () {
@@ -2600,6 +2635,7 @@
   }
   /** 布局页实际使用的方向 */
   function layoutOrient() {
+    if (isDesk()) return curOrient();        // 电脑端没有「如何预览」设置，永远跟页面走
     var m = layoutOrientMode();
     return (m === 'portrait' || m === 'landscape') ? m : curOrient();
   }
@@ -2613,6 +2649,7 @@
       if (ck) ck.textContent = on ? '✓' : '';
     });
     syncPreviewBorderMenu();
+    syncLayBorderBtn();
   }
   /* 「控件在预览时是否显示边框」：布局页预览里给每个控件描一圈细线，
      方便看清透明/空白控件的实际范围。只影响布局页预览，不进运行/导出。
@@ -2638,6 +2675,7 @@
   function setPreviewBorder(on) {
     try { localStorage.setItem(PREVIEW_BORDER_KEY, on ? '1' : '0'); } catch (e) {}
     syncPreviewBorderMenu();
+    syncLayBorderBtn();
     applyPreviewBorder();
   }
   function curShowSB() { var s = curScreen(); return !s || s.showStatusBar !== false; }
@@ -2656,8 +2694,7 @@
     var cur = curScreen();
     var btn = $('btnScreenMenu');
     if (btn) btn.textContent = (cur.title || cur.id) + ' ▾';
-    var pt = $('morePageTitle');
-    if (pt && document.activeElement !== pt) pt.value = cur.title || '';
+    // 「更多」菜单里的页面名输入框已删除（改名改到「页面 ▾」里的 ✎）
     if (state.inLayout) renderLayout();
   }
   /** 时钟控件在「设计/布局」页显示的示例文字（运行时由 runtime.js 自己走秒） */
@@ -2698,6 +2735,8 @@
   }
   function renderCompList() {
     var sc = curScreen(), box = $('compList'); box.innerHTML = '';
+    // 代码下拉的"默认控件"已经不存在（删了/换了工程）→ 清掉，别让工具箱指向幽灵 id
+    if (state.preferComp && !找控件(state.preferComp.id)) state.preferComp = null;
     // 空列表不额外放提示文案（保持界面干净）
     function 建卡片(c, 是子控件, 父) {
       var meta = TYPE_META[c.type];
@@ -2746,16 +2785,41 @@
       });
       var d = el('button', 'iconbtn', '×');
       d.addEventListener('click', function (e) { e.stopPropagation(); delComp(c.id); });
-      ops.appendChild(eye); ops.appendChild(d);
+      // 删除按钮右边：一个「代码」小按钮 —— 点它直接切到代码栏，并把这个控件对应的代码类选出来
+      var cb = el('button', 'iconbtn code', '</>');
+      cb.title = '查看这个控件的代码类';
+      cb.setAttribute('aria-label', cb.title);
+      cb.addEventListener('click', function (e) {
+        e.stopPropagation();
+        state.selectedCompId = c.id;
+        try {
+          renderCompList();
+          // 点「</>」只是把右侧代码栏的对应分类选出来，不要顺手弹出属性面板（用户 2026-10-31）
+          var pp = $('propPanel'); if (pp) { pp.classList.add('hidden'); pp.innerHTML = ''; }
+        } catch (err) { }
+        /* 分类栏按**控件类型**对齐（工具箱里的控件代码分类叫「文字 / 输入框 / 图片…」，
+           不是控件的显示名 —— 以前用 compName(c)（可能带 "(text2)"）永远匹配不上分类，
+           点完什么都不会选中，用户 2026-10-31 截图指出来的就是这个）。 */
+        var 类名 = (TYPE_META[c.type] && TYPE_META[c.type].label) || null;
+        state.catMode = 'widget';                       // 切到「控件代码」那一栏
+        state.catSel = 类名;
+        state.preferComp = 类名 ? { cat: 类名, id: c.id } : null;   // 该类代码下拉默认指向这个控件
+        /* 电脑端**不能**切成"只显示代码"（用户 2026-10-31 明确不允许）：
+           点「</>」只是把右侧代码栏展开，左边的控件列表要留着（就是截图里那种三栏并排）。
+           手机端没有并排布局，仍然切到整页代码。 */
+        try { showView(isDesk() ? 'all' : 'blocks'); } catch (err) { }
+        try { 同步预览选中(c.id); } catch (err) { }
+      });
+      ops.appendChild(eye); ops.appendChild(d); ops.appendChild(cb);
       card.appendChild(main); card.appendChild(ops);
-      // 长按卡片拖拽：顶层卡片上下换位 / 拖到容器卡片上放进去；
-      // 容器里的子卡片可在兄弟之间换位，拖出父卡片所在区域就放回页面顶层
-      bindCardReorder(card, c.id, 是子控件 ? 父 : null);
+      // 拖拽换位用首页那一套自研引擎（见 bindCompReorder）；单卡同时保留点击选中
       card.addEventListener('click', onTap(function (e) {
         e.stopPropagation();
         if (cardReorder.justEnded()) return;   // 长按拖拽松手后的残余 click 不触发选中
         state.selectedCompId = c.id; renderCompList(); renderPropPanel();
+        同步预览选中(c.id);          // 列表里点选 → 预览页同步高亮（双向联动）
       }));
+      try { bindCompReorder(card); } catch (err) {}
       return card;
     }
     sc.components.forEach(function (c, idx) {
@@ -2767,6 +2831,8 @@
     });
     renderPropPanel();
     refreshCompDropdowns();   // 组件改名/增删/排序/改文字后，同步刷新代码里的控件下拉名称
+    排期刷新分类();          // 电脑端：某类控件删光后，代码栏分类要跟着消失（手机端不受影响）
+    适配控件列数();          // 电脑端：控件卡片按设计区宽度排 1/2/3 列（手机端不受影响）
   }
   function selectedComp() {
     if (!state.selectedCompId) return null;
@@ -2858,16 +2924,116 @@
     sc.components.splice(i, 0, c);
     return true;
   }
-  function addComponent(type) {
-    var sc = curScreen(), base = { id: genId(type), type: type };
+  /* 新建控件的默认数据（点击添加 / 拖拽添加共用同一份，避免两处默认值走偏） */
+  function 新建控件(type) {
+    var base = { id: genId(type), type: type };
     // 默认属性必须**拷一份**：def 里的 children/items 是数组，直接引用会让所有同类控件共用同一个数组
     // （2026-10-29 抓到：新建的第二个容器会带上第一个容器里的全部子控件）
     var def = clone(COMPONENT_DEFAULTS[type] || {});
     Object.keys(def).forEach(function (k) { base[k] = def[k]; });
     var ns = naturalSize(type, base);           // 按自身内容给紧凑初始尺寸，不再一创建就占满整行
     base.w = ns.w; if (ns.h) base.h = ns.h;
-    sc.components.unshift(base); state.selectedCompId = base.id;   // 新控件插到最上面
+    return base;
+  }
+  function addComponent(type) {
+    var base = 新建控件(type);
+    curScreen().components.unshift(base); state.selectedCompId = base.id;   // 新控件插到最上面
     renderCompList(); if (state.inLayout) renderLayout(); autosave();
+  }
+  /* ---------------- 控件库拖拽（仅电脑端） ----------------
+     拖住左侧控件库按钮：
+       · 在控件列表某一行松手 → 新控件插到那一行（列表顺序改变，坐标交给自动排列顺排）
+       · 在布局预览窗口松手 → 按落点换算成页面坐标，直接摆在那里
+     没拖动（位移很小）仍然是普通点击添加，点击行为一个字没变。 */
+  var addDragEndAt = 0;
+  /** 把新控件插进列表的指定位置（不写 x/y → 由自动排列顺排） */
+  function 插入控件(type, list, idx) {
+    var base = 新建控件(type);
+    idx = Math.max(0, Math.min(list.length, idx));
+    list.splice(idx, 0, base);
+    state.selectedCompId = base.id;
+    renderCompList(); if (state.inLayout) renderLayout(); autosave();
+    return base;
+  }
+  /** 拖到预览舞台：落点换算成设计坐标，控件居中放在指针处（四边夹进画布内） */
+  function 放到舞台(type, cx, cy) {
+    var stage = $('layStage');
+    if (!stage || !state.inLayout) return false;
+    var sr = stage.getBoundingClientRect();
+    if (sr.width < 2) return false;
+    if (cx < sr.left || cx > sr.right || cy < sr.top || cy > sr.bottom) return false;
+    var base = 新建控件(type);
+    var k = stageScale() || 1, ds = designSize();
+    var w = validN(base.w) ? base.w : defaultSize(base).w;
+    var h = validN(base.h) ? base.h : defaultSize(base).h;
+    base.x = Math.round(clampNum((cx - sr.left) / k - w / 2, 0, Math.max(0, ds.w - w)));
+    base.y = Math.round(clampNum((cy - sr.top) / k - h / 2, 0, Math.max(0, ds.h - h)));
+    curScreen().components.unshift(base);
+    state.selectedCompId = base.id;
+    renderLayout(); renderCompList(); autosave();
+    return true;
+  }
+  /** 拖到控件列表：落在哪一行就插到那一行（落在子控件行 → 插进它所在的容器） */
+  function 放到列表(type, x, y) {
+    var under = document.elementFromPoint(x, y);
+    if (!under || !under.closest) return false;
+    var card = under.closest('.compcard');
+    var inList = under.id === 'compList' || !!under.closest('#compList');
+    if (!card && !inList) return false;
+    var list = curScreen().components, idx = list.length;
+    if (card && card.dataset.id) {
+      var 源 = 找控件(card.dataset.id);
+      if (源) { list = 源.list; idx = 源.index; }
+    }
+    插入控件(type, list, idx);
+    return true;
+  }
+  function 绑定控件库拖拽(btn) {
+    var pid = null, sx = 0, sy = 0, dragging = false, ghost = null;
+    function 建幽灵() {
+      var meta = TYPE_META[btn.getAttribute('data-add')] || {};
+      ghost = el('div', 'add-ghost', meta.label || '控件');
+      document.body.appendChild(ghost);
+    }
+    function 摆幽灵(x, y) { if (ghost) { ghost.style.left = x + 'px'; ghost.style.top = y + 'px'; } }
+    function 收幽灵() {
+      if (ghost) { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); ghost = null; }
+      document.body.classList.remove('add-dragging');
+    }
+    function 松手(e) {
+      if (pid === null) return;
+      var 是拖 = dragging;
+      pid = null; dragging = false; 收幽灵();
+      try { btn.releasePointerCapture(e.pointerId); } catch (err) {}
+      if (!是拖) return;                       // 没拖 → 交给 click 正常添加
+      addDragEndAt = Date.now();               // 抑制松手后那次残余 click
+      var type = btn.getAttribute('data-add');
+      if (!放到舞台(type, e.clientX, e.clientY) && !放到列表(type, e.clientX, e.clientY)) {
+        snack('松手位置不在控件列表或预览窗口');
+      }
+    }
+    btn.addEventListener('pointerdown', function (e) {
+      if (!isDesk() || (e.button !== undefined && e.button !== 0)) return;
+      if (pid !== null) return;
+      pid = e.pointerId; sx = e.clientX; sy = e.clientY; dragging = false;
+      try { btn.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    btn.addEventListener('pointermove', function (e) {
+      if (pid === null || e.pointerId !== pid) return;
+      if (!dragging) {
+        if (Math.abs(e.clientX - sx) < 7 && Math.abs(e.clientY - sy) < 7) return;
+        dragging = true;
+        document.body.classList.add('add-dragging');
+        建幽灵();
+      }
+      摆幽灵(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    btn.addEventListener('pointerup', 松手);
+    btn.addEventListener('pointercancel', function () {
+      if (pid === null) return;
+      pid = null; dragging = false; 收幽灵();
+    });
   }
   function moveComp(idx, dir) {
     var arr = curScreen().components, j = idx + dir;
@@ -2882,6 +3048,8 @@
       active: function () { return !!dragId; },
       start: function (id) { dragId = id; },
       stop: function () { dragId = null; endedAt = Date.now(); },
+      /** 起拖后没有真正移动就松手：只清状态，不记"刚拖完"（否则会把这次点击吞掉） */
+      abort: function () { dragId = null; },
       justEnded: function () { return Date.now() - endedAt < 450; }
     };
   })();
@@ -2893,253 +3061,370 @@
   document.addEventListener('touchmove', function (e) {
     if (railDragActive && e.target.closest && e.target.closest('#bbCats')) e.preventDefault();
   }, { passive: false, capture: true });
-  function bindCardReorder(card, compId, 父) {
-    var box = $('compList');
-    var armTimer = null, dragging = false, startX = 0, startY = 0, grabY = 0, ph = null, fromIdx = -1, edgeDir = 0, edgeRaf = 0;
-    var 落点容器 = null;                       // 顶层卡片：松手时如果指在某个容器上，就放进它
-    // 子卡片：父卡片上沿往上 8px、最后一张子卡片下沿再往下 24px，出了这个范围就算"拖出容器"
-    var 拖出 = false, 出方向 = 0, 块顶 = 0, 块底 = 0, 父卡 = null;
-    function clearArm() { if (armTimer) { clearTimeout(armTimer); armTimer = null; } }
-    /* 手指指到哪个容器身上了：指容器卡片本身、或指容器里的子卡片，都算落在这个容器上。
-       拖动中的卡片被设了 pointer-events:none，所以这里"摸"到的是它下面的卡片。 */
-    function 拖到哪个容器(x, y) {
-      var n = document.elementFromPoint(x, y);
-      var cc = n && n.closest ? n.closest('.compcard') : null;
-      if (!cc || !cc.dataset.id) return null;
-      if (cc.dataset.id === compId) return null;
-      var 源 = 找控件(cc.dataset.id);
-      if (!源) return null;
-      if (源.parent) return 源.parent;
-      return 是容器(源.c) ? 源.c : null;
+  /**
+   * 控件列表拖动换位 —— **一比一照搬首页作品卡（bindHomeReorder）那一套**（用户 2026-10-31 要求）。
+   *
+   * 首页那套已经稳定，所以这里不再用 Sortable，直接复刻它的手势与视觉：
+   *  · 拖动期间一棵 DOM 都不动：起拖时把所有格子的几何量下来（内容坐标，含 scrollTop）；
+   *  · 被拖的卡留在格子里但 visibility:hidden（照样占位），跟手的是一个 fixed 克隆影子；
+   *  · 别的卡让位只写 transform（.comp-shift，180ms），布局一次都不重排；
+   *  · 落点 = 指针所在格子；落在间隙才按最近的格子算，跨边界才换一次，不会抖；
+   *  · 手指贴在列表上下边缘时自动滚屏（rAF），被挡住的卡也拖得过去；
+   *  · 松手：影子先滑到目标格再收，数据按**槽位顺序**换算，下一帧才重画。
+   * 业务语义保持原样：顶层上下换位、拖到容器/子卡上放进容器、拖出容器回顶层。
+   */
+  var compDrag = null;
+
+  function bindCompReorder(card) {
+    var 计时 = null, 拖 = false;
+    var 起X = 0, 起Y = 0, 抓x = 0, 抓y = 0;
+    var 指针X = 0, 指针Y = 0, 滚RAF = 0;
+    var 影子 = null, 占位 = null, 槽 = null, 卡们 = null, 拖位 = 0, 目标 = -1;
+    var 落点 = null;
+
+    function 清计时() { if (计时) { clearTimeout(计时); 计时 = null; } }
+    function 拦滚动(e) { if (拖 && e.cancelable) e.preventDefault(); }
+    function 列表() { return $('compList'); }
+    function 可滚容器() {
+      var n = 列表();
+      return (n && n.scrollHeight > n.clientHeight + 4) ? n : null;
     }
-    function 标容器高亮(容器) {
+    function 是卡(n) {
+      return !!(n && n.nodeType === 1 && n.classList && n.classList.contains('compcard') && n !== 影子);
+    }
+    function 亮容器(id) {
+      var box = 列表(); if (!box) return;
       Array.prototype.forEach.call(box.querySelectorAll('.compcard.drop-in'), function (n) { n.classList.remove('drop-in'); });
-      if (!容器) return;
-      var 卡 = box.querySelector('.compcard[data-id="' + 容器.id + '"]');
-      if (卡) 卡.classList.add('drop-in');
+      if (!id) return;
+      var k = box.querySelector('.compcard[data-id="' + id + '"]');
+      if (k) k.classList.add('drop-in');
     }
-    function 标父块(on) { if (父卡) 父卡.classList.toggle('drop-out', !!on); }
-    /** 当前容器里的兄弟卡片（不含正在浮动的这张） */
-    function 兄弟卡() {
-      return Array.prototype.slice.call(box.querySelectorAll('.compcard[data-parent="' + 父.id + '"]:not(.reordering)'));
-    }
-    /** 按手指位置把占位符挪到 others 里的第 target 位，并用 FLIP 让其他卡片平滑让位 */
-    function 排位(e, others) {
-      var target = others.length;
-      for (var i = 0; i < others.length; i++) {
-        var r = others[i].getBoundingClientRect();
-        if (e.clientY < r.top + r.height / 2) { target = i; break; }
-      }
-      var ref;
-      if (target < others.length) ref = others[target];
-      else if (父) ref = (others.length ? others[others.length - 1].nextSibling : (父卡 ? 父卡.nextSibling : null)) || card;
-      else ref = card;                       // 顶层插到最后：位于浮动的卡片之前
-      if (ref === ph) return;                // 已经在这个位置
-      others.forEach(function (o) { o.style.transition = 'none'; });
-      var first = others.map(function (o) { return o.getBoundingClientRect().top; });
-      box.insertBefore(ph, ref || card);
-      others.forEach(function (o) { o.style.transform = ''; });
-      void box.offsetHeight;   // 强制 reflow，得到去 transform 后的新布局位置
-      var last = others.map(function (o) { return o.getBoundingClientRect().top; });
-      others.forEach(function (o, i) {
-        var d = first[i] - last[i];
-        if (Math.abs(d) > 0.5) o.style.transform = 'translateY(' + d + 'px)';
-      });
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          others.forEach(function (o) {
-            o.style.transition = 'transform .22s cubic-bezier(.2,0,0,1)';
-            o.style.transform = '';
-          });
-        });
-      });
-    }
-    function beginDrag(downE) {
-      var 源 = 找控件(compId);
-      if (!源) return;
-      fromIdx = 源.index;
-      dragging = true; cardReorder.start(compId);
-      落点容器 = null; 拖出 = false; 出方向 = 0;
-      var r = card.getBoundingClientRect();
-      grabY = startY - r.top;
-      if (父) {
-        // 边界在起拖这一刻量好（此时被拖的这张还在原位），拖动中占位符挪来挪去也不会让边界乱跳
-        父卡 = box.querySelector('.compcard[data-id="' + 父.id + '"]');
-        var pr = 父卡 ? 父卡.getBoundingClientRect() : null;
-        块顶 = pr ? pr.top - 8 : 0;
-        var 底 = pr ? pr.bottom : 0;
-        Array.prototype.forEach.call(box.querySelectorAll('.compcard[data-parent="' + 父.id + '"]'), function (n) {
-          var nr = n.getBoundingClientRect();
-          if (nr.bottom > 底) 底 = nr.bottom;
-        });
-        块底 = 底 + 24;
-      } else { 父卡 = null; }
-      ph = el('div', 'compcard-reph');
-      ph.style.height = r.height + 'px';
-      card.classList.add('reordering');
-      card.style.pointerEvents = 'none';   // 让下面的卡片能被"摸"到，否则永远只摸到拖着的这张
-      card.style.width = r.width + 'px';
-      card.style.left = r.left + 'px';
-      card.style.top = (downE.clientY - grabY) + 'px';
-      card.parentNode.insertBefore(ph, card);   // 占位符先接管原位，再把卡片浮起来放到末位
-      box.appendChild(card);
-      try { if (navigator.vibrate) navigator.vibrate(15); } catch (err) {}
-    }
-    function onDown(e) {
-      if (e.button !== undefined && e.button !== 0) return;
-      if (e.target.closest && e.target.closest('button')) return;   // 显隐/删除按钮不触发
-      if (document.querySelector('.mask:not(.hidden)')) return;
-      dragging = false; edgeDir = 0;
-      startX = e.clientX; startY = e.clientY;
-      clearArm();
-      armTimer = setTimeout(function () { beginDrag(e); }, 300);
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', onUp, true);
-      document.addEventListener('pointercancel', onUp, true);
-    }
-    function edgeTick() {
-      if (!dragging || !edgeDir) { edgeRaf = 0; return; }
-      var 前 = box.scrollTop;
-      box.scrollTop += edgeDir * 9;
-      var 差 = box.scrollTop - 前;
-      if (差) { 块顶 -= 差; 块底 -= 差; }   // 列表滚了，屏幕上量的边界跟着走
-      edgeRaf = requestAnimationFrame(edgeTick);
-    }
-    function onMove(e) {
-      if (!dragging) {
-        // 长按生效前手指移动超过阈值 => 判定为滚动列表，取消长按
-        if (Math.abs(e.clientX - startX) > 9 || Math.abs(e.clientY - startY) > 9) clearArm();
-        return;
-      }
-      e.preventDefault();
-      card.style.top = (e.clientY - grabY) + 'px';
-      if (父) {
-        // 容器里的子卡片：还在父块里就和其他子卡片换位，拖出父块就准备放回页面顶层
-        var 上 = e.clientY < 块顶, 下 = e.clientY > 块底;
-        var 新拖出 = 上 || 下;
-        if (新拖出 !== 拖出) {
-          拖出 = 新拖出;
-          出方向 = 上 ? -1 : (下 ? 1 : 0);
-          标父块(拖出);
-          if (ph) ph.style.display = 拖出 ? 'none' : '';
-        }
-        if (!拖出) 排位(e, 兄弟卡());
-      } else {
-        // 指在容器身上时不排位，只把容器点亮，松手就放进去
-        落点容器 = 拖到哪个容器(e.clientX, e.clientY);
-        标容器高亮(落点容器);
-        if (落点容器) {
-          if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
-          edgeDir = 0;
-          return;
-        }
-        排位(e, Array.prototype.slice.call(box.querySelectorAll('.compcard:not(.reordering):not(.is-child)')));
-      }
+
+    /** 起拖：量格子、放影子、铺虚线占位 */
+    function 起拖() {
+      计时 = null;
+      var box = 列表();
+      if (!box || 拖) return;
+      卡们 = Array.prototype.slice.call(box.children).filter(是卡);
+      if (卡们.length < 2) { 卡们 = null; return; }
+      拖位 = 卡们.indexOf(card);
+      if (拖位 < 0) { 卡们 = null; return; }
       var br = box.getBoundingClientRect();
-      edgeDir = e.clientY < br.top + 34 ? -1 : (e.clientY > br.bottom - 34 ? 1 : 0);
-      if (edgeDir && !edgeRaf) edgeRaf = requestAnimationFrame(edgeTick);
+      var sl = box.scrollLeft || 0, st = box.scrollTop || 0;
+      槽 = 卡们.map(function (n) {
+        var r = n.getBoundingClientRect();
+        return { l: r.left - br.left + sl, t: r.top - br.top + st, w: r.width, h: r.height };
+      });
+      var r = card.getBoundingClientRect();
+      抓x = 起X - r.left; 抓y = 起Y - r.top;
+      拖 = true; 目标 = -1; 落点 = null;
+      card.classList.add('comp-holding');
+      影子 = card.cloneNode(true);
+      影子.removeAttribute('data-id');
+      影子.className = 'compcard comp-ghost';
+      影子.style.cssText = 'width:' + r.width + 'px;height:' + r.height + 'px';
+      影子.style.transform = 'translate3d(' + r.left + 'px,' + r.top + 'px,0) scale(1.02)';
+      document.body.appendChild(影子);
+      占位 = el('div', 'comp-slot');
+      占位.style.left = 槽[拖位].l + 'px';
+      占位.style.top = 槽[拖位].t + 'px';
+      占位.style.width = 槽[拖位].w + 'px';
+      占位.style.height = 槽[拖位].h + 'px';
+      box.appendChild(占位);
+      for (var i = 0; i < 卡们.length; i++) if (卡们[i] !== card) 卡们[i].classList.add('comp-shift');
+      指针X = 起X; 指针Y = 起Y;
+      document.addEventListener('touchmove', 拦滚动, { passive: false });
+      滚一步();
+      cardReorder.start(card.dataset.id);
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
     }
-    function onUp() {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp, true);
-      document.removeEventListener('pointercancel', onUp, true);
-      clearArm();
-      if (edgeRaf) { cancelAnimationFrame(edgeRaf); edgeRaf = 0; }
-      if (!dragging) return;
-      dragging = false;
-      标容器高亮(null); 标父块(false);
 
-      // —— 容器里的子卡片 ——
-      if (父) {
-        if (拖出) {
-          var 方向 = 出方向;
-          if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-          cardReorder.stop();
-          var sc0 = curScreen();
-          var 父位置 = sc0.components.indexOf(父);
-          var at = (父位置 < 0 ? 0 : 父位置) + (方向 > 0 ? 1 : 0);   // 往上拖放到容器前，往下拖放到容器后
-          if (移出容器(compId, at)) {
-            renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已移出容器');
-          } else {
-            renderCompList();
-          }
+    /** 指针落点对应的格子（0..n-1）：点在格子里就取它，落在间隙才按最近的格子算 */
+    function 命中格(x, y) {
+      if (!槽 || !槽.length) return -1;
+      var box = 列表();
+      if (!box) return -1;
+      var br = box.getBoundingClientRect();
+      var px = x - br.left + (box.scrollLeft || 0), py = y - br.top + (box.scrollTop || 0);
+      for (var i = 0; i < 槽.length; i++) {
+        var s = 槽[i];
+        if (px >= s.l && px <= s.l + s.w && py >= s.t && py <= s.t + s.h) return i;
+      }
+      var 最近 = Infinity, 最好 = 0;
+      for (var j = 0; j < 槽.length; j++) {
+        var t = 槽[j], dx = px - (t.l + t.w / 2), dy = py - (t.t + t.h / 2);
+        var d = dx * dx + dy * dy;
+        if (d < 最近) { 最近 = d; 最好 = j; }
+      }
+      return 最好;
+    }
+
+    /** 把占位块和别的卡片挪到目标格对应的位置（只改 transform，不重排布局） */
+    function 排位(x, y) {
+      if (!拖 || !槽) return;
+      var 格 = 命中格(x, y);
+      if (格 < 0 || 格 === 目标) return;
+      目标 = 格;
+      var s = 槽[格];
+      if (占位) { 占位.style.left = s.l + 'px'; 占位.style.top = s.t + 'px'; }
+      var k = 0;
+      for (var i = 0; i < 卡们.length; i++) {
+        var n = 卡们[i];
+        if (n === card) continue;
+        var 到 = 槽[k + (k >= 格 ? 1 : 0)], 起 = 槽[i];
+        k++;
+        if (!到) { n.style.transform = ''; continue; }
+        var dx = 到.l - 起.l, dy = 到.t - 起.t;
+        n.style.transform = (dx || dy) ? 'translate3d(' + dx + 'px,' + dy + 'px,0)' : '';
+      }
+    }
+
+    /** 指针贴在列表上下边缘就持续滚屏，否则被挡住的卡永远拖不过去 */
+    function 滚一步() {
+      滚RAF = 0;
+      if (!拖) return;
+      var sc = 可滚容器();
+      if (sc) {
+        var 高 = window.innerHeight || document.documentElement.clientHeight;
+        var 边 = Math.max(60, Math.min(120, 高 * .14));
+        var v = 0;
+        if (指针Y < 边) v = -Math.max(5, Math.round((边 - 指针Y) / 边 * 16));
+        else if (指针Y > 高 - 边) v = Math.max(5, Math.round((指针Y - (高 - 边)) / 边 * 16));
+        if (v) {
+          var 先前 = sc.scrollTop;
+          sc.scrollTop = 先前 + v;
+          if (sc.scrollTop !== 先前) 排位(指针X, 指针Y);
+        }
+      }
+      滚RAF = requestAnimationFrame(滚一步);
+    }
+
+    function 移动(e) {
+      if (!拖) {
+        var 距 = Math.abs(e.clientX - 起X) + Math.abs(e.clientY - 起Y);
+        // 电脑端鼠标不需要长按：拖动超过 5px 就直接起拖；手机端靠 480ms 长按（和首页一致）
+        if (isDesk() && 距 > 5) {
+          清计时();
+          起拖();
+          if (!拖) return;
+        } else if (距 > 9) {
+          清计时();
           return;
         }
-        // 容器内换位：按占位符在兄弟卡片里的先后算新下标
-        var to = 0;
-        for (var i = 0; i < box.children.length; i++) {
-          var n = box.children[i];
-          if (n === ph) break;
-          if (n.classList && n.classList.contains('compcard') && !n.classList.contains('reordering') &&
-              n.dataset.parent === String(父.id)) to++;
+      }
+      指针X = e.clientX; 指针Y = e.clientY;
+      if (影子) 影子.style.transform = 'translate3d(' + (e.clientX - 抓x) + 'px,' + (e.clientY - 抓y) + 'px,0) scale(1.02)';
+      排位(e.clientX, e.clientY);
+      // 顶层（非容器）拖到容器卡/子卡上 → 高亮容器，松手就放进去（子卡不做"放进别的容器"）
+      var 源 = 找控件(card.dataset.id);
+      var 落 = null;
+      if (源 && !源.parent && !是容器(源.c)) {
+        var over = document.elementFromPoint(e.clientX, e.clientY);
+        var cc = over && over.closest ? over.closest('.compcard') : null;
+        if (cc && cc.dataset.id && cc.dataset.id !== card.dataset.id) {
+          var 源2 = 找控件(cc.dataset.id);
+          if (源2) 落 = 源2.parent || (是容器(源2.c) ? 源2.c : null);
         }
-        var 子起飞 = null, 子落点 = null;
-        try { 子落点 = ph ? ph.getBoundingClientRect() : null; 子起飞 = card.getBoundingClientRect(); } catch (e) {}
-        if (子落点 && 子起飞) {
-          card.style.transition = 'transform .19s cubic-bezier(.2,0,0,1), opacity .19s ease, box-shadow .19s ease';
-          card.style.transform = 'translateY(' + Math.round(子落点.top - 子起飞.top) + 'px) scale(1)';
-          card.style.opacity = '1';
-          card.style.boxShadow = '0 4px 12px rgba(0,0,0,.12)';
+        if (落 && 落.id === card.dataset.id) 落 = null;
+      }
+      if (落 !== 落点) { 落点 = 落; 亮容器(落 ? 落.id : null); }
+    }
+
+    function 松手() {
+      document.removeEventListener('pointermove', 移动);
+      document.removeEventListener('pointerup', 松手, true);
+      document.removeEventListener('pointercancel', 松手, true);
+      document.removeEventListener('touchmove', 拦滚动);
+      清计时();
+      if (滚RAF) { cancelAnimationFrame(滚RAF); 滚RAF = 0; }
+      if (!拖) return;
+      拖 = false;
+      var box = 列表();
+      var 旧卡们 = 卡们 || [];
+      var 影 = 影子, 槽块 = 占位, 落 = 落点;
+      影子 = null; 占位 = null; 落点 = null;
+      var 格 = 目标 >= 0 ? 目标 : 拖位;
+      var 目标槽 = (槽 && 槽[格]) ? 槽[格] : null;
+
+      if (槽块 && 槽块.parentNode) 槽块.remove();
+      var 动了 = !(格 === 拖位 && !落);
+      /* 落点动画：影子从手指位置滑到目标格，滑完才显示真卡（否则就是"松手瞬移"）。
+         让位 transform 也要等这一刻再清：先清再滑，别的卡会先弹回原位，看着就是"抖一下"。 */
+      var 收尾 = function () {
+        if (影 && 影.parentNode) 影.remove();
+        for (var k2 = 0; k2 < 旧卡们.length; k2++) {
+          旧卡们[k2].classList.remove('comp-shift');
+          旧卡们[k2].style.transform = '';
         }
-        setTimeout(function () {
-          if (to !== fromIdx && fromIdx >= 0 && 父.children) {
-            var 挪 = 父.children.splice(fromIdx, 1)[0];
-            if (挪) 父.children.splice(Math.min(to, 父.children.length), 0, 挪);
-          }
-          cardReorder.stop();
-          renderCompList(); if (state.inLayout) renderLayout(); autosave();
-        }, 190);
-        return;
+        card.classList.remove('comp-holding');
+        if (动了) setTimeout(function () { try { renderCompList(); if (state.inLayout) renderLayout(); } catch (e) {} }, 0);
+      };
+      if (影 && 影.parentNode && 目标槽 && box) {
+        var br2 = box.getBoundingClientRect();
+        var 目标X = br2.left + 目标槽.l - (box.scrollLeft || 0);
+        var 目标Y = br2.top + 目标槽.t - (box.scrollTop || 0);
+        var 完了 = false;
+        var 落定 = function () { if (完了) return; 完了 = true; 收尾(); };
+        影.style.transition = 'transform .2s cubic-bezier(.2,0,0,1), box-shadow .2s ease, opacity .2s ease';
+        void 影.offsetWidth;
+        影.style.transform = 'translate3d(' + 目标X + 'px,' + 目标Y + 'px,0) scale(1)';
+        影.style.boxShadow = '0 4px 14px rgba(0,0,0,.16)';
+        影.addEventListener('transitionend', 落定);
+        setTimeout(落定, 260);
+      } else {
+        收尾();
       }
 
-      // —— 顶层卡片：指在容器上 → 放进容器（不走排序） ——
-      if (落点容器) {
-        var 目标 = 落点容器; 落点容器 = null;
-        if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-        cardReorder.stop();
-        if (移入容器(compId, 目标.id)) {
-          renderCompList(); if (state.inLayout) renderLayout(); autosave(); snack('已放进容器');
-        } else {
-          renderCompList();
-        }
+      // 没真的移动、也没落到容器上 → 这是一次普通点击：不写数据、不吞 click
+      if (!动了) { cardReorder.abort(); 卡们 = null; 槽 = null; 目标 = -1; return; }
+      cardReorder.stop();
+      window.__compDragGuardUntil = Date.now() + 500;
+      卡们 = null; 槽 = null; 目标 = -1;
+      try { 控件落位(card, 旧卡们, 格, 落); } catch (e) {}
+    }
+
+    card.addEventListener('pointerdown', function (e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest && e.target.closest('button')) return;   // 卡片上的按钮不参与拖动
+      if (document.querySelector('.mask:not(.hidden)')) return;
+      起X = e.clientX; 起Y = e.clientY;
+      清计时();
+      if (!isDesk()) 计时 = setTimeout(起拖, 480);
+      document.addEventListener('pointermove', 移动);
+      document.addEventListener('pointerup', 松手, true);
+      document.addEventListener('pointercancel', 松手, true);
+    });
+  }
+  /**
+   * 松手后的数据落位：**不看 DOM**，只看拖拽开始时记下的槽位顺序（卡们）。
+   * 这样重画前 DOM 一直是干净的，也不会有"第二次拖拽不触发"这类收尾问题。
+   * 格 = 目标槽位（已移除自己后的插入下标）。
+   */
+  function 控件落位(card, 卡们, 格, 落点容器) {
+    var id = card && card.dataset && card.dataset.id;
+    var 源 = id ? 找控件(id) : null;
+    if (!源) return;
+    // ① 顶层卡片指在容器/子卡上 → 放进容器
+    if (!源.parent && 落点容器) {
+      if (移入容器(id, 落点容器.id)) { autosave(); snack('已放进容器'); return; }
+    }
+    // ② 新顺序（移除自己后插到第 格 位）
+    var 新顺序 = 卡们.filter(function (n) { return n !== card; });
+    新顺序.splice(Math.max(0, Math.min(格, 新顺序.length)), 0, card);
+    function 前同类(判断) {
+      var n = 0;
+      for (var i = 0; i < 新顺序.length; i++) {
+        if (新顺序[i] === card) break;
+        if (判断(新顺序[i])) n++;
+      }
+      return n;
+    }
+    if (源.parent) {
+      var 父 = 源.parent;
+      var 位 = 新顺序.indexOf(card);
+      var 前卡 = 位 > 0 ? 新顺序[位 - 1] : null;
+      var 后卡 = 位 < 新顺序.length - 1 ? 新顺序[位 + 1] : null;
+      function 自家人(n) { return n && (n.dataset.id === 父.id || n.dataset.parent === 父.id); }
+      if (!自家人(前卡) && !自家人(后卡)) {
+        // 拖出父块 → 回顶层：落在父卡前就放它前，落在后放它后
+        var sc0 = curScreen();
+        var 父位 = sc0.components.indexOf(父);
+        var at = (父位 < 0 ? 0 : 父位) + (后卡 ? 0 : 1);
+        if (移出容器(id, at)) { autosave(); snack('已移出容器'); }
         return;
       }
-      // 松手不再"啪"一下跳回去：让卡片从当前位置滑到落点（占位虚线框那儿），落稳再重排列表
-      var 落点 = null;
-      try { 落点 = ph ? ph.getBoundingClientRect() : null; } catch (e) {}
-      var 起飞 = null;
-      try { 起飞 = card.getBoundingClientRect(); } catch (e) {}
-      if (落点 && 起飞) {
-        // 只做竖直方向的落位（横向不动 —— 按位移动会在松手时"向右滑一下"，用户反馈很怪）
-        card.style.transition = 'transform .19s cubic-bezier(.2,0,0,1), opacity .19s ease, box-shadow .19s ease';
-        card.style.transform = 'translateY(' + Math.round(落点.top - 起飞.top) + 'px) scale(1)';
-        card.style.opacity = '1';
-        card.style.boxShadow = '0 4px 12px rgba(0,0,0,.12)';
+      var 新子位 = 前同类(function (n) { return n.dataset.parent === 父.id; });
+      if (新子位 !== 源.index && 父.children) {
+        var 挪 = 父.children.splice(源.index, 1)[0];
+        if (挪) 父.children.splice(Math.min(新子位, 父.children.length), 0, 挪);
       }
-      setTimeout(function () {
-        // 只数顶层卡片，容器里的子卡片不参与这个下标（否则顺序会算错位）
-        var toIdx = 0;
-        for (var i = 0; i < box.children.length; i++) {
-          var n = box.children[i];
-          if (n === ph) break;
-          if (n.classList && n.classList.contains('compcard') && !n.classList.contains('is-child') && !n.classList.contains('reordering')) toIdx++;
-        }
-        var sc = curScreen();
-        if (toIdx >= 0 && toIdx !== fromIdx && fromIdx >= 0) {
-          var item = sc.components.splice(fromIdx, 1)[0];
-          sc.components.splice(Math.min(toIdx, sc.components.length), 0, item);
-        }
-        cardReorder.stop();
-        renderCompList(); if (state.inLayout) renderLayout(); autosave();
-      }, 190);
+      autosave();
+      return;
     }
-    card.addEventListener('pointerdown', onDown, true);
+    // ③ 顶层卡片在自己这层换位
+    var 新位 = 前同类(function (n) { return !n.classList.contains('is-child'); });
+    var sc = curScreen();
+    if (新位 !== 源.index && 新位 >= 0) {
+      var item = sc.components.splice(源.index, 1)[0];
+      if (item) sc.components.splice(Math.min(新位, sc.components.length), 0, item);
+    }
+    autosave();
   }
+
+  /* ---------------- 选中状态双向联动（用户 2026-10-30 要求） ----------------
+     在预览页点中控件 → 控件列表里那一条也高亮并滚到可见；
+     在控件列表点中 → 预览页对应控件也高亮（带缩放手柄），并刷新右侧属性面板。
+     以前两边各自改 state.selectedCompId，却都不通知对方，所以看着像"没联动"。 */
+  function 同步控件列表选中(id) {
+    var box = $('compList');
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll('.compcard'), function (n) {
+      var on = n.dataset.id === id;
+      n.classList.toggle('sel', on);
+      if (on) { try { n.scrollIntoView({ block: 'nearest' }); } catch (e) { } }
+    });
+  }
+  function 同步预览选中(id) {
+    var st = $('layStage');
+    if (!st || !state.inLayout) return;
+    try { 清孤立手柄(); } catch (e) { }
+    var 源 = id ? 找控件(id) : null;
+    Array.prototype.forEach.call(st.querySelectorAll('.litem'), function (n) {
+      var on = n.dataset.id === id;
+      n.classList.toggle('sel', on);
+      var 旧 = st.querySelector('.li-rs[data-for="' + n.dataset.id + '"]');
+      if (on && !旧 && 源) { try { 加缩放手柄(n, 源.c || 源.源); } catch (e) { } }
+      else if (!on && 旧) 旧.remove();
+    });
+    try { renderLaySheet(); } catch (e) { }
+  }
+
   function delComp(id) {
     var 源 = 找控件(id);
     if (源) 源.list.splice(源.index, 1);      // 容器里的子控件也要能删（走同一套查找）
     if (state.selectedCompId === id) state.selectedCompId = null;
     renderCompList(); if (state.inLayout) renderLayout(); autosave();
+  }
+  /* 电脑端两栏常显：增删控件后不会切页，所以工具箱分类不会自己重算。
+     用户 2026-10-30 报的"某类控件全删了、代码栏的分类还在，得刷新浏览器"就是这里。
+     合并到下一帧再算，连续删多个不会反复重建；手机端仍按原来的切页时机重建（一个字没改）。 */
+  var 分类刷新计时 = null;
+  function 刷新工具箱分类() {
+    if (!isDesk() || !state.ws || !state.wsInited) return;
+    var usedTypes = new Set();
+    ((state.project && state.project.screens) || []).forEach(function (s) {
+      (s.components || []).forEach(function (c) { if (c && c.type) usedTypes.add(c.type); });
+    });
+    try {
+      var tbXml = window.buildToolboxXml(usedTypes);
+      if (tbXml !== state.tbXmlLast) {
+        state.tbXmlLast = tbXml;
+        state.ws.updateToolbox(tbXml);
+        buildCategoryRail(state.ws);
+        // 分类栏整体重建了，选中滑块要重新量位置
+        requestAnimationFrame(function () { 同步分段药丸(); });
+      }
+    } catch (e) {}
+  }
+  function 排期刷新分类() {
+    clearTimeout(分类刷新计时);
+    分类刷新计时 = setTimeout(刷新工具箱分类, 0);
+  }
+  /* 电脑端：已添加控件卡片按设计区实际宽度排 1 / 2 / 3 列。
+     只在「全显」下生效（用户 2026-10-30 明确说的是全显状态）；「控件 / 代码」单栏时保持一列。 */
+  function 适配控件列数() {
+    var box = $('compList');
+    if (!box) return;
+    if (!isDesk()) { box.style.removeProperty('--comp-cols'); box.removeAttribute('data-cols'); return; }
+    var w = box.clientWidth;
+    var 控件模式 = document.body.classList.contains('desk-view-design');
+    var 全显 = document.body.classList.contains('desk-view-all');
+    var n;
+    if (控件模式) n = 4;                                  // 控件状态：整块设计区给列表，排 4 列（用户 2026-10-30）
+    else if (全显) n = w >= 620 ? 3 : (w >= 500 ? 2 : 1);  // 全显：按中间分隔条拉开的宽度 1/2/3 列
+    else n = 1;
+    box.style.setProperty('--comp-cols', String(n));
+    box.setAttribute('data-cols', String(n));
   }
   function switchScreen(id) {
     // 切页瞬间先显式记下"正在离开的这一页"看到哪儿了（不依赖 saveCurrentWs 的调用顺序）
@@ -4875,6 +5160,8 @@
     var orig = fl.reflowInternal_.bind(fl);
     fl.reflowInternal_ = function () {
       orig();
+      // 抽屉右侧多留 44px：图钉（34 + 内缩 10）就落在这块空白上，不再压住代码（用户 2026-10-31）
+      try { if (fl.width_) { fl.width_ += 44; fl.position(); } } catch (e) {}
       /* 关键：补偿要在"这一帧画出来之前"就做完。
          否则用户看到的是：浮层先出现 → 下一帧整体挪一下/变宽 = "闪一下"
          （用户反馈：重新进入作品后第一次点分类、第二次点分类都会闪）。 */
@@ -4883,9 +5170,9 @@
         if (!r || (!r.dx && !r.dw)) break;
       }
       // 字体/尺寸晚到的兜底（这时通常已经没有要补的了）
-      requestAnimationFrame(function () { compensate(); });
-      setTimeout(function () { compensate(); }, 80);
-      setTimeout(function () { compensate(); }, 320);
+      requestAnimationFrame(function () { compensate(); 定位代码图钉(); });
+      setTimeout(function () { compensate(); 定位代码图钉(); }, 80);
+      setTimeout(function () { compensate(); 定位代码图钉(); }, 320);
     };
     // 字体异步加载完成后再复核一次
     try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { setTimeout(compensate, 120); }).catch(function () {}); } catch (e) {}
@@ -5304,6 +5591,8 @@
     // 可滚动的分类里，在代码上竖向拖动是滚动浮层，横向拖向画布才是取出代码（Blockly 原生判定）。
     try { var fl = state.ws.getFlyout && state.ws.getFlyout(); if (fl) fl.autoClose = true; } catch (e) {}
     patchFlyoutGuard(state.ws);   // 浮层宽度守卫：防止代码被右缘裁切
+    应用抽屉钉住();               // 代码抽屉图钉：钉住时不接受任何关闭请求（重建 ws 后重新挂上）
+    定位代码图钉();
     // 工作区缩放（按钮/滚轮/双指）后，浮层若打开则按新缩放重新布局并补偿宽度
     state.ws.addChangeListener(function (ev) {
       try { if (ev && ev.type === 'viewport') reflowFlyoutSoon(); } catch (e) {}
@@ -5323,6 +5612,29 @@
           if (v && v !== 'NONE' && v !== cur.id) return;   // 已指向别的页面则不动
           var other = (state.project.screens || []).filter(function (s) { return s.id !== cur.id; });
           if (other.length) b.setFieldValue(other[0].id, 'PAGE', true);
+        });
+      } catch (e) {}
+    });
+    /* 控件卡片的「</>」点了之后：从浮层拖出来的代码块，里的「控件下拉」默认就指向那个控件
+       （state.preferComp 由代码按钮设置；类型对不上就保持原样）。
+       为什么在事件里改而不是只改工具箱 XML：动态 FieldDropdown 的选项是运行时生成的，
+       XML 里预填的 <field> 会被它自己的默认值覆盖掉 —— 用户 2026-10-31 报"下拉默认并没有变"就是这个。
+       注意：只处理**新拖进画布**的块；加载已保存工程（loadingWs）不动。 */
+    state.ws.addChangeListener(function (ev) {
+      try {
+        if (loadingWs || !state.preferComp || ev.type !== B.Events.BLOCK_CREATE) return;
+        if (ev.workspaceId !== state.ws.id) return;
+        var ids = ev.ids || (ev.blockId ? [ev.blockId] : []);
+        ids.forEach(function (bid) {
+          var b = state.ws.getBlockById(bid);
+          if (!b || b.isInFlyout || !b.getField) return;
+          var f = b.getField('COMP');
+          if (!f || typeof f.getOptions !== 'function') return;
+          var opts = [];
+          try { opts = f.getOptions(false) || []; } catch (e) { opts = []; }
+          var 有 = opts.some(function (o) { return o && o[1] === state.preferComp.id; });
+          if (!有 || f.getValue() === state.preferComp.id) return;
+          f.setValue(state.preferComp.id);
         });
       } catch (e) {}
     });
@@ -5394,7 +5706,9 @@
     $('blocklyDiv').addEventListener('wheel', function () { recordZoom(); }, { passive: true });
     $('blocklyDiv').addEventListener('pointerup', function () { recordZoom(); }, { passive: true });
     $('blocklyDiv').addEventListener('pointercancel', function () { recordZoom(); }, { passive: true });
-    loadScreenToWs(curScreen());
+    // 工程还没打开时（重载后被 showView 提前调进来）没有页面可载，别把 null 丢给 loadScreenToWs
+    var firstSc = curScreen();
+    if (firstSc) loadScreenToWs(firstSc);
     // 容器尺寸变化即同步画布（旋转、显示切换、键盘弹起都覆盖）
     if (window.ResizeObserver) new ResizeObserver(function () { safeResize(); }).observe($('blocklyDiv'));
     window.addEventListener('resize', requestWsResize);
@@ -5405,6 +5719,22 @@
     var d = $('blocklyDiv');
     if (!d || d.clientWidth < 2 || d.clientHeight < 2) return; // 容器还没布局好，等下一次
     try { state.ws.resize(); } catch (e) {}
+    // 兜底：三段页签切换的过渡里，画布可能已经被 Blockly 按一个很小的宽度记下来了
+    // （宽度属性写成 0px/54px 之类），之后只要没再 resize 就一直那样 ——
+    // 表现是「切到代码，画布只剩窄窄一条，积木看不见也点不中」。
+    // 这里直接按容器实测尺寸校正主画布 SVG，再让 Blockly 重排一次。
+    try {
+      var cv = d.querySelector('.blocklyBlockCanvas');
+      var svg = cv && cv.ownerSVGElement;
+      if (svg) {
+        var r = svg.getBoundingClientRect();
+        if (Math.abs(r.width - d.clientWidth) > 2 || Math.abs(r.height - d.clientHeight) > 2) {
+          svg.setAttribute('width', d.clientWidth + 'px');
+          svg.setAttribute('height', d.clientHeight + 'px');
+          try { Blockly.svgResize(state.ws); } catch (e2) {}
+        }
+      }
+    } catch (e) {}
   }
   var resizeTimer = null;
   /**
@@ -5769,6 +6099,13 @@
     /** 恢复"上次选中的分类"（重建和不重建两条路都要走） */
     function 恢复选中(rail) {
       if (!state.catSel || !byName[state.catSel]) return;
+      // 分组（常规 / 控件）也要跟着 state.catMode 走：控件卡片的「代码」按钮会要求切到控件分组，
+      // 走"分类栏没变、不重建"这条快路径时，光选分类是不够的，面板还停在常规那一栏。
+      var want = state.catMode === 'widget' ? 'widget' : 'general';
+      if ((rail.classList.contains('bb-mode-widget') ? 'widget' : 'general') !== want) {
+        rail.classList.remove('bb-mode-general', 'bb-mode-widget');
+        rail.classList.add('bb-mode-' + want);
+      }
       var sel = byName[state.catSel];
       try {
         if (sel && (!sel.isSelectable || sel.isSelectable())) {
@@ -5820,16 +6157,30 @@
           // 那一瞬间"一个都没选中"，滑块收到了"隐藏"的信号，于是接着那次同步就变成
           // "从旧位置凭空滑过来"（用户 2026-09-26 报的"未选中时点击会凭空划过来"）。
           // 先标新的、再清旧的（保留新的那一条），滑块全程都知道"我还在某一条上"，就能正常滑过去。
-          if (isSel) {
-            clearRailActive();
-            tb.clearSelection();
-            state.catSel = null;
-          } else {
+      if (isSel) {
+        // 钉住了：点同一分类不再收起抽屉（否则就是"钉住后一切换又关掉了"）
+        if (isDesk() && state.codePin) return;
+        clearRailActive();
+        tb.clearSelection();
+        state.catSel = null;
+      } else {
             b.classList.add('on');
             clearRailActive(b);          // 保留 b：只摘掉其它条目的高亮
             tb.setSelectedItem(it);
             state.catSel = n;
             railMarquee(b);
+            /* 抽屉切换分类时淡入一下（不再硬切）；图钉的 left/top 有过渡，会跟着平滑滑过去 */
+            try {
+              var fl0 = state.ws && state.ws.getFlyout && state.ws.getFlyout();
+              var g0 = fl0 && fl0.svgGroup_;
+              if (g0) {
+                g0.style.opacity = '0';
+                requestAnimationFrame(function () {
+                  g0.style.transition = 'opacity .16s ease';
+                  g0.style.opacity = '1';
+                });
+              }
+            } catch (e0) {}
           }
           同步分段药丸();          // 分类选中/取消都让滑块跟着走（不再硬切）
           // 记住当前所在分组（控件/常规），切到设计页再回来仍停留在该分组
@@ -5862,11 +6213,41 @@
     // 工程里一个控件都没有时，控件栏不显示任何控件分类，改为给出引导提示
     if (!widgetPanel.querySelector('.bb-cat')) {
       var empty = el('div', 'bb-empty-hint');
-      empty.innerHTML = '<div class="bb-empty-ico">＋</div><div class="bb-empty-tx">还没有控件</div>' +
-        '<div class="bb-empty-sub">先到「设计」页<br>添加按钮、文字等控件</div>';
+      empty.innerHTML = '<div class="bb-empty-ico">＋</div><div class="bb-empty-tx">请在控件列表添加控件，对应控件代码类会在这显示</div>';
       widgetPanel.appendChild(empty);
     }
     viewport.appendChild(widgetPanel); viewport.appendChild(generalPanel);
+    /* 电脑宽屏：常规 / 控件两栏**同时可见**，中间这条横线可以上下拖（手机端 CSS 隐藏） */
+    var splitter = el('div', 'bb-panel-split');
+    splitter.title = '拖动调整上下占比（双击还原 50 : 50）';
+    viewport.appendChild(splitter);
+    (function () {
+      var pid = null, sy = 0, g0 = 50;
+      function vh() { return viewport.clientHeight || 1; }
+      splitter.addEventListener('pointerdown', function (e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        var cur = parseFloat(viewport.style.getPropertyValue('--bb-gp'));
+        if (!(cur > 0)) {
+          var ph = generalPanel.getBoundingClientRect().height;
+          cur = (ph / vh()) * 100;
+        }
+        g0 = cur; sy = e.clientY; pid = e.pointerId;
+        splitter.classList.add('drag');
+        try { splitter.setPointerCapture(e.pointerId); } catch (err) {}
+        e.preventDefault(); e.stopPropagation();
+      });
+      splitter.addEventListener('pointermove', function (e) {
+        if (pid === null || e.pointerId !== pid) return;
+        var g = g0 + ((e.clientY - sy) / vh()) * 100;
+        g = Math.max(20, Math.min(80, g));
+        viewport.style.setProperty('--bb-gp', g.toFixed(2) + '%');
+        e.preventDefault(); e.stopPropagation();
+      });
+      function end() { if (pid === null) return; pid = null; splitter.classList.remove('drag'); }
+      splitter.addEventListener('pointerup', end);
+      splitter.addEventListener('pointercancel', end);
+      splitter.addEventListener('dblclick', function () { viewport.style.setProperty('--bb-gp', '50%'); });
+    })();
     rail.appendChild(topWrap); rail.appendChild(viewport); rail.appendChild(botWrap);
     host.appendChild(rail);
     // 分类选中滑块：两个面板各自装一个，被选中的那条背景"滑"过去（不再硬切）
@@ -5994,7 +6375,7 @@
     try { curScreen().blocksXml = B.utils.xml.domToText(B.Xml.workspaceToDom(state.ws)); } catch (e) {}
   }
   function loadScreenToWs(s) {
-    if (!state.wsInited || !state.ws) return;
+    if (!state.wsInited || !state.ws || !s) return;
     loadingWs = true;
     // 试运行返回时带回运行前视口，加载后精确还原；否则正常居中
     var vpRestore = null;
@@ -6097,11 +6478,229 @@
     return proj;
   }
 
-  /* ---------------- 视图切换（设计 / 代码）；拖动布局是独立全屏界面 ---------------- */
-  function showView(which) {
+  /* ---------------- 电脑宽屏（方案C：设计 + 代码同屏） ----------------
+     断点：宽 ≥1000 且高 ≥560 且横向。手机横屏（宽度 800 上下）不命中，
+     平板横屏 / 笔记本 / 台式机窗口才会进这套布局。
+     （原来是 1100：浏览器缩放 125%~150% 时 1366/1920 屏的 CSS 宽会掉到 1100 以下，
+       电脑上也就退成手机版了 —— 用户 2026-10-30 实际遇到的就是这个。）
+     进入后两个视图常显，顶栏「设计 / 代码」页签改为"把宽度偏向哪边"。 */
+  var DESK_MIN_W = 1000, DESK_MIN_H = 560;
+  var deskMq = null;
+  try { deskMq = window.matchMedia('(min-width:' + DESK_MIN_W + 'px) and (min-height:' + DESK_MIN_H + 'px) and (orientation:landscape)'); } catch (e) {}
+  /* URL 强制（浏览器缩放 150% 之类会让 CSS 宽变小，自动判定会退成手机版）：
+       editor.html?desk=1 强制电脑版，?desk=0 强制手机版。不带参数按上面的断点自动判。 */
+  var deskForce = null;
+  try { var _m = (window.location.search || '').match(/[?&]desk=([01])/); if (_m) deskForce = _m[1] === '1'; } catch (e) {}
+  var deskRatio = 55;                     // 设计区占的百分比（30 ~ 72）
+  var deskRatioSaved = 55;
+  var DESK_RATIO_KEY = '__deskRatio';
+  try {
+    var _dr = parseFloat(localStorage.getItem(DESK_RATIO_KEY));
+    if (_dr > 20 && _dr < 80) { deskRatio = _dr; deskRatioSaved = _dr; }
+  } catch (e) {}
+
+  function isDesk() { if (deskForce !== null) return deskForce; return !!deskMq && deskMq.matches; }
+
+  /* ---- 代码抽屉（Blockly 的 .blocklyFlyout）图钉 ----
+     用户 2026-10-31 明确：钉的是「展示代码块的那个抽屉」，图钉贴在**抽屉本体**的右上角
+     （不是画布、不是编辑器右上角），内缩 10px；钉住后这个抽屉不会再被关掉 ——
+     点画布、点代码、切换分类、来回切页都不收，仅此而已，不影响其他功能。 */
+  var CODE_PIN_KEY = '__bb_code_pin_v1';
+  try { state.codePin = localStorage.getItem(CODE_PIN_KEY) === '1'; } catch (e) {}
+  function 代码抽屉() {
+    try { return (state.ws && state.ws.getFlyout) ? state.ws.getFlyout() : null; } catch (e) { return null; }
+  }
+  function 同步代码图钉() {
+    var b = $('codePin'); if (!b) return;
+    b.classList.toggle('on', !!state.codePin);
+    b.setAttribute('aria-pressed', state.codePin ? 'true' : 'false');
+    b.title = state.codePin ? '已钉住：这个代码抽屉不会再被关掉（点击取消）' : '钉住代码抽屉：切换分类/点画布都不会关';
+  }
+  /** 图钉必须贴在「抽屉」本体的右上角（抽屉没打开就藏起来）。 */
+  function 定位代码图钉() {
+    var b = $('codePin'), vb = $('viewBlocks');
+    if (!b || !vb) return;
+    if (!isDesk()) { b.style.display = 'none'; return; }
+    var vr = vb.getBoundingClientRect();
+    // 代码栏整个被收起（控件单栏）：抽屉已经不在屏幕上了，图钉藏起来，也别去重开
+    if (!vr.width) { b.style.display = 'none'; return; }
+    var fl = 代码抽屉(), g = fl && fl.svgGroup_;
+    if (fl && state.codePin && !fl.__pinned) 应用抽屉钉住();   // 工具箱重建换了实例时重新挂上
+    var r = g && g.getBoundingClientRect ? g.getBoundingClientRect() : null;
+    if (!r || !r.width || !r.height || (fl.isVisible && !fl.isVisible())) {
+      // 抽屉没开：没有可钉的东西。钉住状态下被外力关了（工具箱重建等）就按上次分类重开
+      b.style.display = 'none';
+      if (state.codePin) 重开代码抽屉();
+      return;
+    }
+    b.style.display = 'inline-flex';
+    var 左 = Math.round(r.right - vr.left - 44);
+    var 上 = Math.round(r.top - vr.top + 10);
+    b.style.left = Math.max(0, Math.min(vr.width - 34, 左)) + 'px';
+    b.style.top = Math.max(0, Math.min(vr.height - 34, 上)) + 'px';
+  }
+  /** 钉住/取消：只决定「这个抽屉能不能被自动关掉」，别的一概不动。
+      用 Blockly 原生的 autoClose（点画布/选代码都不会关），**不去替换 hide** ——
+      替换 hide 会让 Blockly 的内部状态和实际显示对不上，拖画布时抽屉会闪一下。 */
+  function 应用抽屉钉住() {
+    var fl = 代码抽屉(); if (!fl) return;
+    /* 这里只对 hide 做"包装"（先调原方法，再同步把图钉藏起来），不是拦截：
+       原 hide 照常执行，Blockly 状态不会错乱；图钉也不会比抽屉晚消失。 */
+    if (!fl.__pinHide) {
+      fl.__pinHide = fl.hide;
+      fl.hide = function () {
+        fl.__pinHide.apply(fl, arguments);
+        var b = $('codePin'); if (b) b.style.display = 'none';
+      };
+    }
+    try { fl.autoClose = !state.codePin; } catch (e) {}
+    fl.__pinned = !!state.codePin;
+  }
+  /** 钉住时工具箱重建会把抽屉关掉：按最后一次选中的分类重新打开。 */
+  var 重开抽屉计时 = 0;
+  function 重开代码抽屉() {
+    if (!state.codePin || !state.wsInited || !state.ws || !state.catSel) return;
+    if (重开抽屉计时) return;
+    重开抽屉计时 = setTimeout(function () {
+      重开抽屉计时 = 0;
+      try {
+        var ws = state.ws, tb = ws.getToolbox && ws.getToolbox();
+        if (!tb || !tb.getToolboxItems) return;
+        var it = null;
+        tb.getToolboxItems().forEach(function (x) { if (!it && catItemName(x) === state.catSel) it = x; });
+        if (it) tb.setSelectedItem(it);
+      } catch (e) {}
+    }, 60);
+  }
+
+  /* 改「设计 : 代码」比例：写进 #workArea 的 --dw，样式那边 flex-basis 直接用 */
+  function setDeskRatio(pct) {
+    if (pct == null) return;
+    deskRatio = Math.max(30, Math.min(72, pct));
+    var wa = $('workArea');
+    if (wa) wa.style.setProperty('--dw', deskRatio + '%');
+    // 拖动时每帧都写 localStorage 会卡手，凑够 1% 差值再落盘
+    if (Math.abs(deskRatio - deskRatioSaved) >= 1) {
+      deskRatioSaved = deskRatio;
+      try { localStorage.setItem(DESK_RATIO_KEY, String(Math.round(deskRatio))); } catch (e) {}
+    }
+    requestWsResize();
+  }
+
+  /* 三段页签（电脑端）：只切「哪一栏占满」，宽度由 --dw + body 上的模式类决定。
+     手机端不调用（那里仍是「设计 / 代码」互斥的 hidden 切换）。 */
+  function applyDeskView() {
+    var b = document.body, wa = $('workArea');
+    var m = state.deskView === 'design' || state.deskView === 'blocks' ? state.deskView : 'all';
+    b.classList.toggle('desk-view-all', m === 'all');
+    b.classList.toggle('desk-view-design', m === 'design');
+    b.classList.toggle('desk-view-blocks', m === 'blocks');
+    if (wa) wa.style.setProperty('--dw', (m === 'all' ? deskRatio : (m === 'design' ? 100 : 0)) + '%');
+    // 动画结束后画布尺寸才算定下来：Blockly 要按新宽度重排（早一点量到的是过渡中的中间值）
+    clearTimeout(applyDeskView.__t);
+    applyDeskView.__t = setTimeout(function () { requestWsResize(); }, 320);
+    // 过渡时长不一定固定（用户拖分隔条、系统动画缩放都会变），再兜一次 640ms
+    clearTimeout(applyDeskView.__t2);
+    applyDeskView.__t2 = setTimeout(function () { requestWsResize(); }, 640);
+    // 代码栏自身尺寸变化（被挤出去又拉回来）时也校准一次，避免画布 svg 停在 0 宽
+    if (!applyDeskView.__bound) {
+      applyDeskView.__bound = true;
+      var vb = $('viewBlocks');
+      if (vb) vb.addEventListener('transitionend', function (e) {
+        if (e.propertyName === 'flex-basis' || e.propertyName === 'width') requestWsResize();
+      });
+    }
+  }
+  /* 三段页签的文案：电脑端 全显 / 控件 / 代码；手机端 设计 / 代码（一个字都不改） */
+  function syncDeskTabLabels(on) {
+    var ta = $('tabAll'), td = $('tabDesign'), tb = $('tabBlocks');
+    if (ta) ta.textContent = '全显';
+    if (td) td.textContent = on ? '控件' : '设计';
+    if (tb) tb.textContent = '代码';
+  }
+
+  /* 进出电脑模式：进来就把工作区建好、两栏一起摆出来 */
+  function applyDeskMode() {
+    var on = isDesk();
+    var was = document.body.classList.contains('desk');
+    if (!on && !was) return;
+    document.body.classList.toggle('desk', on);
+    syncDeskTabLabels(on);
+    // 控件卡片列数的观察器与"是否在编辑器里"无关，先建好（首页阶段 compList 也已经存在）
+    if (!applyDeskMode.__ro && window.ResizeObserver) {
+      var 列容器 = $('compList');
+      if (列容器) {
+        applyDeskMode.__ro = new ResizeObserver(function () { 适配控件列数(); });
+        applyDeskMode.__ro.observe(列容器);
+      }
+    }
+    if (on) {
+      state.deskView = (state.deskView === 'design' || state.deskView === 'blocks') ? state.deskView : 'all';
+      var ed = $('viewEditor');
+      if (ed && ed.classList.contains('hidden')) return;   // 还在首页，等 openItem 里再处理
+      $('viewDesign').classList.remove('hidden');
+      $('viewBlocks').classList.remove('hidden');
+      applyDeskView();
+      initWorkspace();
+      requestAnimationFrame(function () { requestWsResize(); requestAnimationFrame(requestWsResize); });
+      setTimeout(requestWsResize, 120);
+      setTimeout(requestWsResize, 360);       // 过渡动画（280ms）结束后再校准一次
+      适配控件列数();
+      建AI缩放手柄();
+    } else {
+      document.body.classList.remove('desk-view-all', 'desk-view-design', 'desk-view-blocks');
+      $('workArea') && $('workArea').style.removeProperty('--dw');
+      showView(state.view || 'design');
+    }
+    // 页签宽度变了（第三个页签出现/消失）：滑块位置必须重算
+    同步分段药丸();
+    requestAnimationFrame(同步分段药丸);
+  }
+
+  /* 两栏分隔条：拖动改比例，双击还原 55 : 45 */
+  function bindDeskSplitter() {
+    var sp = $('cSplitter'), wa = $('workArea');
+    if (!sp || !wa) return;
+    var dragging = false;
+    function pctOf(e) {
+      var r = wa.getBoundingClientRect();
+      if (!r.width) return deskRatio;
+      return ((e.clientX - r.left) / r.width) * 100;
+    }
+    sp.addEventListener('pointerdown', function (e) {
+      if (!isDesk() || e.button !== 0) return;
+      dragging = true; sp.classList.add('drag');
+      try { sp.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    sp.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      setDeskRatio(pctOf(e));
+      e.preventDefault();
+    });
+    function endDrag() { if (!dragging) return; dragging = false; sp.classList.remove('drag'); }
+    sp.addEventListener('pointerup', endDrag);
+    sp.addEventListener('pointercancel', endDrag);
+    sp.addEventListener('dblclick', function () { if (isDesk()) setDeskRatio(55); });
+  }
+
+  /* ---------------- 视图切换（设计 / 代码）；拖动布局是独立全屏界面 ----------------
+     电脑宽屏是三段：'all' 全显（两栏）、'design' 控件（只设计）、'blocks' 代码（只代码）。 */
+  function showView(which, focusPct) {
     state.view = which;
-    $('viewDesign').classList.toggle('hidden', which !== 'design');
-    $('viewBlocks').classList.toggle('hidden', which !== 'blocks');
+    var 看代码 = which === 'blocks' || (isDesk() && which === 'all');
+    if (isDesk()) {
+      // 电脑宽屏：视图容器常驻，靠 body 上的模式类"挤掉"另一栏
+      state.deskView = (which === 'design' || which === 'blocks') ? which : 'all';
+      $('viewDesign').classList.remove('hidden');
+      $('viewBlocks').classList.remove('hidden');
+      applyDeskView();
+    } else {
+      $('viewDesign').classList.toggle('hidden', which !== 'design');
+      $('viewBlocks').classList.toggle('hidden', which !== 'blocks');
+    }
+    var ta = $('tabAll');
+    if (ta) ta.classList.toggle('on', isDesk() && which === 'all');
     $('tabDesign').classList.toggle('on', which === 'design');
     $('tabBlocks').classList.toggle('on', which === 'blocks');
     // 滑块位置**只由视图状态决定**：当场同步一次，下一帧再同步一次。
@@ -6109,7 +6708,7 @@
     // 表现是"页签/滑块在代码、下面却是设计页的控件列表"（用户真机截到过）。
     同步分段药丸();
     requestAnimationFrame(function () { 同步分段药丸(); });
-    if (which === 'blocks') {
+    if (看代码) {
       initWorkspace();
       // 新增/删除控件类型后，按工程实际用到的控件刷新工具箱（没有该类控件就隐藏对应分类）
       var usedTypes = new Set();
@@ -6118,7 +6717,7 @@
         if (state.ws) {
           // 工具箱内容没变就别再 updateToolbox —— 它会把工具箱重置、浮层被迫关一次，
           // 于是"关掉再打开"看上去就是闪一下（用户反馈点「代码」就闪）
-          var tbXml = window.buildToolboxXml(usedTypes);
+          var tbXml = window.buildToolboxXml(usedTypes, state.preferComp || null);
           if (tbXml !== state.tbXmlLast) { state.tbXmlLast = tbXml; state.ws.updateToolbox(tbXml); }
           buildCategoryRail(state.ws);
         }
@@ -6129,8 +6728,13 @@
         requestAnimationFrame(function () { requestWsResize(); refreshCompDropdowns(); setTimeout(refreshCompDropdowns, 90); });
       });
     } else {
-      closeBlocksOverlays();    // 离开代码页：收起分类浮层/控件下拉/齿轮框，避免残留在设计页
+      // 离开代码页：收起分类浮层/控件下拉/齿轮框。电脑宽屏两栏常显，不能收
+      if (!isDesk()) closeBlocksOverlays();
     }
+    if (!isDesk() && focusPct != null) setDeskRatio(focusPct);
+    // 抽屉位置/显隐跟着视图变化重算一次（打开分类后还要再晚一点量一次）
+    定位代码图钉();
+    setTimeout(定位代码图钉, 180);
   }
 
   /* 进入独立全屏布局界面：保存代码，按项目方向物理旋转，让竖屏项目真正竖屏 */
@@ -6138,16 +6742,27 @@
     if (!state.project) return;
     saveCurrentWs(true);
     state.inLayout = true;
+    state.layFrameScale = 1;                  // 每次打开预览框都从「刚好放下」开始
     var bl = $('btnLayout'); if (bl) bl.classList.add('on');
     closeMenus();
     $('viewLayout').classList.remove('hidden');
-    if (window.Native && Native.setLayoutChrome) Native.setLayoutChrome(true);   // 与运行时一致的系统栏/安全区
-    // 布局页始终隐藏通知栏（通知栏开关只在试运行/打包APK时生效）
-    state.layoutOriented = null;              // 每次进来都按「如何预览」重新定方向
-    applyLayoutOrient();
-    if (window.Native && Native.setStatusBar) Native.setStatusBar(false);
+    if (!isDesk()) {
+      // 手机端：仍按「如何预览」物理旋转、与运行时一致的系统栏/安全区
+      if (window.Native && Native.setLayoutChrome) Native.setLayoutChrome(true);
+      state.layoutOriented = null;              // 每次进来都按「如何预览」重新定方向
+      applyLayoutOrient();
+      if (window.Native && Native.setStatusBar) Native.setStatusBar(false);
+    } else {
+      // 电脑端：浮窗预览，方向只跟页面自己走（系统旋转一概不碰）
+      state.layoutOriented = null;
+      syncLayBorderBtn();
+      // 浮窗位置/大小：拖过的按记住的来，没拖过就靠右居中；顶栏空白处可拖动整个窗口
+      应用布局浮窗几何(读布局浮窗几何());
+      绑定布局浮窗拖动();
+    }
     renderLayout();
     watchStageResize();     // 可用区尺寸一变就重算舞台（控制台展开/收起、旋转、窗口变化）
+    if (isDesk()) 建预览缩放手柄();
     // 物理旋转是异步的，多帧 + 旋转后的 resize 都会再 fit 并捕获真机设计尺寸（见全局 resize 监听）
     requestAnimationFrame(function () { requestAnimationFrame(fitStage); setTimeout(fitStage, 260); setTimeout(fitStage, 480); setTimeout(fitStage, 800); });
   }
@@ -6159,12 +6774,19 @@
     closeSheet();
     closeMenus();
     $('viewLayout').classList.add('hidden');
-    if (window.Native && Native.setLayoutChrome) Native.setLayoutChrome(false);  // 恢复编辑器全屏沉浸
-    if (window.Native && Native.setOrientation) Native.setOrientation('landscape');
+    if (!isDesk()) {
+      if (window.Native && Native.setLayoutChrome) Native.setLayoutChrome(false);  // 恢复编辑器全屏沉浸
+      if (window.Native && Native.setOrientation) Native.setOrientation('landscape');
+    }
       // 回到设计页要按**最新坐标**重画一遍（以前要再点一下控件才更新）
       try { renderCompList(); } catch (e) {}
       try { renderPropPanel(); } catch (e) {}
     requestAnimationFrame(requestWsResize);
+  }
+  /* 电脑端：「显示边框」开关按钮的选中态 */
+  function syncLayBorderBtn() {
+    var b = $('layBorderBtn');
+    if (b) b.classList.toggle('on', previewBorderOn());
   }
 
   /**
@@ -6175,6 +6797,7 @@
    */
   function applyLayoutOrient() {
     if (!state.inLayout) return;
+    if (isDesk()) return;                       // 电脑端浮窗预览：不旋转系统，方向只看页面
     var o = layoutOrient();
     if (state.layoutOriented === o) return;
     state.layoutOriented = o;
@@ -6234,7 +6857,8 @@
   /* 参考“设计画布”逻辑尺寸（兜底）。真机进入拖动布局时会按【本机实际可用宽高比】捕获一份
      project.design（与运行时壳避让状态栏/导航栏后的可用区完全一致），编辑器布局与运行时都用它，
      做到上下左右严格对齐、底部不再莫名留缝。 */
-  var DESIGN = { portrait: { w: 390, h: 827 }, landscape: { w: 827, h: 390 } };
+  // 页面设计尺寸：严格 20:9（竖 390×867 / 横 867×390）。用户 2026-10-30 要求按 20:9 预览。
+  var DESIGN = { portrait: { w: 390, h: 867 }, landscape: { w: 867, h: 390 } };
   /**
    * 水平居中锁：组件的 `cx` 为真时，x 永远由 (画布宽 - 宽)/2 算出来 ——
    * 改了宽度也会跟着重新居中（用户要求"让控件中心点永远位于中间"）。
@@ -6274,6 +6898,8 @@
   function designSize(o) {
     o = o || curOrient();
     var base = o === 'landscape' ? DESIGN.landscape : DESIGN.portrait;
+    // 电脑端（浮窗预览）严格按 20:9，不再沿用手机上按设备比例捕获的旧尺寸（用户 2026-10-30）
+    if (isDesk() && state.inLayout) return base;
     var p = state.project && state.project.design;
     if (p && p.orientation === o &&
         validN(p.w) && validN(p.h) && p.w >= 240 && p.h >= 240) {
@@ -6284,6 +6910,7 @@
   // 依据布局页真实可用区（原生已按系统栏/挖孔留白）捕获设计画布尺寸；返回是否发生变化
   function captureDesign() {
     if (!state.inLayout || !state.project) return false;
+    if (isDesk()) return false;                 // 电脑端浮窗只是预览：绝不用桌面窗口尺寸覆盖页面设计尺寸
     var vw = window.innerWidth, vh = window.innerHeight;
     if (!(vw > 50) || !(vh > 50)) return false;
     var landscape = curOrient() === 'landscape';
@@ -6328,9 +6955,42 @@
     var content = designSize(pageO);                             // 页面设计画布尺寸
     // 设备框等比 contain 到可用区（留一点边距，别贴着边）
     var pad = 8;
-    var kf = Math.min((wrap.clientWidth - pad * 2) / frame.w, (wrap.clientHeight - pad * 2) / frame.h);
-    if (!(kf > 0) || !isFinite(kf)) kf = 1;
-    kf = kf * layZoom();     // 「刚好放下」的基准比例 × 用户缩放
+    var kf;
+    if (isDesk()) {
+      /* 电脑端：浮窗**贴着画布**（用户 2026-10-30 要求）。
+         先说清楚浮窗能有多大：铺满编辑器可用区，乘上用户拖四角的缩放系数（layWinScale），
+         再把浮窗尺寸直接写成「预览画面 + 顶栏 + 内边距」——这样不会出现一大片灰边。
+         横竖页切换时 frame 变了，尺寸会跟着重算，不会卡在上一页的窄窗口里。 */
+      var 浮窗 = wrap.closest && wrap.closest('.lay-dlg');
+      var 条 = 浮窗 && 浮窗.querySelector('.lay-topbar');
+      var 宿主 = $('viewLayout');
+      var hr0 = 宿主 ? 宿主.getBoundingClientRect() : { width: 1280, height: 720 };
+      var 条高 = 条 ? 条.offsetHeight : 52;
+      var 缩放 = Math.max(0.35, Math.min(1.8, Number(state.layWinScale) || 0.7));
+      var 可用W = Math.max(80, hr0.width - 48), 可用H = Math.max(80, hr0.height - 24 - 条高 - 22);
+      // 横竖屏用**同一个缩放比**（按设计长边 contain）：以前各自按"塞满可用区"算，
+      // 竖屏被高度卡住显得很小、横屏吃了整条宽度显得很大（用户 2026-10-30 报的"相差比例太大"）
+      var 长边 = Math.max(frame.w, frame.h);
+      var kf0 = Math.min(可用W / 长边, 可用H / 长边);
+      if (!(kf0 > 0) || !isFinite(kf0)) kf0 = 1;
+      kf = kf0 * 缩放 * layZoom();
+      if (浮窗) {
+        var wantW = Math.round(Math.min(hr0.width - 8, Math.max(210, frame.w * kf + 16)));
+        var wantH = Math.round(Math.min(hr0.height - 8, frame.h * kf + 条高 + 16));
+        if (Math.abs(浮窗.offsetWidth - wantW) > 1 || Math.abs(浮窗.offsetHeight - wantH) > 1) {
+          浮窗.style.width = wantW + 'px'; 浮窗.style.height = wantH + 'px';
+        }
+        var 位 = state.layDlgPos;
+        var px0 = 位 ? 位.x : (hr0.width - wantW - 16), py0 = 位 ? 位.y : 16;
+        px0 = Math.max(0, Math.min(px0, hr0.width - wantW));
+        py0 = Math.max(0, Math.min(py0, hr0.height - wantH));
+        浮窗.style.left = Math.round(px0) + 'px'; 浮窗.style.top = Math.round(py0) + 'px';
+      }
+    } else {
+      kf = Math.min((wrap.clientWidth - pad * 2) / frame.w, (wrap.clientHeight - pad * 2) / frame.h);
+      if (!(kf > 0) || !isFinite(kf)) kf = 1;
+      kf = kf * layZoom();
+    }
     // 画面等比缩进设备框里居中：方向不同（如竖框看横屏页）就上下/左右留边
     var kc = kf * Math.min(frame.w / content.w, frame.h / content.h);
     shell.style.width = frame.w + 'px';
@@ -6356,7 +7016,118 @@
     top = zh <= wrap.clientHeight ? (wrap.clientHeight - zh) / 2 : Math.max(wrap.clientHeight - zh, Math.min(0, top));
     shell.style.marginLeft = Math.round(left) + 'px';
     shell.style.marginTop = Math.round(top) + 'px';
+    摆预览手柄();
     if (changed) renderLayStage();                              // 画布尺寸变化后重新摆放所有组件
+  }
+  /* ---------------- 电脑端布局浮窗：可自由拖动 + 四角等比缩放整个窗口 ----------------
+     用户 2026-10-30 明确：缩放的是**整个悬浮窗口**（顶栏、页面下拉、预览一起），不是只放大画布；
+     页面真实设计尺寸、控件坐标一律不变。双击角把手还原默认大小。 */
+  var LAY_DLG_GEO = '__bb_lay_dlg_geo_v1';
+  function 读布局浮窗几何() {
+    try {
+      var v = JSON.parse(localStorage.getItem(LAY_DLG_GEO) || 'null');
+      if (v && isFinite(v.x) && isFinite(v.y) && isFinite(v.scale) && v.scale >= 0.3 && v.scale <= 2.4) return v;
+    } catch (e) {}
+    return null;
+  }
+  function 应用布局浮窗几何(g) {
+    // 默认 0.62：比"铺满可用区"小一圈，浮窗才像浮在编辑器上；拖四角可以放大到 1.8
+    state.layWinScale = (g && isFinite(g.scale)) ? Math.max(0.35, Math.min(1.8, g.scale)) : 0.7;
+    state.layDlgPos = (g && isFinite(g.x) && isFinite(g.y)) ? { x: g.x, y: g.y } : null;
+  }
+  function 保存布局浮窗几何() {
+    var dlg = document.querySelector('#viewLayout .lay-dlg');
+    var host = $('viewLayout');
+    if (!dlg || !host) return;
+    var hr = host.getBoundingClientRect(), r = dlg.getBoundingClientRect();
+    try {
+      localStorage.setItem(LAY_DLG_GEO, JSON.stringify({
+        x: Math.round(r.left - hr.left), y: Math.round(r.top - hr.top),
+        scale: Number(state.layWinScale) || 1
+      }));
+    } catch (e) {}
+  }
+  /* 顶栏空白处 = 拖动把手（按钮/下拉不参与）。尺寸由 fitStage 按画面算，这里只改位置。 */
+  function 绑定布局浮窗拖动() {
+    var bar = document.querySelector('#viewLayout .lay-topbar');
+    var dlg = document.querySelector('#viewLayout .lay-dlg');
+    if (!bar || !dlg || bar.__dragWired) return;
+    bar.__dragWired = true;
+    bar.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('button,input,select,.menu,.lay-page-pick')) return;
+      var host = $('viewLayout').getBoundingClientRect(), r = dlg.getBoundingClientRect();
+      var st = { x: r.left - host.left, y: r.top - host.top, sx: e.clientX, sy: e.clientY };
+      var move = function (ev) {
+        var x = st.x + ev.clientX - st.sx, y = st.y + ev.clientY - st.sy;
+        x = Math.max(0, Math.min(x, host.width - dlg.offsetWidth));
+        y = Math.max(0, Math.min(y, host.height - dlg.offsetHeight));
+        dlg.style.left = Math.round(x) + 'px'; dlg.style.top = Math.round(y) + 'px';
+        state.layDlgPos = { x: Math.round(x), y: Math.round(y) };
+        if (ev.cancelable) ev.preventDefault();
+      };
+      var up = function () {
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', up);
+        保存布局浮窗几何();
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+      e.preventDefault(); e.stopPropagation();
+    });
+  }
+  function 建预览缩放手柄() {
+    var dlg = document.querySelector('#viewLayout .lay-dlg');
+    if (!dlg || !isDesk()) return;
+    if (dlg.__rsBuilt) return;
+    dlg.__rsBuilt = true;
+    // 用户 2026-10-30：四个角点删掉，只留右下角一个来缩放
+    ['se'].forEach(function (p) {
+      var h = el('div', 'lay-rs'); h.dataset.rs = p;
+      h.title = '拖右下角缩放浮窗（双击还原）';
+      dlg.appendChild(h);
+      h.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
+        var host = $('viewLayout').getBoundingClientRect(), r = dlg.getBoundingClientRect();
+        state.layDlgPos = { x: Math.round(r.left - host.left), y: Math.round(r.top - host.top) };
+        // 按"指针离左边缘的距离"等比缩放：拖动距离和窗口大小成正比，手感连续、不会突然变大变小
+        var st = { scale: Number(state.layWinScale) || 0.7, left: r.left,
+                   startDist: Math.max(80, e.clientX - r.left) };
+        var move = function (ev) {
+          var d = Math.max(40, ev.clientX - st.left);
+          state.layWinScale = Math.max(0.35, Math.min(1.8, st.scale * (d / st.startDist)));
+          fitStage();
+          if (ev.cancelable) ev.preventDefault();
+        };
+        var up = function () {
+          document.removeEventListener('pointermove', move);
+          document.removeEventListener('pointerup', up);
+          保存布局浮窗几何();
+        };
+        document.addEventListener('pointermove', move);
+        document.addEventListener('pointerup', up);
+        e.preventDefault(); e.stopPropagation();
+      });
+      h.addEventListener('dblclick', function (e) {
+        e.stopPropagation();
+        state.layWinScale = 0.7; state.layDlgPos = null;
+        try { localStorage.removeItem(LAY_DLG_GEO); } catch (err) {}
+        fitStage();
+      });
+      h.addEventListener('click', function (e) { e.stopPropagation(); });
+    });
+    摆预览手柄();
+  }
+  function 摆预览手柄() {
+    var dlg = document.querySelector('#viewLayout .lay-dlg');
+    if (!dlg || !isDesk()) return;
+    Array.prototype.forEach.call(dlg.querySelectorAll('.lay-rs'), function (h) {
+      var p = h.dataset.rs;
+      h.style.left = (p === 'ne' || p === 'se') ? 'auto' : '0px';
+      h.style.right = (p === 'ne' || p === 'se') ? '0px' : 'auto';
+      h.style.top = (p === 'sw' || p === 'se') ? 'auto' : '0px';
+      h.style.bottom = (p === 'sw' || p === 'se') ? '0px' : 'auto';
+    });
   }
   /* ---------------- 布局页：双指缩放 + 单指平移 ----------------
      舞台平时是"等比缩放到刚好放下"，控件小的时候（比如 20×20 的按钮）很难对准。
@@ -6858,7 +7629,7 @@
     var st = $('layStage'); if (!h || !st || !item) return;
     var k = stageScale() || 1;
     var ir = item.getBoundingClientRect(), sr = st.getBoundingClientRect();
-    var 尺 = 24;   // 和 CSS 里手柄边长一致：贴到控件右下角的**内侧**，圆弧正好切在边框角上
+    var 尺 = 16;   // 和 CSS 里手柄边长一致：贴到控件右下角的**内侧**，圆弧正好切在边框角上
     h.style.left = Math.round((ir.right - sr.left) / k - 尺) + 'px';
     h.style.top = Math.round((ir.bottom - sr.top) / k - 尺) + 'px';
   }
@@ -6915,7 +7686,7 @@
           if (visual.classList.contains(cl)) item.classList.add(cl);
         });
         while (visual.firstChild) item.appendChild(visual.firstChild);
-        item.appendChild(el('span', 'li-tag', compName(c) + (c.visible === false ? '（已隐藏）' : '')));
+        // 用户 2026-10-30：预览里选中控件时左上角那个「控件名」小标签太碍事，去掉（不再生成）
         var ds = defaultSize(c);
         var auto = mirrors[c.id], ar = auto ? auto.getBoundingClientRect() : null;
         var arx = ar ? (ar.left - sr.left) / k : 0, ary = ar ? (ar.top - sr.top) / k : 0;
@@ -6947,7 +7718,6 @@
             ['fontSize', 'color', 'background', 'borderRadius', 'fontWeight', 'textAlign', 'opacity',
              'fontStyle', 'textDecoration', 'letterSpacing', 'transform'].forEach(function (p) { if (cv.style[p]) ci.style[p] = cv.style[p]; });
             while (cv.firstChild) ci.appendChild(cv.firstChild);
-            ci.appendChild(el('span', 'li-tag', compName(k)));
             var kds = defaultSize(k);
             ci.style.left = Math.round(validN(k.x) ? k.x : 0) + 'px';
             ci.style.top = Math.round(validN(k.y) ? k.y : 0) + 'px';
@@ -7008,6 +7778,12 @@
         在父内 = !!(父节点 && item.parentNode === 父节点);
       }
       moved = false; active = true; item.classList.add('dragging'); e.preventDefault();
+      /* 按下就开始拖 → 立刻把这个控件选中，并让控件列表同步高亮
+         （用户 2026-10-31：预览里拖动组件时，控件列表没有选中对应的那一条） */
+      state.selectedCompId = c.id;
+      同步控件列表选中(c.id);
+      try { renderPropPanel(); } catch (err2) { }   // 右侧属性栏也要切到这个控件（用户 2026-10-31）
+      try { renderLaySheet(); } catch (err2) { }
     }
     function move(e) {
       if (state.__pinching) { active = false; item.classList.remove('dragging'); return; }   // 双指缩放期间不许挪控件
@@ -7139,6 +7915,8 @@
         return;
       }
       state.selectedCompId = c.id;
+      同步控件列表选中(c.id);     // 预览页点选 → 控件列表同步高亮（双向联动）
+      try { renderPropPanel(); } catch (e0) { }   // 右侧属性栏跟着切（用户 2026-10-31）
       清孤立手柄();
       Array.prototype.forEach.call($('layStage').querySelectorAll('.litem'), function (n) {
         n.classList.toggle('sel', n.dataset.id === c.id);
@@ -7316,10 +8094,40 @@
   function buildScreenMenu() {
     var list = $('screenMenuList'); list.innerHTML = '';
     state.project.screens.forEach(function (s) {
+      var row = el('div', 'menu-row');
       var b = el('button', 'menu-item' + (s.id === state.curScreenId ? ' on' : ''), (s.title || s.id));
       b.addEventListener('click', function () { closeMenus(); switchScreen(s.id); });
-      list.appendChild(b);
+      var pen = el('button', 'menu-edit', '✎');
+      pen.title = '重命名页面';
+      pen.setAttribute('aria-label', '重命名页面');
+      pen.addEventListener('click', function (e) { e.stopPropagation(); 就地改页面名(row, s); });
+      row.appendChild(b); row.appendChild(pen);
+      list.appendChild(row);
     });
+  }
+  /* 页面下拉里的就地改名：整行变输入框，回车/失焦保存，Esc 取消（空名不保存） */
+  function 就地改页面名(row, s) {
+    var inp = el('input', 'menu-rename');
+    inp.type = 'text'; inp.value = s.title || ''; inp.placeholder = '页面名称';
+    row.innerHTML = '';
+    row.appendChild(inp);
+    inp.focus(); inp.select();
+    var 收尾 = function (保存) {
+      if (!row.contains(inp)) return;            // 防 Enter 与 blur 双触发
+      if (保存) {
+        var v = String(inp.value || '').trim();
+        if (v) s.title = v;
+      }
+      buildScreenMenu();
+      renderTabs();
+      autosave();
+      if (state.inLayout) renderLayout();
+    };
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); 收尾(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); 收尾(false); }
+    });
+    inp.addEventListener('blur', function () { 收尾(true); });
   }
 
   /* ---------------- 设置（独立整页：常规 / AI / 反馈，用户 2026-10-29 要求） ---------------- */
@@ -7425,10 +8233,12 @@
     applyRunMode();
     snack(state.runMode === 'current' ? '当前页面运行' : '从头开始运行');
   }
+  var RUN_ICO_PLAY = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5.2v13.6L19 12z"/></svg>';
+  var RUN_ICO_START = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6.5 5h2.2v14H6.5zM20 5.2v13.6L10.5 12z"/></svg>';
   function applyRunMode() {
     state.runMode = getRunMode();
     var cur = state.runMode === 'current';
-    var ico = $('runMainIco'); if (ico) ico.textContent = cur ? '▶' : '⏮';
+    var ico = $('runMainIco'); if (ico) ico.innerHTML = cur ? RUN_ICO_PLAY : RUN_ICO_START;
     var btn = $('btnRun'); if (btn) btn.title = cur ? '当前页面运行' : '从头开始运行';
     var a = $('runFromStart'), b = $('runCurrent');
     if (a) a.classList.toggle('on', !cur);
@@ -7733,55 +8543,138 @@
       var r = await 拉更新最新行();
       if (!r) { $('updateStatus').textContent = '暂无更新包'; return; }
       updateLatest = r;
-      var ver = r['0000'] || '最新版本';
+      var pkg = 平台上包(r);                       // 按当前平台挑包（电脑版只认 exe 列）
+      var ver = pkg.ver || '最新版本';
       更新红点已看过 = String(r['0000'] || '');   // 这一版已经点开看过了，别再亮红点打扰
-      var files = r['etRB'] || [];
-      var fname = files[0] ? files[0].name : '';
       var card = el('div', 'upd-item sel');
       card.appendChild(el('span', 'upd-ver', ver));
-      card.appendChild(el('span', 'upd-file', fname));
+      card.appendChild(el('span', 'upd-file', pkg.name || (isDesk() ? '（这一版还没有电脑版）' : '')));
       $('updateList').appendChild(card);
-      $('updateStatus').textContent = 校验更新提示(ver);
-      $('updateGo').disabled = false;
+      if (isDesk()) 渲染手机版二维码(r);           // 电脑版：装包下方给手机版的二维码
+      $('updateStatus').textContent = 校验更新提示(pkg.ver || r['0000']);
+      $('updateGo').disabled = !pkg.rel;
     } catch (e) {
       $('updateStatus').textContent = '检查失败：' + (e.message || '网络错误');
     }
   }
+  /** 更新包直链：绝对地址原样用；`/api/...` 拼云函数；附件路径走带口令的 /api/download。
+      `u` 这个 UUID 服务端根本不看（_download 只读 path 和 t），所以不带。 */
+  function 更新包直链(rel) {
+    var s = String(rel || '');
+    if (/^https?:\/\//i.test(s)) return s;
+    if (s.charAt(0) === '/') return CLOUD_BASE + s;
+    var enc = encodeURI(s);
+    return CLOUD_BASE + '/api/download?path=' + enc +
+           '&t=' + encodeURIComponent(MAIL_APP_TOKEN);
+  }
+  /**
+   * 按当前平台挑「更新」表里的那一款安装包（用户 2026-10-30 要求）：
+   *  · 电脑版 → 版本（exe）/ exe程序
+   *  · 手机版 → 版本（APK）/ APK程序（老键 0000 / etRB）
+   */
+  function 平台上包(r) {
+    if (!r) return { ver: '', rel: '', name: '' };
+    if (isDesk()) {
+      var rel = firstPath(r['exe程序']);
+      if (typeof rel === 'string') rel = assetRel(rel);
+      return { ver: String(r['版本（exe）'] || r['0000'] || ''), rel: rel || '', name: rel ? String(rel).split('/').pop() : '' };
+    }
+    var files = r['etRB'] || [];
+    var ver = String(r['版本（APK）'] || r['0000'] || '');
+    // /api/apkfile 回二进制 + Content-Disposition(.apk)：原生下载器和浏览器都能拿到真正的 APK。
+    return { ver: ver, rel: '/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN),
+             name: 'FAST_v' + (ver || 'latest') + '.apk' };
+  }
+  /** 电脑版检查更新：在安装包下方给一个手机版二维码（扫码直接装手机版） */
+  function 渲染手机版二维码(r) {
+    var list = $('updateList');
+    if (!list) return;
+    var apkRel = assetRel(r['APK程序']);
+    var 有apk = !!(apkRel || (r['etRB'] && r['etRB'].length) || r['版本（APK）']);
+    if (!有apk) return;                        // 云端还没放 APK 就不画空二维码
+    var box = el('div', 'upd-qr');
+    box.appendChild(el('div', 'upd-qr-tip', '欢迎下载手机版'));
+    var img = el('div', 'upd-qr-img');
+    try {
+      // 直接用 /api/apkfile：它回二进制 + Content-Disposition(.apk)，扫码后下载的是能装的 APK。
+      // （/api/apk 回的是 HTML 跳转页，手机图省事会把页面本身存成 .html，用户报过这个问题）
+      var 地址 = 更新包直链('/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN));
+      var 图 = window.FAST_QR && FAST_QR.svg ? FAST_QR.svg(地址, 200, '#1d1b20', '#ffffff') : '';
+      if (图) img.innerHTML = 图;
+      else img.textContent = window.FAST_QR ? '链接太长，二维码放不下' : '二维码组件未加载';
+    } catch (e) { img.textContent = '二维码生成失败'; }
+    box.appendChild(img);
+    box.appendChild(el('div', 'upd-qr-note', '手机扫码直接安装手机版'));
+    list.appendChild(box);
+  }
+  var UPD_DL_KEY = '__bb_upd_dl_v1';
+  function 本版已下载(fp) {
+    try {
+      var o = JSON.parse(localStorage.getItem(UPD_DL_KEY) || 'null');
+      return !!(o && o.fp === fp && Date.now() - Number(o.at || 0) < 24 * 3600 * 1000);
+    } catch (e) { return false; }
+  }
+  function 记本版已下载(fp) {
+    try { localStorage.setItem(UPD_DL_KEY, JSON.stringify({ fp: fp, at: Date.now() })); } catch (e) {}
+    // 电脑壳下载完成后会回调这个：把安装包路径记下来，下次直接打开
+    try {
+      window.__updateDownloaded = function (path) {
+        try { localStorage.setItem('__bb_upd_file', JSON.stringify({ path: path, at: Date.now() })); } catch (e) {}
+        try { $('updateStatus').textContent = '安装包已下载：' + String(path || '').split('\\').pop(); } catch (e) {}
+      };
+    } catch (e) {}
+  }
+  /** 电脑版：已经下载过就发消息给外壳，直接打开安装程序，不再重复下载 */
+  function 打开已下载安装包() {
+    try {
+      if (window.chrome && chrome.webview && chrome.webview.postMessage) {
+        chrome.webview.postMessage({ type: 'openUpdate' });
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
   async function doUpdate() {
     var r = updateLatest;   // 只会是最新版本那一行（界面已经不提供选择）
     if (!r) return;
-    var files = r['etRB'] || [];
-    if (!files[0] || !files[0].url) { snack('该版本没有安装包'); return; }
-    var url = files[0].url, name = files[0].name || ('update_' + Date.now() + '.apk');
+    var pkg = 平台上包(r);
+    if (!pkg.rel) { snack(isDesk() ? '这一版还没有上传电脑版安装包' : '该版本没有安装包'); return; }
+    var fp = String(pkg.ver || '') + '|' + String(pkg.name || '');
+    if (本版已下载(fp)) {
+      if (isDesk() && 打开已下载安装包()) {
+        $('updateStatus').textContent = '正在打开已下载的安装包…';
+        return;
+      }
+      if (!isDesk()) {
+        try {
+          var ap = JSON.parse(localStorage.getItem('__bb_upd_apk') || 'null');
+          if (ap && ap.path && ap.ver === String(pkg.ver || '') && window.Native && Native.installApk) {
+            $('updateStatus').textContent = '正在打开已下载的安装包…';
+            Native.installApk(ap.path, '');
+            return;
+          }
+        } catch (e) {}
+      }
+      $('updateStatus').textContent = '这个版本已经下载过了，不重复下载';
+      snack('这个版本已经下载过了：' + (pkg.name || ''));
+      return;
+    }
     $('updateGo').disabled = true;
     try {
-      // 附件 url 形如 .../asset/<uuid>/files/2026-09/xxx.apk，取出 /asset/<uuid>/ 之后的 file_path
-      var m = url.match(/\/asset\/[^/]+\/(.+)$/);
-      var filePath = m ? m[1] : '';
-      if (!filePath) throw new Error('无法解析文件路径');
-      // 用 app Token 换临时直链（seafhttp/files/...），否则直接 GET 只会下到登录页 HTML
-      $('updateStatus').textContent = '正在获取下载地址…';
-      var enc = encodeURI(decodeURIComponent(filePath));   // 保留 / 分隔符，只编码文件名部分
-      var direct;
-      if (用中转()) {
-        // ⚠️ 这里**不能**用 中转链接('/api/download?path=…')（2026-09-26 修）：
-        // 那样会拼成 `/api?p=/api/download?path=…`，中转把它当普通路径转发，
-        // 而 `/api/download` 不在中转的白名单里 → 403 path not allowed，
-        // 用户看到的就是"检查更新下不了包"。正确写法是直接拼 /api/download 并带口令
-        // （和社区图片 dlLinkUrl 一个形状）。
-        // `u=` 指定这个附件属于「更新」库：中转按库选对应的 SeaTable 令牌换下载链接，
-        // 不传就会用账号库的令牌，那个令牌对「更新」库没权限 → 403。
-        direct = CLOUD_BASE + '/api/download?path=' + enc +
-                 '&u=' + encodeURIComponent(UPDATE_CFG.uuid) +
-                 '&t=' + encodeURIComponent(MAIL_APP_TOKEN);
-      } else {
-        var linkResp = await editorCloudHttp('GET', UPDATE_CFG.server + '/api/v2.1/dtable/app-download-link/?path=' + enc, null, (UPDATE_CFG.token || null));
-        direct = linkResp && linkResp.download_link;
-      }
-      if (!direct) throw new Error('未取得下载链接');
       $('updateStatus').textContent = '正在下载安装包…';
-      window.__updCid = 'upd_' + Date.now();
-      Native.downloadApk(window.__updCid, direct, name);
+      window.__updVer = String(pkg.ver || '');
+      var direct = 更新包直链(pkg.rel);
+      var name = pkg.name || ('update_' + Date.now() + (isDesk() ? '.exe' : '.apk'));
+      if (window.Native && Native.downloadApk) {
+        window.__updCid = 'upd_' + Date.now();
+        Native.downloadApk(window.__updCid, direct, name);
+      } else {
+        // 电脑版没有原生下载桥：直接让浏览器/外壳按附件下载
+        var a = document.createElement('a');
+        a.href = direct; a.download = name; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+      记本版已下载(fp);
     } catch (e) {
       $('updateStatus').textContent = '下载失败：' + (e.message || '网络错误');
       $('updateGo').disabled = false;
@@ -7814,7 +8707,24 @@
     state.project.version = p.version; state.project.icon = exportIcon;
     saveCurrentWs(true); persist();   // 导出前确保代码与工程已落盘
     $('exportMask').classList.add('hidden');
-    if (!window.Native || !Native.exportApk) { modal('导出说明', '需要在安卓 App 内运行才能生成 APK。'); return; }
+    if (!window.Native || !Native.exportApk) {
+      /* 电脑版没有 Android 构建工具链，不能在本机编译 APK；但「导出」必须可用：
+         导出可导入的 .fast 工程包（不再弹一句"无法生成"）。 */
+      try {
+        var text = JSON.stringify({ fast: FAST_FORMAT, kind: 'project',
+          appName: p.appName, exportedAt: Date.now(), project: p, media: {} });
+        var fname = (String(p.appName || 'FAST作品').trim() || 'FAST作品') + '.fast';
+        var blob = new Blob([text], { type: 'application/octet-stream' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = fname; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { try { URL.revokeObjectURL(a.href); } catch (e) {} }, 1000);
+        snack('已导出工程包（要 APK 请在手机 App 内导出）');
+      } catch (e) {
+        modal('导出失败', (e && e.message) || '导出失败');
+      }
+      return;
+    }
     modal('正在生成', '正在编译并签名 APK，请稍候…');
     $('modalOk').classList.add('hidden');
     Native.exportApk(JSON.stringify(p), p.appName, p.orientation || 'portrait', exportIcon || '', p.version);
@@ -9618,6 +10528,52 @@
     head.addEventListener('pointercancel', end);
     // 双击顶栏"归位"这个判定按用户要求关掉了（容易误触发，也不知道自己动了什么）
   }
+  /** AI 面板的 8 个缩放手柄（四边 + 四角；电脑端才建，拖完把尺寸记进 aiPanelBox） */
+  function 建AI缩放手柄() {
+    var p = $('aiPanel');
+    if (!p || p.__rsWired || !isDesk()) return;
+    p.__rsWired = true;
+    ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(function (dir) {
+      var h = el('div', 'ai-rs');
+      h.dataset.rs = dir;
+      p.appendChild(h);
+      h.addEventListener('pointerdown', function (e) {
+        if (e.button !== 0) return;
+        var host = $('viewEditor'); if (!host) return;
+        var pr = p.getBoundingClientRect(), hr = host.getBoundingClientRect();
+        var st = { x: pr.left - hr.left, y: pr.top - hr.top, w: pr.width, h: pr.height, sx: e.clientX, sy: e.clientY };
+        p.style.transition = 'none';
+        p.style.right = 'auto'; p.style.bottom = 'auto';
+        p.style.left = Math.round(st.x) + 'px'; p.style.top = Math.round(st.y) + 'px';
+        p.style.width = Math.round(st.w) + 'px'; p.style.height = Math.round(st.h) + 'px';
+        var move = function (ev) {
+          var dx = ev.clientX - st.sx, dy = ev.clientY - st.sy;
+          var x = st.x, y = st.y, w = st.w, hh = st.h;
+          if (dir.indexOf('e') >= 0) w = st.w + dx;
+          else if (dir.indexOf('w') >= 0) { w = st.w - dx; x = st.x + dx; }
+          if (dir.indexOf('s') >= 0) hh = st.h + dy;
+          else if (dir.indexOf('n') >= 0) { hh = st.h - dy; y = st.y + dy; }
+          w = Math.max(280, Math.min(w, hr.width - Math.max(0, x)));
+          hh = Math.max(220, Math.min(hh, hr.height - Math.max(0, y)));
+          x = Math.max(0, Math.min(x, hr.width - 120));
+          y = Math.max(0, Math.min(y, hr.height - 60));
+          p.style.left = Math.round(x) + 'px'; p.style.top = Math.round(y) + 'px';
+          p.style.width = Math.round(w) + 'px'; p.style.height = Math.round(hh) + 'px';
+          if (ev.cancelable) ev.preventDefault();
+        };
+        var up = function () {
+          document.removeEventListener('pointermove', move);
+          document.removeEventListener('pointerup', up);
+          var pr2 = p.getBoundingClientRect();
+          aiSavePanelBox({ x: Math.round(pr2.left - hr.left), y: Math.round(pr2.top - hr.top),
+                           w: Math.round(pr2.width), h: Math.round(pr2.height) });
+        };
+        document.addEventListener('pointermove', move);
+        document.addEventListener('pointerup', up);
+        e.preventDefault(); e.stopPropagation();
+      });
+    });
+  }
 
   /**
    * 取悬浮球的**正常几何**（面板开合动画的起点/终点都用它）。
@@ -10046,7 +11002,7 @@
       if (!aiPointOnCanvas(e.clientX, e.clientY, false)) {
         var 在代码页 = false;
         try { 在代码页 = !$('viewBlocks').classList.contains('hidden'); } catch (e) {}
-        aiSetStatus(在代码页 ? '已取消 —— 松手要落在左边的代码画布上才会放进去'
+        aiSetStatus(在代码页 ? ('已取消 —— 松手要落在' + (isDesk() ? '右边' : '左边') + '的代码画布上才会放进去')
                             : '已取消 —— 先切到「代码」页，再把它拖到画布上（或者直接点「插入到画布」）', false);
         return;
       }
@@ -11411,6 +12367,7 @@
 
     // 顶栏拖动面板
     aiWirePanelDrag();
+    建AI缩放手柄();
     // 面板尺寸/窗口变化时，侧边栏的范围（到输入框上沿）要跟着重算
     window.addEventListener('resize', function () { aiPositionChatList(); });
     // 实时思考那块：用户自己往下翻之后就不要再自动滚（否则滑不动）
@@ -11877,6 +12834,18 @@
     },
     onExportResult: function (ok, path, err, downloadUri) {
       if (ok) {
+        // 电脑版：APK 已生成到本机「下载/fast本地app」，给路径 + 打开文件夹（不再说手机那套）
+        if (isDesk()) {
+          var dbox = el('div');
+          var dline = el('div', 'dim'); dline.style.wordBreak = 'break-all';
+          dline.textContent = 'APK 已保存到：' + path;
+          dbox.appendChild(dline);
+          modal('导出成功', dbox, '打开文件夹', function () {
+            try { if (window.Native && Native.openExportFolder) Native.openExportFolder(path); } catch (e) {}
+            hideModal();
+          });
+          return;
+        }
         var fname = path.split('/').pop();
         var box = el('div');
         var line = el('div', 'dim'); line.style.wordBreak = 'break-all';
@@ -11890,7 +12859,8 @@
           if (window.Native && Native.openDownloadFolder) Native.openDownloadFolder();
           else modal('安装方式', '请用系统「文件管理」进入 下载/fast本地app 目录，点击该 APK 安装。', '知道了', hideModal);
         });
-      } else modal('导出失败', err || '未知错误');
+      } else if (isDesk()) modal('导出失败', err || '未知错误', '关闭', hideModal);
+      else modal('导出失败', err || '未知错误');
     },
     // 本地上传视频/音频完成：原生把文件拷入私有目录后回调文件名，把它记成组件的 media:// 引用
     onMediaPicked: function (name) {
@@ -11907,6 +12877,8 @@
     // 检查更新：APK 下载完成，准备调系统安装器
     onApkDownloaded: function (cbId, path, err) {
       if (err) { var st = $('updateStatus'); if (st) st.textContent = '下载失败：' + err; var g = $('updateGo'); if (g) g.disabled = false; return; }
+      // 记下已下载的安装包路径：下次点「下载并安装」直接打开安装界面，不再重复下载
+      try { localStorage.setItem('__bb_upd_apk', JSON.stringify({ path: path, ver: window.__updVer || '', at: Date.now() })); } catch (e) {}
       var st = $('updateStatus'); if (st) st.textContent = '下载完成，准备安装…';
       try { if (window.Native && Native.installApk) Native.installApk(path, ''); } catch (e) {}
       setTimeout(function () { var m = $('updateMask'); if (m) m.classList.add('hidden'); }, 500);
@@ -11933,7 +12905,7 @@
   var AUTH_COL = { email: '用户邮箱', name: '账号名' };
   var USER_KEY = '__bb_user_v1';
   var MAIL_BASE = 'https://fast-mail-code-uzzxqcntro.cn-hangzhou.fcapp.run';
-  var MAIL_APP_TOKEN = 'ed50ad9e7f07e67991695576b724984f89bd61d2';   // 与函数环境变量 APP_TOKEN 一致
+  var MAIL_APP_TOKEN = 'REPLACE_WITH_APP_TOKEN';   // 与函数环境变量 APP_TOKEN 一致
   /* ================= 云中转 =================
      账号/社区/更新的所有云请求都走这个中转，SeaTable 的密钥只存在服务端，
      **APK 里一个凭据都没有**（以前 AUTH_TOKEN 硬编码在这里，谁拿到 APK 都能读写整张表）。
@@ -12240,7 +13212,7 @@
   var COMM_TABLE = '社区';
   var COMM_COL = {
     user: '用户名', file: '作品', image: '作品图', open: '是否开源',
-    name: '作品名', sid: '作品iD', email: '用户邮箱'
+    name: '作品名', sid: '作品iD', email: '用户邮箱', intro: '作品介绍'
   };
   var ACCT_COL = { email: '用户邮箱', name: '账号名', avatar: '头像', ids: '作品iD', files: '作品' };
   var UPLOAD_DIR = 'files/2026-09';       // 作品文件统一放这里
@@ -12600,6 +13572,15 @@
   }
   var __upCache = {};
   /**
+   * 社区作品文件在云端的名字：**只用 ASCII**（作品iD 本来就是 ASCII，直接用）。
+   * 为什么：以前用「作品名.fast」，中文名会让下载接口写 Content-Disposition 时崩掉，
+   * 客户端只看到 502（用户 2026-10-31 报的"点运行下载作品失败"）。作品名照旧存在「作品名」列里。
+   */
+  function 社区文件名(sid) {
+    var s = String(sid || '').replace(/[^A-Za-z0-9_.-]/g, '_').replace(/_+/g, '_');
+    return (s || ('fast_' + Date.now())) + '.fast';
+  }
+  /**
    * 上传一个附件（图片或作品文件），返回可写进列的地址。
    *   spec = { dataUrl } 或 { bytes, name, mime }
    *   返回 { url, name, size, type }；url 为 /workspace/... 形式时按 SeaTable 官方写法可直接写进 image 列。
@@ -12725,6 +13706,9 @@
       // 读的过程中用户又点过刷新 → 立刻按最新数据再读一次
       if (commState.pending) { commState.pending = false; renderCommunity({ refresh: true }); return; }
       drawCommunity();
+      // 评论区条数：等社区列表画完再读「评论」表（顺序发请求，避免和中转抢同一条连接）。
+      // 读到后**只改卡片上的条数**，不整片重画 —— 以前这里再 draw 一次会让列表闪第二下。
+      载入社区评论(opts.refresh ? true : false).then(function () { 刷新卡片评论数(); });
     }).catch(function (e) {
       commState.loading = false; 刷新按钮忙(false);
       commState.open = true;
@@ -12737,7 +13721,9 @@
     var box = $('acctComm'), empty = $('acctCommEmpty'), more = $('acctMore');
     if (!box || !empty || !more) return;
     if (commState.error) { box.innerHTML = ''; empty.textContent = commState.error; empty.classList.remove('hidden'); more.classList.add('hidden'); return; }
-    var list = commState.rows.slice(0, commState.shown);
+    // 搜索：按作品名 / 作者 / 介绍筛（comQuery 为空就是全部）
+    var 全部 = commState.rows.filter(匹配搜索);
+    var list = 全部.slice(0, commState.shown);
     // 内容没变就别重建 DOM：切栏时这个函数会被触发两次（切栏 + 一个 rAF），
     // 每次 children 全删全加会让列表在慢设备上"闪一下"（2026-09-25 真机反馈）。
     // ⚠️ 指纹必须把**卡片上真正画出来的内容**都算进去（2026-10-27 用户报的"改名后后台是新的、App 还是原名"，
@@ -12745,9 +13731,12 @@
     // 以前只比 作品iD/作品名/条数（后来补了作者名），但「是否开源」「封面图」变了不动指纹 →
     // 这里判定"内容没变"直接 return，新读回来的行根本没被画出来，卡片一直停在旧状态（只有重启 App 才会好）。
     // 卡片实际渲染的就是：封面图 / 作品名 / 是否开源 / 作者 / 时间 —— 这五项 + 作品iD 都得进指纹。
-    var 指纹 = list.map(function (r) {
+    var 指纹 = (commQuery ? 'q:' + commQuery + '\u0003' : '') + list.map(function (r) {
       return [strOf(r[COMM_COL.sid]), strOf(r[COMM_COL.name]), strOf(r[COMM_COL.user]),
-        strOf(r[COMM_COL.open]), firstPath(r[COMM_COL.image]), timeOfRow(r)].join('\u0002');
+        strOf(r[COMM_COL.open]), firstPath(r[COMM_COL.image]), timeOfRow(r),
+        // 评论条数**不算进指纹**：它由 刷新卡片评论数() 原地更新，算进来会让整片列表重画（闪）
+        互动名单(r, 'like').join(','), 互动名单(r, 'fav').join(','),
+        互动数(r, 'like'), 互动数(r, 'fav')].join('\u0002');   // 点赞/收藏变了也要重画
     }).join('\u0001') + '#' + list.length;
     if (commState.指画过 === 指纹 && box.children.length) { return; }
     commState.指画过 = 指纹;
@@ -12761,11 +13750,16 @@
       if (播错峰) 错峰(c, 序);
       box.appendChild(c);
     });
-    empty.textContent = list.length ? '' : '社区里还没有作品';
+    empty.textContent = list.length ? '' : (commQuery ? '没有找到匹配「' + commQuery + '」的作品' : '社区里还没有作品');
     empty.classList.toggle('hidden', list.length > 0);
-    more.classList.toggle('hidden', commState.shown >= commState.rows.length);
+    more.classList.toggle('hidden', commState.shown >= 全部.length);
   }
-  function 社区卡片(r) {
+  /**
+   * 社区作品卡片（社区列表和「个人主页 → 已分享/收藏/点赞/浏览记录」共用同一套外观）。
+   * opts.shared = 已分享：底部多一排「管理 / 删除分享」；opts.browsedAt = 浏览时间。
+   */
+  function 社区卡片(r, opts) {
+    opts = opts || {};
     var card = el('div', 'comm-card');
     var cover = el('div', 'comm-cover');
     设封面(cover, r[COMM_COL.image], String(r[COMM_COL.name] || '作品').slice(0, 1));
@@ -12775,20 +13769,524 @@
     if (isOpen(r[COMM_COL.open])) nm.appendChild(el('span', 'comm-tag', '开源'));
     info.appendChild(nm);
     info.appendChild(el('div', 'comm-sub', '作者：' + (strOf(r[COMM_COL.user]) || '匿名')));
-    info.appendChild(el('div', 'comm-sub', fmtTime(timeOfRow(r))));
+    // 作品介绍（发布时填的，没填就不占位）
+    var intro = String(strOf(r[COMM_COL.intro]) || '').trim();
+    if (intro) info.appendChild(el('div', 'comm-intro', intro));
+    var sid = strOf(r[COMM_COL.sid]).trim();
+    var cnt = 评论条数(sid);
+    info.appendChild(el('div', 'comm-sub comm-date',
+      (opts.browsedAt ? '浏览于 ' : '日期：') + fmtTime(opts.browsedAt || timeOfRow(r))));
+    // 点赞 / 收藏按钮（点一下切换，不触发卡片进详情）
+    var acts = el('div', 'comm-acts');
+    var 我赞 = 我互动过(r, 'like'), 我藏 = 我互动过(r, 'fav');
+    var like = el('button', 'comm-act like' + (我赞 ? ' on' : ''), '赞 ' + 互动数(r, 'like'));
+    like.type = 'button'; like.setAttribute('aria-pressed', 我赞 ? 'true' : 'false');
+    like.addEventListener('click', function (e) { e.stopPropagation(); 切换互动(r, 'like'); });
+    var fav = el('button', 'comm-act fav' + (我藏 ? ' on' : ''), '收藏 ' + 互动数(r, 'fav'));
+    fav.type = 'button'; fav.setAttribute('aria-pressed', 我藏 ? 'true' : 'false');
+    fav.addEventListener('click', function (e) { e.stopPropagation(); 切换互动(r, 'fav'); });
+    acts.appendChild(like); acts.appendChild(fav);
+    var stat = el('span', 'comm-stat', '评论 ' + cnt);
+    acts.appendChild(stat);
+    info.appendChild(acts);
+    // 记住这张卡对应的作品，点赞/收藏时只改按钮，不重画整张列表（避免闪）
+    card.dataset.sid = sid;
+    card.__like = like; card.__fav = fav; card.__stat = stat;
+    // 卡片上只留一个「查看」：点它进全屏详情页（运行/保存都在详情页里）
+    var view = el('button', 'tb primary comm-view', '查看'); view.type = 'button';
+    view.addEventListener('click', function (e) { e.stopPropagation(); 打开评论(r); });
+    info.appendChild(view);
+    // 已分享：同款卡片底部加「管理 / 删除分享」
+    if (opts.shared && sid) {
+      var manage = el('div', 'comm-manage');
+      var mg = el('button', 'tb', '管理'); mg.type = 'button';
+      mg.addEventListener('click', function (e) {
+        e.stopPropagation();
+        打开管理(sid, $('acctName') ? ($('acctName').value || '') : '', $('acctMail') ? $('acctMail').textContent : '');
+      });
+      var del = el('button', 'tb danger-text', '删除分享'); del.type = 'button';
+      del.addEventListener('click', function (e) {
+        e.stopPropagation();
+        删除分享(sid, function () { 退出管理(); renderMine(); });
+      });
+      manage.appendChild(mg); manage.appendChild(del);
+      info.appendChild(manage);
+    }
     card.appendChild(info);
-    // 两个按钮放进右边的信息列里 —— 整张卡是「左小图标 + 右详细信息」的横排小卡
-    var ops = el('div', 'comm-ops');
-    var save = el('button', 'tb', '保存本地'); save.type = 'button';
-    // 未开源 → 不能存本地（置灰）；运行不分开不开源，都能点
-    save.disabled = !isOpen(r[COMM_COL.open]);
-    save.addEventListener('click', function () { 保存社区作品(r); });
-    var run = el('button', 'tb primary', '运行'); run.type = 'button';
-    run.addEventListener('click', function () { 运行社区作品(r); });
-    ops.appendChild(save); ops.appendChild(run);
-    info.appendChild(ops);
+    // 整张卡片都可以点：进入作品详情页（基本信息 + 评论区）
+    card.addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('button')) return;
+      打开评论(r);
+    });
     return card;
   }
+
+  /* ---- 点赞 / 收藏：存在社区行上（点赞用户 / 收藏用户），人数即计数，天然同步 ---- */
+  var 互动列 = { like: '点赞用户', fav: '收藏用户', likeCnt: '点赞数', favCnt: '收藏数' };
+  function 互动名单(r, kind) {
+    var col = kind === 'like' ? 互动列.like : 互动列.fav;
+    var v = r && r[col];
+    if (Array.isArray(v)) return v.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean);
+    if (typeof v === 'string' && v.trim()) {
+      var t = v.trim();
+      if (t.charAt(0) === '[') { try { var j = JSON.parse(t); if (Array.isArray(j)) return j.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean); } catch (e) {} }
+      return t.split(/[,\u0001]/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+    }
+    return [];
+  }
+  function 我互动过(r, kind) {
+    var u = currentUser(); if (!u || !u.email) return false;
+    return 互动名单(r, kind).indexOf(String(u.email).trim().toLowerCase()) >= 0;
+  }
+  function 互动数(r, kind) {
+    var cntCol = kind === 'like' ? 互动列.likeCnt : 互动列.favCnt;
+    var n = Number(r && r[cntCol]); if (!isFinite(n) || n < 0) n = 0;
+    return Math.max(n, 互动名单(r, kind).length);
+  }
+  /** 只刷新一张社区卡片上的赞/收藏按钮（不重建 DOM，避免整片列表闪一下） */
+  function 同步卡片互动(card, r) {
+    if (!card || !card.__like) return;
+    var 赞 = 我互动过(r, 'like'), 藏 = 我互动过(r, 'fav');
+    card.__like.textContent = '赞 ' + 互动数(r, 'like');
+    card.__like.classList.toggle('on', 赞);
+    card.__like.setAttribute('aria-pressed', 赞 ? 'true' : 'false');
+    card.__fav.textContent = '收藏 ' + 互动数(r, 'fav');
+    card.__fav.classList.toggle('on', 藏);
+    card.__fav.setAttribute('aria-pressed', 藏 ? 'true' : 'false');
+    if (card.__stat) card.__stat.textContent = '评论 ' + 评论条数(strOf(r[COMM_COL.sid]).trim());
+  }
+  /** 只刷新卡片上的「评论 N」文字（评论表读完 / 发完评论时用，避免整片列表重建） */
+  function 刷新卡片评论数() {
+    ['acctComm', 'acctMine'].forEach(function (id) {
+      var box = $(id); if (!box) return;
+      Array.prototype.forEach.call(box.querySelectorAll('.comm-card'), function (c) {
+        if (c.__stat && c.dataset.sid) c.__stat.textContent = '评论 ' + 评论条数(c.dataset.sid);
+      });
+    });
+  }
+  /** 把社区列表 / 我的作品里同一件作品的卡片都同步成最新互动状态 */
+  function 刷新互动界面(r) {
+    var sid = strOf(r && r[COMM_COL.sid]).trim();
+    if (!sid) return;
+    ['acctComm', 'acctMine'].forEach(function (id) {
+      var box = $(id); if (!box) return;
+      Array.prototype.forEach.call(box.querySelectorAll('.comm-card'), function (c) {
+        if (String(c.dataset.sid || '') === sid) 同步卡片互动(c, r);
+      });
+    });
+    同步详情互动();
+  }
+  /** 在「收藏 / 点赞」页里取消后，把那张卡从列表里摘掉（不等整页重画） */
+  function 移除我的互动卡(sid) {
+    var box = $('acctMine'); if (!box) return;
+    var cards = box.querySelectorAll('.comm-card');
+    for (var i = 0; i < cards.length; i++) {
+      if (String(cards[i].dataset.sid || '') === sid) { cards[i].remove(); break; }
+    }
+    if (!box.children.length) 我的作品提示(ACCT_TAB_EMPTY[acctTab] || '还没有作品');
+  }
+  /**
+   * 切换点赞 / 收藏：先改本地（卡片立刻变），再写社区行；失败回滚。
+   * 不登录不让点 —— 直接弹登录框（和评论同口径）。
+   */
+  function 切换互动(r, kind) {
+    var u = currentUser();
+    if (!u || !u.email) { openAuth(); return; }
+    if (!r || !r._id) { snack('这条作品还没同步好，稍后再试'); return; }
+    var email = String(u.email).trim().toLowerCase();
+    var col = kind === 'like' ? 互动列.like : 互动列.fav;
+    var cntCol = kind === 'like' ? 互动列.likeCnt : 互动列.favCnt;
+    var oldList = 互动名单(r, kind);
+    var oldCnt = Number(r[cntCol]); if (!isFinite(oldCnt) || oldCnt < 0) oldCnt = 0;
+    var has = oldList.indexOf(email) >= 0;
+    var newList = has ? oldList.filter(function (x) { return x !== email; }) : oldList.concat([email]);
+    var newCnt = newList.length;
+    r[col] = newList; r[cntCol] = newCnt;
+    // **原地更新**当前可见的卡片按钮（以前是清指纹 + 整片重画，用户会看到列表闪一下）
+    刷新互动界面(r);
+    var sid = strOf(r[COMM_COL.sid]).trim();
+    var 对应页 = (acctTab === (kind === 'fav' ? 'fav' : 'like'));
+    if (对应页 && has && sid) 移除我的互动卡(sid);
+    var patch = {}; patch[col] = newList; patch[cntCol] = newCnt;
+    tblUpdate(COMM_TABLE, r._id, patch).catch(function (e) {
+      r[col] = oldList; r[cntCol] = oldCnt;
+      刷新互动界面(r);
+      if (对应页) renderMine();          // 回滚：把刚才摘掉的卡片补回来
+      snack('操作失败：' + ((e && e.message) || '网络错误'));
+    });
+  }
+  /* ================= 社区评论（用户 2026-10-31）=================
+     新表「评论」（云函数 TABLE_FILES 映射到 db/comments.json）。
+     列：作品iD / 评论iD / 父评论iD / 作者 / 用户邮箱 / 内容 / 时间（毫秒）。
+     父子关系只靠 父评论iD：一条评论可以被回复很多次；渲染按树缩进（最多缩 3 层）。
+     读取：进社区时读一次全表，按 作品iD 统计条数画在卡片上；打开抽屉时强制再读一次。 */
+  var COMMT_TABLE = '评论';
+  var COMMT_COL = { sid: '作品iD', cid: '评论iD', parent: '父评论iD', user: '作者', email: '用户邮箱', text: '内容', time: '时间',
+    likeUsers: '点赞用户', likeCnt: '点赞数' };
+  var commComments = { at: 0, loading: null, rows: [], counts: {} };
+  var commDraw = { sid: '', row: null, parent: '', replyTo: '' };
+  var commExpand = {};     // 每条根评论已展开的回复条数（0=折叠，用户 2026-10-31 要求）
+  var commSort = 'hot';    // hot=最热门（默认）/ new=最新（用户 2026-10-31 要求）
+  var commSending = false;
+  var ICON_THUMB = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 10h4v10H2V10zm20-1a2 2 0 0 0-2-2h-6.31l.95-4.57.03-.32a1.5 1.5 0 0 0-.44-1.06L13.17 0 6.59 6.59A2 2 0 0 0 6 8v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-1.73l1.3-6A2 2 0 0 0 22 11v-2z"/></svg>';
+  /** 评论里的点赞名单（兼容数组 / JSON 字符串 / 逗号串） */
+  function 评论赞名单(r) {
+    var v = r && r[COMMT_COL.likeUsers];
+    if (Array.isArray(v)) return v.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean);
+    if (typeof v === 'string' && v.trim()) {
+      var t = v.trim();
+      if (t.charAt(0) === '[') { try { var j = JSON.parse(t); if (Array.isArray(j)) return j.map(function (x) { return String(x || '').trim().toLowerCase(); }).filter(Boolean); } catch (e) {} }
+      return t.split(/[,\u0001]/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+    }
+    return [];
+  }
+  function 评论赞数(r) {
+    var n = Number(r && r[COMMT_COL.likeCnt]); if (!isFinite(n) || n < 0) n = 0;
+    return Math.max(n, 评论赞名单(r).length);
+  }
+  function 我赞过评论(r) {
+    var u = currentUser(); if (!u || !u.email) return false;
+    return 评论赞名单(r).indexOf(String(u.email).trim().toLowerCase()) >= 0;
+  }
+  /** 最热门：点赞多的在上，相同按时间（最新在上）；最新：直接按时间最新在上 */
+  function 排评论(a, b) {
+    if (commSort === 'hot') {
+      var d = 评论赞数(b) - 评论赞数(a);
+      if (d) return d;
+    }
+    return 评论时间(b) - 评论时间(a);
+  }
+  function 同步评论排序Tab() {
+    var bar = $('commSort'); if (!bar) return;
+    Array.prototype.forEach.call(bar.querySelectorAll('.comm-sort-btn'), function (b) {
+      b.classList.toggle('on', String(b.getAttribute('data-sort') || '') === commSort);
+    });
+  }
+  /** 切换一条评论的点赞：先本地更新（热门排序会立刻重排），再写评论行；失败回滚 */
+  function 切换评论赞(r) {
+    var u = currentUser();
+    if (!u || !u.email) { openAuth(); return; }
+    if (!r || !r._id) return;
+    var email = String(u.email).trim().toLowerCase();
+    var oldList = 评论赞名单(r), oldCnt = 评论赞数(r);
+    var has = oldList.indexOf(email) >= 0;
+    var newList = has ? oldList.filter(function (x) { return x !== email; }) : oldList.concat([email]);
+    r[COMMT_COL.likeUsers] = newList; r[COMMT_COL.likeCnt] = newList.length;
+    画评论();
+    var patch = {};
+    patch[COMMT_COL.likeUsers] = newList; patch[COMMT_COL.likeCnt] = newList.length;
+    tblUpdate(COMMT_TABLE, r._id, patch).catch(function (e) {
+      r[COMMT_COL.likeUsers] = oldList; r[COMMT_COL.likeCnt] = oldCnt;
+      画评论();
+      snack('操作失败：' + ((e && e.message) || '网络错误'));
+    });
+  }
+  var commDwLikeBtn = null, commDwFavBtn = null;
+
+  /* ---- 浏览记录：按账号存在本机（打开详情页时记一条，最多 60 条） ---- */
+  var HISTORY_KEY = '__bb_view_history_v1';
+  function historyKey() {
+    var u = currentUser();
+    return HISTORY_KEY + '_' + (u && u.email ? String(u.email).trim().toLowerCase() : 'guest');
+  }
+  function readHistory() {
+    try {
+      var a = JSON.parse(localStorage.getItem(historyKey()) || '[]');
+      return Array.isArray(a) ? a.filter(function (x) { return x && x.sid; }) : [];
+    } catch (e) { return []; }
+  }
+  function 记浏览(r) {
+    var u = currentUser(); if (!u || !u.email) return;
+    var sid = strOf(r && r[COMM_COL.sid]).trim(); if (!sid) return;
+    var list = readHistory().filter(function (x) { return String(x.sid) !== sid; });
+    list.unshift({ sid: sid, at: Date.now() });
+    if (list.length > 60) list = list.slice(0, 60);
+    try { localStorage.setItem(historyKey(), JSON.stringify(list)); } catch (e) {}
+  }
+  function 同步详情互动() {
+    var r = commDraw.row; if (!r) return;
+    var 赞 = 我互动过(r, 'like'), 藏 = 我互动过(r, 'fav');
+    if (commDwLikeBtn) {
+      commDwLikeBtn.textContent = '赞 ' + 互动数(r, 'like');
+      commDwLikeBtn.classList.toggle('on', 赞);
+      commDwLikeBtn.setAttribute('aria-pressed', 赞 ? 'true' : 'false');
+    }
+    if (commDwFavBtn) {
+      commDwFavBtn.textContent = '收藏 ' + 互动数(r, 'fav');
+      commDwFavBtn.classList.toggle('on', 藏);
+      commDwFavBtn.setAttribute('aria-pressed', 藏 ? 'true' : 'false');
+    }
+  }
+
+  function 评论时间(r) { var n = Number(r && r[COMMT_COL.time]); return isFinite(n) && n > 0 ? n : 0; }
+  function 载入社区评论(force) {
+    if (commComments.loading) return commComments.loading;
+    if (!force && commComments.at && Date.now() - commComments.at < 15000) return Promise.resolve(commComments.rows);
+    commComments.loading = tblRows(COMMT_TABLE).then(function (rows) {
+      commComments.at = Date.now(); commComments.rows = (rows || []).slice(); commComments.loading = null;
+      commComments.counts = {};
+      commComments.rows.forEach(function (r) {
+        var s = strOf(r[COMMT_COL.sid]).trim();
+        if (s) commComments.counts[s] = (commComments.counts[s] || 0) + 1;
+      });
+      return commComments.rows;
+    }).catch(function (e) {
+      // 评论表读不到（比如云函数还没更新）不能拖垮社区列表：用上次的数据/空表顶上
+      commComments.loading = null;
+      commComments.error = (e && e.message) || '网络错误';
+      return commComments.rows;
+    });
+    return commComments.loading;
+  }
+  function 评论条数(sid) { return commComments.counts[String(sid || '').trim()] || 0; }
+
+  /** 打开社区作品详情页：上半基本信息（封面/作者/时间/介绍 + 运行/保存本地），下半评论区。 */
+  function 打开评论(r) {
+    var sid = strOf(r[COMM_COL.sid]).trim();
+    var 名 = String(r[COMM_COL.name] || '作品');
+    commDraw = { sid: sid, row: r, parent: '', replyTo: '' };
+    commExpand = {};
+    commSort = 'hot';          // 每次打开详情默认「最热门」
+    同步评论排序Tab();
+    记浏览(r);
+    $('commDwTitle').textContent = 名;
+    var 作 = strOf(r[COMM_COL.user]) || '匿名';
+    $('commDwSub').textContent = '作者：' + 作 + ' · ' + fmtTime(timeOfRow(r)) +
+      (isOpen(r[COMM_COL.open]) ? ' · 开源' : '');
+    var info = $('commDwInfo');
+    if (info) {
+      info.innerHTML = '';
+      // 布局（用户 2026-10-31 补充）：左边**完整正方形作品图**，右边竖排四个按钮；
+      // 介绍、评论区在下面。
+      var hero = el('div', 'comm-dw-hero');
+      var cover = el('div', 'comm-dw-cover');
+      设封面(cover, r[COMM_COL.image], 名.slice(0, 1));
+      var side = el('div', 'comm-dw-side');
+      // 介绍放在图的右边；四个按钮在介绍下面、靠右（用户 2026-10-31 要求）
+      var intro = String(strOf(r[COMM_COL.intro]) || '').trim();
+      side.appendChild(el('div', 'comm-dw-intro', intro || '这个作品还没有写介绍。'));
+      var acts = el('div', 'comm-dw-acts');
+      commDwLikeBtn = el('button', 'tb like', '赞 ' + 互动数(r, 'like'));
+      commDwLikeBtn.type = 'button';
+      commDwLikeBtn.addEventListener('click', function () { 切换互动(r, 'like'); });
+      commDwFavBtn = el('button', 'tb fav', '收藏 ' + 互动数(r, 'fav'));
+      commDwFavBtn.type = 'button';
+      commDwFavBtn.addEventListener('click', function () { 切换互动(r, 'fav'); });
+      var run = el('button', 'tb primary', '运行'); run.type = 'button';
+      run.addEventListener('click', function () { 运行社区作品(r); });
+      var save = el('button', 'tb', '保存到本地'); save.type = 'button';
+      // 不再置灰：未开源时点它会明确提示"没有开源"，而不是像按钮坏了一样点不动
+      save.addEventListener('click', function () { 保存社区作品(r); });
+      acts.appendChild(commDwLikeBtn); acts.appendChild(commDwFavBtn);
+      acts.appendChild(run); acts.appendChild(save);
+      side.appendChild(acts);
+      hero.appendChild(cover); hero.appendChild(side);
+      info.appendChild(hero);
+      同步详情互动();
+    }
+    if (!sid) snack('这条作品没有 作品iD，暂时不能评论');
+    $('commDwText').value = '';
+    标回复('');
+    $('commDwList').innerHTML = '';
+    $('commDwList').appendChild(el('div', 'acct-empty', '正在加载评论…'));
+    if ($('commDwCount')) $('commDwCount').textContent = '(' + 评论条数(sid) + ')';
+    // 独立页面：把账号页收起来，不再叠在社区列表上（用户 2026-10-31 要求）
+    try { $('viewAccount').classList.add('hidden'); } catch (e) {}
+    $('viewComm').classList.remove('hidden');
+    $('viewComm').scrollTop = 0;
+    var body = $('commDwList') && $('commDwList').closest ? $('commDwList').closest('.comm-dw-body') : null;
+    if (body) body.scrollTop = 0;
+    载入社区评论(true).then(function () { 画评论(); }).catch(function () { 画评论(); });
+  }
+  function 关评论() {
+    $('viewComm').classList.add('hidden');
+    try { $('viewAccount').classList.remove('hidden'); } catch (e) {}
+  }
+  /** 回复某条评论：输入框上方出现"正在回复 @某人" */
+  function 标回复(cid) {
+    var 条 = null;
+    commComments.rows.forEach(function (x) { if (strOf(x[COMMT_COL.cid]) === cid) 条 = x; });
+    commDraw.parent = cid || '';
+    commDraw.replyTo = 条 ? (strOf(条[COMMT_COL.user]) || '匿名') : '';
+    var bar = $('commDwReply');
+    if (bar) bar.classList.toggle('hidden', !cid);
+    if ($('commDwReplyTo')) $('commDwReplyTo').textContent = commDraw.replyTo;
+    if (cid) { var t = $('commDwText'); if (t) { try { t.focus(); } catch (e) {} } }
+  }
+  function 画评论() {
+    var box = $('commDwList'); if (!box) return;
+    box.innerHTML = '';
+    var rows = commComments.rows.filter(function (r) { return strOf(r[COMMT_COL.sid]).trim() === commDraw.sid; });
+    if ($('commDwCount')) $('commDwCount').textContent = '(' + rows.length + ')';
+    if (!rows.length) { box.appendChild(el('div', 'acct-empty', '还没有评论，来说两句吧')); return; }
+    var byCid = {}, kids = {}, roots = [];
+    rows.forEach(function (r) { var c = strOf(r[COMMT_COL.cid]); if (c) byCid[c] = r; });
+    rows.forEach(function (r) {
+      var p = strOf(r[COMMT_COL.parent]).trim();
+      if (p && byCid[p]) (kids[p] = kids[p] || []).push(r);
+      else roots.push(r);
+    });
+    roots.sort(排评论);
+    Object.keys(kids).forEach(function (k) { kids[k].sort(排评论); });
+    function 画一条(r, 深) {
+      var cid = strOf(r[COMMT_COL.cid]);
+      var 名 = strOf(r[COMMT_COL.user]) || '匿名';
+      var item = el('div', 'comm-cmt');
+      if (深 > 0) item.style.marginLeft = String(Math.min(深, 3) * 18) + 'px';
+      item.appendChild(el('div', 'comm-cmt-ava', 名.slice(0, 1)));
+      var main = el('div', 'comm-cmt-main');
+      var top = el('div', 'comm-cmt-top');
+      top.appendChild(el('span', 'comm-cmt-who', 名));
+      var p = strOf(r[COMMT_COL.parent]).trim();
+      if (p && byCid[p]) top.appendChild(el('span', 'comm-cmt-at', '回复 @' + (strOf(byCid[p][COMMT_COL.user]) || '匿名')));
+      top.appendChild(el('span', 'comm-cmt-time', fmtTime(评论时间(r))));
+      main.appendChild(top);
+      main.appendChild(el('div', 'comm-cmt-tx', String(r[COMMT_COL.text] || '')));
+      var ops = el('div', 'comm-cmt-ops');
+      var rep = el('button', 'comm-cmt-reply', '回复'); rep.type = 'button';
+      rep.addEventListener('click', function () { 标回复(cid); });
+      ops.appendChild(rep); main.appendChild(ops);
+      item.appendChild(main);
+      // 每条评论最右侧的点赞（点赞数参与「最热门」排序）
+      var 我赞 = 我赞过评论(r);
+      var like = el('button', 'comm-cmt-like' + (我赞 ? ' on' : ''));
+      like.type = 'button'; like.setAttribute('aria-pressed', 我赞 ? 'true' : 'false');
+      var ico = el('span'); ico.innerHTML = ICON_THUMB;
+      like.appendChild(ico);
+      like.appendChild(el('span', null, String(评论赞数(r))));
+      like.addEventListener('click', function (e) { e.stopPropagation(); 切换评论赞(r); });
+      item.appendChild(like);
+      box.appendChild(item);
+      return main;
+    }
+    /** 一条评论下面的**全部**回复（含多级），按时间顺序、带相对层级 */
+    function 收集(cid, 深, out) {
+      (kids[cid] || []).forEach(function (k) {
+        out.push({ r: k, 深: 深 });
+        收集(strOf(k[COMMT_COL.cid]), 深 + 1, out);
+      });
+      return out;
+    }
+    /* 回复默认折叠：先显示「展开 X 条回复」；点开一次最多 6 条，
+       还有就变成「展开更多回复」，全部展开后是「收起所有回复」（用户 2026-10-31 要求）。 */
+    roots.forEach(function (root) {
+      var cid = strOf(root[COMMT_COL.cid]);
+      var rootMain = 画一条(root, 0);       // 折叠时按钮要塞进这条评论里，避免像是下一条评论的标题
+      var all = 收集(cid, 1, []);
+      if (!all.length) return;
+      var shown = Math.min(commExpand[cid] || 0, all.length);
+      var more = el('button', 'comm-cmt-more');
+      more.type = 'button';
+      if (!shown) more.textContent = '展开 ' + all.length + ' 条回复';
+      else if (shown < all.length) more.textContent = '展开更多回复';
+      else more.textContent = '收起所有回复';
+      more.addEventListener('click', function () {
+        if (!shown) commExpand[cid] = Math.min(6, all.length);
+        else if (shown < all.length) commExpand[cid] = Math.min(shown + 6, all.length);
+        else commExpand[cid] = 0;
+        画评论();
+      });
+      if (!shown) {
+        // 默认折叠：按钮属于这条评论本身（放在「回复」那一行右边）
+        more.classList.add('inline');
+        var ops = rootMain.querySelector('.comm-cmt-ops');
+        (ops || rootMain).appendChild(more);
+      } else {
+        all.slice(0, shown).forEach(function (x) { 画一条(x.r, x.深); });
+        box.appendChild(more);
+      }
+    });
+  }
+  /** 沿 父评论iD 往上找根评论（发完回复后要把那一串展开，不然自己刚发的看不到） */
+  function 根评论iD(cid) {
+    var byCid = {};
+    commComments.rows.forEach(function (r) { var c = strOf(r[COMMT_COL.cid]); if (c) byCid[c] = r; });
+    var cur = cid, 防死循环 = 0;
+    while (cur && byCid[cur] && 防死循环++ < 100) {
+      var p = strOf(byCid[cur][COMMT_COL.parent]).trim();
+      if (!p || !byCid[p]) return cur;
+      cur = p;
+    }
+    return cur || cid;
+  }
+  function 发送评论() {
+    var u = currentUser();
+    if (!u) { snack('请先登录再评论'); return; }
+    if (commSending) return;
+    var txt = String($('commDwText').value || '').trim();
+    if (!txt) { snack('先写点什么'); return; }
+    commSending = true;
+    var btn = $('commDwSend'); if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+    var row = {};
+    row[COMMT_COL.sid] = commDraw.sid;
+    row[COMMT_COL.cid] = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 7);
+    row[COMMT_COL.parent] = commDraw.parent || '';
+    row[COMMT_COL.user] = String(u.name || '匿名');
+    row[COMMT_COL.email] = String(u.email || '').trim().toLowerCase();
+    row[COMMT_COL.text] = txt.slice(0, 300);
+    row[COMMT_COL.time] = Date.now();
+    /* 乐观更新：先把这条显示出来，网络慢也不用干等好几秒；写失败再回滚（用户 2026-10-31） */
+    commComments.rows.push(row);
+    commComments.counts[commDraw.sid] = (commComments.counts[commDraw.sid] || 0) + 1;
+    commComments.at = Date.now();
+    // 自己刚发的这条（尤其是回复）要能立刻看见：把所在的根评论整串展开
+    var 根 = 根评论iD(commDraw.parent || row[COMMT_COL.cid]);
+    if (根) commExpand[根] = 9999;
+    $('commDwText').value = '';
+    标回复('');
+    画评论();
+    tblInsert(COMMT_TABLE, row).then(function (res) {
+      if (res && res.id) row._id = res.id;    // 记住行号，刚发的评论也能马上点赞
+      commSending = false;
+      if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+      刷新卡片评论数();          // 只改条数，不重画列表（避免返回社区时闪一下）
+    }).catch(function (e) {
+      commSending = false;
+      if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+      var i = commComments.rows.indexOf(row);
+      if (i >= 0) commComments.rows.splice(i, 1);
+      commComments.counts[commDraw.sid] = Math.max(0, (commComments.counts[commDraw.sid] || 0) - 1);
+      画评论();
+      刷新卡片评论数();
+      snack('发送失败：' + ((e && e.message) || '网络错误'));
+    });
+  }
+  /** 社区搜索：按作品名 / 作者 / 介绍筛选，输入即筛（180ms 防抖） */
+  var commQuery = '', commSearchTimer = null;
+  function 匹配搜索(r) {
+    if (!commQuery) return true;
+    var s = [strOf(r[COMM_COL.name]), strOf(r[COMM_COL.user]), strOf(r[COMM_COL.intro])].join('\u0001').toLowerCase();
+    return s.indexOf(commQuery) >= 0;
+  }
+  /** 评论输入框：回车发送（Shift+回车换行）。以前回车只是插一个空行，用户 2026-10-31 反馈 */
+  function 绑评论输入() {
+    var t = $('commDwText'); if (!t) return;
+    t.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      if (e.isComposing || e.keyCode === 229) return;   // 中文输入法选词时的回车不算发送
+      e.preventDefault();
+      发送评论();
+    });
+  }
+  function 绑社区搜索() {
+    var inp = $('commSearch'), clr = $('commSearchClear');
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      var v = inp.value;
+      if (clr) clr.classList.toggle('hidden', !v);
+      clearTimeout(commSearchTimer);
+      commSearchTimer = setTimeout(function () {
+        commQuery = String(v || '').trim().toLowerCase();
+        commState.指画过 = '';
+        drawCommunity();
+      }, 180);
+    });
+    if (clr) clr.addEventListener('click', function () {
+      inp.value = ''; commQuery = ''; clr.classList.add('hidden');
+      commState.指画过 = ''; drawCommunity();
+    });
+  }
+
   /* 「我分享到社区的作品」：
        · 账号行里的 作品iD 清单为空 → 直接空状态（用户刚把社区里的测试作品删光，这是正常场景，不该报网络错）
        · 有清单 → **一次**把社区表读回来，按 作品iD 匹配渲染（不按 ID 逐个请求）
@@ -12799,29 +14297,57 @@
     try { var o = JSON.parse(localStorage.getItem(MINE_CACHE_KEY) || 'null'); return (o && Array.isArray(o.list)) ? o.list : null; } catch (e) { return null; }
   }
   function 写我的缓存(list) { try { localStorage.setItem(MINE_CACHE_KEY, JSON.stringify({ at: Date.now(), list: list })); } catch (e) {} }
-  function 画我的分享(list, 备注) {
-    var box = $('acctMine'); if (!box) return;
+  var acctTab = 'mine';   // mine=已分享 / fav=收藏 / like=点赞 / history=浏览记录
+  var mineReqSeq = 0;     // 防止先发的旧请求后回来把新数据盖掉（点赞/收藏取消后卡片不消失就是它）
+  function 同步我的作品Tab() {
+    var bar = $('acctTabs'); if (!bar) return;
+    Array.prototype.forEach.call(bar.querySelectorAll('.acct-tab'), function (b) {
+      b.classList.toggle('on', String(b.getAttribute('data-atab') || '') === acctTab);
+    });
+  }
+  var ACCT_TAB_EMPTY = { mine: '还没有分享到社区的作品', fav: '还没有收藏的作品', like: '还没有点赞的作品', history: '还没有浏览记录' };
+  function 我的作品提示(msg) {
+    var box = $('acctMine'), empty = $('acctMineEmpty');
+    if (box) box.innerHTML = '';
+    if (empty) { empty.textContent = msg || ''; empty.classList.toggle('hidden', !msg); }
+  }
+  function 画我的作品(rows, opts) {
+    var box = $('acctMine'), empty = $('acctMineEmpty');
+    if (!box) return;
     box.innerHTML = '';
-    // 最新分享的排最上面（用户 2026-09-26 要求）。
-    // 账号表里的「作品iD」是按当初分享的先后追加的，不排就是"最老的在最上"。
-    // 排序放在这里而不是数据源头：正常路径和「读失败用本地缓存顶上」那条路都过这里，
-    // 连旧版本存下来的缓存也会被排对。口径和社区列表一致（按分享时间倒序）。
+    rows = rows || [];
+    if (empty) { empty.textContent = ''; empty.classList.add('hidden'); }
+    rows.forEach(function (x, 序) {
+      var o = opts || {};
+      if (x && x.browsedAt) {
+        o = {};
+        for (var k in opts) o[k] = opts[k];
+        o.browsedAt = x.browsedAt;
+      }
+      var card = 社区卡片(x && x.crow ? x.crow : x, o);
+      if (序号播放(序)) 错峰(card, 序);
+      box.appendChild(card);
+    });
+    if (!rows.length) 我的作品提示(ACCT_TAB_EMPTY[acctTab] || '还没有作品');
+  }
+  var 本次我的作品已错峰 = false;
+  function 序号播放(序) { if (本次我的作品已错峰) return false; return 序 < 8; }
+  function 画我的分享(list, 备注) {
+    // 最新分享的排最上面（账号表里的清单是按分享先后追加的）
     list = (list || []).slice().sort(function (a, b) {
       return (timeOfRow(b.crow) - timeOfRow(a.crow)) || (sidTime(b.sid) - sidTime(a.sid));
     });
-    if (备注) box.appendChild(el('div', 'acct-empty', 备注));
-    if (!list.length) { if (!备注) box.appendChild(el('div', 'acct-empty', '还没有分享到社区的作品')); return; }
-    list.forEach(function (x, 序) {
-      var row = 我的分享行(x.sid, x.file, x.crow);
-      if (!box.__drew) 错峰(row, 序);      // 同一次进入只播一次，避免重画时又闪一下
-      box.appendChild(row);
-    });
-    box.__drew = true;
+    本次我的作品已错峰 = false;
+    画我的作品(list, { shared: true });
+    本次我的作品已错峰 = true;
+    if (备注) {
+      var empty = $('acctMineEmpty');
+      if (empty) { empty.textContent = 备注; empty.classList.remove('hidden'); }
+    }
   }
   function 我的分享加重试按钮(msg) {
     var box = $('acctMine'); if (!box) return;
-    var 缓 = 读我的缓存();
-    画我的分享(缓 || [], msg + (缓 ? '（下面是上次看到的内容）' : ''));
+    画我的分享(读我的缓存() || [], msg);
     var b = el('button', 'tb', '重试'); b.type = 'button';
     b.id = 'acctMineRetry';
     b.addEventListener('click', function () { renderMine(); });
@@ -12847,49 +14373,71 @@
   }
   function renderMine() {
     var box = $('acctMine'); if (!box) return;
-    var u = currentUser(); if (!u) { box.innerHTML = ''; return; }
-    box.innerHTML = '';
-    box.appendChild(el('div', 'acct-empty', '正在加载…'));
+    var u = currentUser(); if (!u) { 我的作品提示('登录后才能看到'); return; }
+    var seq = ++mineReqSeq;
+    // 已经有卡片时**不要**先清空成"正在加载…"：那会让人眼前的列表先白一下再回来，
+    // 就是用户 2026-10-31 说的"点云端操作时页面闪"（数据回来后再整体替换，视觉上不闪）。
+    if (!box.children.length) 我的作品提示('正在加载…');
+    else { var empty0 = $('acctMineEmpty'); if (empty0) empty0.classList.add('hidden'); }
+    if (acctTab === 'mine') renderMineShared(u, seq);
+    else if (acctTab === 'history') renderMineHistory(u, seq);
+    else renderMineReaction(acctTab, u, seq);
+  }
+  /** 已分享：账号行里的 作品iD 清单 → 一次读社区表匹配，同社区卡片 + 管理/删除 */
+  function renderMineShared(u, seq) {
     tblRows(AUTH_TABLE).then(function (rows) {
+      if (seq !== mineReqSeq) return;
       var row = authFind(rows, u.email);
-      // 用 idList 而不是 asArr：账号表一个邮箱永远只有一行，清单可能被写成 "a, b" 这种逗号串
       var ids = row ? idList(row[ACCT_COL.ids]) : [];
-      var files = row ? fileList(row[ACCT_COL.files]) : [];
-      if (!ids.length) { box.innerHTML = ''; 写我的缓存([]); 画我的分享([]); return; }   // 空清单 = 空状态，不报错
+      if (!ids.length) { 写我的缓存([]); 画我的分享([]); return; }
       return tblRows(COMM_TABLE).then(function (crows) {
+        if (seq !== mineReqSeq) return;
         var byId = {};
         (crows || []).forEach(function (r) { var k = strOf(r[COMM_COL.sid]).trim(); if (k) byId[k] = r; });
         var 活的 = [], 幽灵 = [];
-        ids.forEach(function (sid, i) {
-          if (byId[sid]) 活的.push({ sid: sid, file: files[i] || null, crow: byId[sid] });
-          else 幽灵.push(sid);
-        });
+        ids.forEach(function (sid) { if (byId[sid]) 活的.push({ sid: sid, crow: byId[sid] }); else 幽灵.push(sid); });
         写我的缓存(活的);
         画我的分享(活的);
         if (幽灵.length) 清理幽灵分享(幽灵, row);
       });
     }).catch(function (e) {
+      if (seq !== mineReqSeq) return;
       我的分享加重试按钮('加载失败：' + ((e && e.message) || '网络错误'));
     });
   }
-  function 我的分享行(sid, file, crow) {
-    var row = el('div', 'mine-row');
-    var cover = el('div', 'mine-cover');
-    if (crow) 设封面(cover, crow[COMM_COL.image]);
-    row.appendChild(cover);
-    var col = el('div', 'mine-col');
-    col.appendChild(el('div', 'mine-name', String((crow && crow[COMM_COL.name]) || (file && file.name) || '作品')));
-    col.appendChild(el('div', 'mine-meta', '分享于 ' + fmtTime(crow ? timeOfRow(crow) : sidTime(sid)) +
-      ' · ' + ((crow && isOpen(crow[COMM_COL.open])) ? '开源' : '未开源')));
-    row.appendChild(col);
-    var ops = el('div', 'mine-ops');
-    var mg = el('button', 'tb', '管理'); mg.type = 'button';
-    mg.addEventListener('click', function () { 打开管理(sid, $('acctName') ? ($('acctName').value || '') : '', $('acctMail') ? $('acctMail').textContent : ''); });
-    var del = el('button', 'tb danger-text', '删除分享'); del.type = 'button';
-    del.addEventListener('click', function () { 删除分享(sid, function () { 退出管理(); renderMine(); }); });
-    ops.appendChild(mg); ops.appendChild(del);
-    row.appendChild(ops);
-    return row;
+  /** 收藏 / 点赞：社区行里的 收藏用户 / 点赞用户 含当前邮箱就是我的 */
+  function renderMineReaction(tab, u, seq) {
+    var email = String(u.email || '').trim().toLowerCase();
+    var kind = tab === 'fav' ? 'fav' : 'like';
+    tblRows(COMM_TABLE).then(function (rows) {
+      if (seq !== mineReqSeq) return;
+      var mine = (rows || []).filter(function (r) { return 互动名单(r, kind).indexOf(email) >= 0; })
+        .sort(function (a, b) { return timeOfRow(b) - timeOfRow(a); });
+      本次我的作品已错峰 = false;
+      画我的作品(mine, {});
+      本次我的作品已错峰 = true;
+    }).catch(function (e) {
+      if (seq !== mineReqSeq) return;
+      我的作品提示('加载失败：' + ((e && e.message) || '网络错误'));
+    });
+  }
+  /** 浏览记录：本机按账号存 sid，读社区表映射成同款卡片（按浏览时间倒序） */
+  function renderMineHistory(u, seq) {
+    var hist = readHistory();
+    if (!hist.length) { 我的作品提示(ACCT_TAB_EMPTY.history); return; }
+    tblRows(COMM_TABLE).then(function (rows) {
+      if (seq !== mineReqSeq) return;
+      var byId = {};
+      (rows || []).forEach(function (r) { var k = strOf(r[COMM_COL.sid]).trim(); if (k) byId[k] = r; });
+      var list = [];
+      hist.forEach(function (h) { var r = byId[String(h.sid)]; if (r) list.push({ crow: r, browsedAt: Number(h.at) || timeOfRow(r) }); });
+      本次我的作品已错峰 = false;
+      画我的作品(list, {});
+      本次我的作品已错峰 = true;
+    }).catch(function (e) {
+      if (seq !== mineReqSeq) return;
+      我的作品提示('加载失败：' + ((e && e.message) || '网络错误'));
+    });
   }
 
   /* ---- 社区作品的下载 / 运行 / 存本地 ---- */
@@ -12920,9 +14468,16 @@
       });
     }, '取作品下载地址');
   }
+  /* 同一件作品在 30 分钟内只下载一次：查看详情、运行、保存本地共用这份缓存，
+     不再点一次运行就重新从云端下一遍（用户 2026-10-31 要求）。 */
+  var 社区作品缓存 = {};
+  var 社区作品缓存上限 = 12;
   function downloadWork(r) {
     var path = assetRel(r[COMM_COL.file]);   // 下载接口只认相对路径（真表验过）
     if (!path) return Promise.reject(new Error('这个作品没有文件'));
+    var key = strOf(r[COMM_COL.sid]).trim() || path;
+    var c = 社区作品缓存[key];
+    if (c && c.path === path && Date.now() - c.at < 30 * 60 * 1000) return Promise.resolve(c.data);
     return 取文本(path, '下载作品文件').then(function (txt) {
       var data = null;
       if (typeof txt === 'string') { try { data = JSON.parse(txt); } catch (e) { data = null; } }
@@ -12930,7 +14485,11 @@
       var proj = (data && data.project && Array.isArray(data.project.screens)) ? data.project
                : ((data && Array.isArray(data.screens)) ? data : null);
       if (!proj) throw new Error('作品文件已经损坏，读不出内容');
-      return { proj: proj, raw: data };
+      var 结果 = { proj: proj, raw: data };
+      var keys = Object.keys(社区作品缓存);
+      if (keys.length >= 社区作品缓存上限) delete 社区作品缓存[keys[0]];
+      社区作品缓存[key] = { at: Date.now(), path: path, data: 结果 };
+      return 结果;
     });
   }
   /* 社区卡片的「保存本地」：先弹二选一 —— 存到手机 / 在编辑器生成一个副本。
@@ -12991,7 +14550,8 @@
     }).catch(function (e) { hideModal(); modal('生成副本失败', (e && e.message) || '网络错误'); });
   }
   function 运行社区作品(r) {
-    if (runHowSeen()) { doRunCommunity(r); return; }
+    // 电脑版不弹「如何结束运行」（那是手机通知栏的说明）；电脑有右下角「退出运行」
+    if (isDesk() || runHowSeen()) { doRunCommunity(r); return; }
     pendingRunRow = r;
     var m = $('runHowMask'), cb = $('runHowNever');
     if (!m) { doRunCommunity(r); return; }
@@ -13074,6 +14634,7 @@
     $('csName').value = it.project.appName || it.name || '';
     setOpenSeg('csOpen', 'no');
     setWorkIconPreview('csIcon', icon);
+    if ($('csIntro')) $('csIntro').value = '';      // 每次打开发布框都清空（可选字段）
     csMsg('csMsg', '');
     cs.classList.remove('hidden');
   }
@@ -13116,7 +14677,7 @@
     var fu = null, iu = null;
     // 图标：作品里有就用作品里的（统一图标），没有就跳过
     var iconUp = p.icon ? dtableUpload({ dataUrl: p.icon }).catch(function () { return null; }) : Promise.resolve(null);
-    iconUp.then(function (r) { iu = r; return dtableUpload({ bytes: new TextEncoder().encode(pjson), name: name + '.fast', mime: 'application/octet-stream' }); })
+    iconUp.then(function (r) { iu = r; return dtableUpload({ bytes: new TextEncoder().encode(pjson), name: 社区文件名(sid), mime: 'application/octet-stream' }); })
       .then(function (r) {
         fu = r;
         var row = {};
@@ -13127,6 +14688,7 @@
         row[COMM_COL.name] = name;
         row[COMM_COL.sid] = sid;
         row[COMM_COL.email] = u.email;
+        row[COMM_COL.intro] = String(($('csIntro') && $('csIntro').value) || '').trim();   // 作品介绍（可选）
         return 写社区行(sid, row);          // 已有这一条就覆盖，没有才新增
       })
       .then(function () { return 同步账号行(u, sid, fu, iu, p); })
@@ -13231,6 +14793,7 @@
     if (!currentUser()) { modal('需要先登录', '登录之后才能管理分享。'); return; }
     shareWorkId = id; 管理分享Id = sid;
     $('cmName').value = it.project.appName || it.name || '';
+    if ($('cmIntro')) $('cmIntro').value = '';
     setOpenSeg('cmOpen', 'no');
     setWorkIconPreview('cmIcon', it.project.icon || '');
     csMsg('cmMsg', '');
@@ -13242,6 +14805,7 @@
       if (!row) return;
       管理分享Id = sid;
       if (row[COMM_COL.name]) $('cmName').value = strOf(row[COMM_COL.name]);
+      if ($('cmIntro')) $('cmIntro').value = strOf(row[COMM_COL.intro]) || '';
       setOpenSeg('cmOpen', isOpen(row[COMM_COL.open]) ? 'yes' : 'no');
     }).catch(function () {});
   }
@@ -13266,7 +14830,7 @@
     // 图标有就一起换掉；没有就只改名字/开源/作品文件
     (icon ? dtableUpload({ dataUrl: icon }).catch(function () { return null; }) : Promise.resolve(null))
       .then(function (r) {
-        return dtableUpload({ bytes: new TextEncoder().encode(pjson), name: name + '.fast', mime: 'application/octet-stream' })
+        return dtableUpload({ bytes: new TextEncoder().encode(pjson), name: 社区文件名(sid), mime: 'application/octet-stream' })
           .then(function (f) { return { image: r, file: f }; });
       })
       .then(function (o) {
@@ -13277,6 +14841,7 @@
         row[COMM_COL.open] = open ? '是' : '否';
         row[COMM_COL.name] = name;
         row[COMM_COL.sid] = sid;
+        row[COMM_COL.intro] = String(($('cmIntro') && $('cmIntro').value) || '').trim();   // 介绍也能改
         if (u) row[COMM_COL.email] = u.email;
         if (o.image) row[COMM_COL.image] = [o.image.url];
         // 同一个 作品iD 只覆盖那一行，不再新增
@@ -13542,6 +15107,7 @@
     var s = loadStore();
     s.items.forEach(function (it) { if (String(it.project.shareId || '') === 管理分享Id) shareWorkId = it.id; });
     $('cmName').value = name || '';
+    if ($('cmIntro')) $('cmIntro').value = '';
     setOpenSeg('cmOpen', 'no');
     csMsg('cmMsg', '');
     $('commManageMask').classList.remove('hidden');
@@ -13552,6 +15118,7 @@
       (rows || []).forEach(function (r) { if (strOf(r[COMM_COL.sid]).trim() === 管理分享Id) row = r; });
       if (!row) return;
       if (row[COMM_COL.name]) $('cmName').value = strOf(row[COMM_COL.name]);
+      if ($('cmIntro')) $('cmIntro').value = strOf(row[COMM_COL.intro]) || '';
       setOpenSeg('cmOpen', isOpen(row[COMM_COL.open]) ? 'yes' : 'no');
     }).catch(function () {});
   }
@@ -13580,18 +15147,21 @@
     var b1 = $('acctNavInfo'), b2 = $('acctNavComm');
     if (b1) b1.classList.toggle('on', which === 'info');
     if (b2) b2.classList.toggle('on', which === 'comm');
-    // 刷新按钮钉在顶栏右上角，只有社区栏才显示（2026-10-27 用户要求）
+    // 左上角标题跟着当前栏变：个人信息 → 账号，社区 → 社区（用户 2026-10-31 要求）
+    var ttl = $('acctTitle'); if (ttl) ttl.textContent = (which === 'comm') ? '社区' : '账号';
+    // 搜索 + 刷新都在顶栏，只有社区栏才显示（搜索排刷新左边，用户 2026-10-31 要求）
     var rf = $('acctRefresh'); if (rf) rf.classList.toggle('hidden', which !== 'comm');
+    var sw = $('commSearchWrap'); if (sw) sw.classList.toggle('hidden', which !== 'comm');
     同步分段药丸();          // 个人信息/社区 的滑块跟着走
     // 进「社区」这一栏：**先把上次读到的列表画出来**（有就画，不显示"正在加载…"），
     // 再在后台刷新 —— 否则切换瞬间是一句"正在加载…"，一两百毫秒后才换成卡片，
     // 用户看到的就是"切换社区闪一下"（2026-09-25 真机反馈）。
     if (which === 'comm') {
-      commState.drew = false;
+      // 不再每次进社区都重置 drew：那会让整片卡片重播一次上浮动画，看起来就是"闪一下"。
       if (commState.rows && commState.rows.length) drawCommunity();
       renderCommunity({ refresh: true });   // 后台刷新，失败也能自己恢复
     }
-    if (which === 'info') { var mb = $('acctMine'); if (mb) mb.__drew = false; }            // 回到个人信息，错峰重播一次
+    if (which === 'info') { 本次我的作品已错峰 = false; }            // 回到个人信息，错峰重播一次
   }
   var commState = { rows: [], shown: 0, open: false, loading: false, error: '', pending: false };
   /** 刷新时按钮要有反应：转成「刷新中…」并禁用，读完再恢复（不然用户以为点了没反应） */
@@ -13740,10 +15310,32 @@
         showHome();
       });
     });
-    if ($('acctNavInfo')) $('acctNavInfo').addEventListener('click', function () { showAcctPane('info'); });
+    if ($('acctNavInfo')) $('acctNavInfo').addEventListener('click', function () { showAcctPane('info'); renderMine(); });
     if ($('acctNavComm')) $('acctNavComm').addEventListener('click', function () { showAcctPane('comm'); });
+    // 个人信息里的横向选择栏：已分享 / 收藏 / 点赞 / 浏览记录
+    if ($('acctTabs')) $('acctTabs').addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('.acct-tab') : null; if (!b) return;
+      acctTab = String(b.getAttribute('data-atab') || 'mine');
+      同步我的作品Tab();
+      本次我的作品已错峰 = false;
+      renderMine();
+    });
+    同步我的作品Tab();
     if ($('acctRefresh')) $('acctRefresh').addEventListener('click', function () { commState.shown = 8; renderCommunity({ refresh: true }); });
     if ($('acctMore')) $('acctMore').addEventListener('click', function () { commState.shown += 8; drawCommunity(); });
+    // 社区搜索 + 评论区抽屉（用户 2026-10-31）
+    绑社区搜索();
+    绑评论输入();
+    if ($('commDwClose')) $('commDwClose').addEventListener('click', 关评论);
+    // 社区详情页是独立整页，不再通过点遮罩关闭（返回键在左上角）
+    if ($('commSort')) $('commSort').addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('.comm-sort-btn') : null; if (!b) return;
+      commSort = String(b.getAttribute('data-sort') || 'hot');
+      同步评论排序Tab();
+      画评论();
+    });
+    if ($('commDwReplyCancel')) $('commDwReplyCancel').addEventListener('click', function () { 标回复(''); });
+    if ($('commDwSend')) $('commDwSend').addEventListener('click', 发送评论);
     if ($('acctAvatar')) $('acctAvatar').addEventListener('click', function () { openPick('account'); });
     if ($('acctNameSave')) $('acctNameSave').addEventListener('click', doSaveAccountName);
     if ($('acctMailBtn')) $('acctMailBtn').addEventListener('click', openMailChange);
@@ -13753,6 +15345,8 @@
     if ($('shareMask')) $('shareMask').addEventListener('click', function (e) { if (e.target === this) closeShareSheet(); });
     if ($('shareToComm')) $('shareToComm').addEventListener('click', function () { var id = shareCardId; closeShareSheet(); openCommunityShare(id); });
     if ($('shareToSocial')) $('shareToSocial').addEventListener('click', function () { var id = shareCardId; closeShareSheet(); 分享到社交平台(id); });
+    // 电脑版没有"分享到社交平台"（用户 2026-10-30 要求删掉）：直接从界面上去掉，不动手机端
+    if (isDesk()) { var _sts = $('shareToSocial'); if (_sts && _sts.parentNode) _sts.parentNode.removeChild(_sts); }
     if ($('shareToLocal')) $('shareToLocal').addEventListener('click', function () { var id = shareCardId; closeShareSheet(); 保存本地作品(id); });
 
     // 分享到社区弹窗
@@ -13924,20 +15518,47 @@
     // 切页签必须 stopPropagation：这一次点击会冒泡到 document，被 Blockly 当成
     // "点了浮层外面" → 它自己调 autoHide/clearSelection，把刚恢复好的代码浮层又关掉
     // （用户反馈"一点代码按钮积木栏就闪一下"就是这个 + 套用视角一起造成的）。
-    $('tabDesign').addEventListener('click', function (e) { e.stopPropagation(); showView('design'); });
-    $('tabBlocks').addEventListener('click', function (e) { e.stopPropagation(); showView('blocks'); });
+    $('tabAll').addEventListener('click', function (e) { e.stopPropagation(); showView('all'); });
+    $('tabDesign').addEventListener('click', function (e) { e.stopPropagation(); showView('design', 55); });
+    $('tabBlocks').addEventListener('click', function (e) { e.stopPropagation(); showView('blocks', 36); });
+    // 代码抽屉图钉：钉住 ↔ 取消（状态记本机；只决定抽屉能不能被关掉，别的一概不动）
+    var _pin = $('codePin');
+    if (_pin) _pin.addEventListener('click', function (e) {
+      e.stopPropagation();
+      state.codePin = !state.codePin;
+      try { localStorage.setItem(CODE_PIN_KEY, state.codePin ? '1' : '0'); } catch (err) {}
+      同步代码图钉();
+      应用抽屉钉住();
+      定位代码图钉();
+    });
+    同步代码图钉();
+    应用抽屉钉住();
+    // 抽屉位置随分类/缩放/窗口变化：低频对齐一次即可（一次 rect 测量，开销极小）
+    setInterval(定位代码图钉, 100);
     // 分段滑块：设计/代码（编辑器顶栏）+ 个人信息/社区（账号页左栏）
     // 容器一开始是隐藏的（量不到宽高），所以先装、再延时补一次同步
     (function () {
       var seg = document.querySelector('#viewEditor .seg.viewseg');
-      if (seg) 装分段药丸(seg, [$('tabDesign'), $('tabBlocks')]);
+      if (seg) 装分段药丸(seg, [$('tabAll'), $('tabDesign'), $('tabBlocks')]);
       var nav = document.querySelector('#viewAccount .acct-rail');
       if (nav) 装分段药丸(nav, [$('acctNavInfo'), $('acctNavComm')]);
       var setRail = $('setRail');
       if (setRail) 装分段药丸(setRail, Array.prototype.slice.call(setRail.querySelectorAll('.acct-item')));
       setTimeout(同步分段药丸, 80);
     })();
-    $('btnLayout').addEventListener('click', openLayout);
+    // 布局按钮：电脑端是"开 / 关浮窗"的开关（再点一次也关）；手机端仍是进整页
+    $('btnLayout').addEventListener('click', function () {
+      // 以「布局屏是否可见」为准（`state.inLayout` 在某些异步时序下会落后一帧，别用它当开关判据）
+      var 排 = $('viewLayout');
+      if (排 && !排.classList.contains('hidden')) closeLayout(); else openLayout();
+    });
+    $('layDlgClose').addEventListener('click', function (e) { e.stopPropagation(); closeLayout(); });
+    // 电脑端浮窗最左「显示边框」：点一下显示，再点不显示
+    $('layBorderBtn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      setPreviewBorder(!previewBorderOn());
+      renderLayStage();
+    });
     // 「如何预览」下拉：自动 / 竖屏 / 横屏（只在布局页生效，不改页面自身方向）
     var lc = $('btnLayoutCaret');
     if (lc) lc.addEventListener('click', function (e) {
@@ -14007,10 +15628,50 @@
       }
     } catch (e) {}
     Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (btn) {
-      btn.addEventListener('click', function () { addComponent(btn.getAttribute('data-add')); });
+      btn.addEventListener('click', function () {
+        if (Date.now() - addDragEndAt < 500) return;   // 拖拽松手后的残余 click 不重复添加
+        addComponent(btn.getAttribute('data-add'));
+      });
+      绑定控件库拖拽(btn);
     });
-    var tplBtn = $('btnTpl');
-    if (tplBtn) tplBtn.addEventListener('click', function (e) { e.stopPropagation(); openTemplates(); });
+    /* 设计页「控件类型」右侧的「＋」：给开发者提控件需求（原模板库按钮） */
+    function openIdea() {
+      var m = $('ideaMask'); if (!m) return;
+      csMsg('ideaMsg', '');
+      if ($('ideaText')) $('ideaText').value = '';
+      m.classList.remove('hidden');
+      setTimeout(function () { try { $('ideaText').focus(); } catch (e) {} }, 120);
+    }
+    function closeIdea() { var m = $('ideaMask'); if (m) m.classList.add('hidden'); }
+    function 发送需求() {
+      var txt = String(($('ideaText') || {}).value || '').trim();
+      if (!txt) { csMsg('ideaMsg', '先写一下你的需求'); return; }
+      var btn = $('ideaSend'); if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+      var u = currentUser();
+      var row = {};
+      // 需求写进云端「评论」表（作品iD 用一个不会和真作品冲突的固定值），开发者能统一看到
+      row[COMMT_COL.sid] = '__CONTROL_IDEA__';
+      row[COMMT_COL.cid] = 'idea-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      row[COMMT_COL.parent] = '';
+      row[COMMT_COL.user] = String((u && u.name) || '匿名');
+      row[COMMT_COL.email] = String((u && u.email) || '').trim().toLowerCase();
+      row[COMMT_COL.text] = '【控件需求】' + txt.slice(0, 450);
+      row[COMMT_COL.time] = Date.now();
+      tblInsert(COMMT_TABLE, row).then(function () {
+        if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+        closeIdea();
+        snack('需求已发送，感谢你的建议！');
+      }).catch(function (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '发送'; }
+        csMsg('ideaMsg', '发送失败：' + ((e && e.message) || '网络错误') + '（也可以直接联系开发者）');
+      });
+    }
+    var ideaBtn = $('btnIdea');
+    if (ideaBtn) ideaBtn.addEventListener('click', function (e) { e.stopPropagation(); openIdea(); });
+    if ($('ideaClose')) $('ideaClose').addEventListener('click', closeIdea);
+    if ($('ideaSend')) $('ideaSend').addEventListener('click', 发送需求);
+    if ($('ideaMask')) $('ideaMask').addEventListener('click', function (e) { if (e.target === this) closeIdea(); });
+    if ($('ideaText')) $('ideaText').addEventListener('input', function () { csMsg('ideaMsg', ''); });
     Array.prototype.forEach.call(document.querySelectorAll('#moreOrient .orientbtn'), function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -14024,8 +15685,6 @@
         curScreen().showStatusBar = b.getAttribute('data-sb') === 'yes'; syncOrientSeg(); autosave();
       });
     });
-    $('morePageTitle').addEventListener('input', function () { curScreen().title = this.value; renderTabs(); autosave(); });
-
     // 顶栏「页面 ▾」菜单
     $('btnScreenMenu').addEventListener('click', function (e) {
       e.stopPropagation(); buildScreenMenu(); toggleMenu($('screenMenu'), $('btnScreenMenu'));
@@ -14035,7 +15694,6 @@
     // 顶栏「更多 ▾」菜单（页面名 / 屏幕方向）
     $('btnMore').addEventListener('click', function (e) {
       e.stopPropagation();
-      $('morePageTitle').value = curScreen().title || '';
       syncOrientSeg();
       toggleMenu($('moreMenu'), $('btnMore'));
     });
@@ -14052,6 +15710,15 @@
       requestAnimationFrame(function () { 同步分段药丸(); });
       if (state.inLayout) { requestAnimationFrame(fitStage); setTimeout(fitStage, 120); }
     });
+    // 电脑宽屏（方案C）：进/出断点都重新判定；首次进入时把两栏一起摆出来
+    bindDeskSplitter();
+    applyDeskMode();
+    if (deskMq) {
+      var onDeskChange = function () { applyDeskMode(); };
+      try { deskMq.addEventListener('change', onDeskChange); } catch (e) {
+        try { deskMq.addListener(onDeskChange); } catch (e2) {}
+      }
+    }
     window.addEventListener('orientationchange', function () {
       // 横竖屏切换后布局要过几帧才稳定，分几个时间点补同步（和 fitStage 一个套路）
       同步分段药丸();

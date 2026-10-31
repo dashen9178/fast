@@ -1,4 +1,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* 用户 2026-10-30：滚动条一律不显示（仍可滚） */
+html, body, * { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
   height: 100vh; height: 100dvh;
@@ -363,3 +366,37 @@ body {
 .rt-select-menu--plain .rt-select-item.on { background: transparent; }
 .rt-select-menu--card { border-radius: 16px; box-shadow: 0 10px 26px rgba(0,0,0,.22); }
 .rt-select-menu--card .rt-select-item { margin: 2px 8px; border-radius: 10px; }
+
+/* ================= 电脑/浏览器预览：明确划分「运行区」和「外壳」 =================
+   以前预览是整屏同色，分不清哪里是作品画面、哪里是外壳，也找不到退出的地方
+   （2026-10-30 用户报「点了运行退不出来」）。
+   做法刻意保守：**不改画面本身的尺寸/位置**（缩放逻辑一个字没动），
+   只把留白改成浅灰、给画面加一圈描边和投影，另外放一个固定的「退出运行」按钮（Esc 同样有效）。 */
+body.rt-preview #viewport { background: #e6e3ea; }
+body.rt-preview #screen { box-shadow: 0 0 0 1px rgba(0,0,0,.18), 0 10px 30px rgba(0,0,0,.18); }
+body.rt-preview #rtExit {
+  position: fixed; right: 18px; bottom: 18px; z-index: 9999;
+  height: 40px; padding: 0 18px; border: none; border-radius: 20px;
+  background: #1d1b20; color: #fff; font-size: 14px; font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0,0,0,.28); cursor: pointer;
+  font-family: "Roboto", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+body.rt-preview #rtExit:hover { background: #000; }
+body.rt-preview #rtExit:active { transform: scale(.97); }
+/* 运行画面缩放条（仅试运行预览；正式运行/手机 App 不显示，不挡作品） */
+#rtZoom { display: none; }
+body.rt-preview #rtZoom {
+  position: fixed; left: 18px; bottom: 18px; z-index: 9999;
+  display: flex; align-items: center; gap: 2px;
+  height: 40px; padding: 0 6px; border-radius: 20px;
+  background: #fff; box-shadow: 0 6px 18px rgba(0,0,0,.18);
+}
+body.rt-preview #rtZoom button {
+  height: 30px; min-width: 34px; padding: 0 10px; border: none; border-radius: 15px;
+  background: transparent; color: #1d1b20; font-size: 14px; font-weight: 600;
+  font-family: "Roboto", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
+}
+body.rt-preview #rtZoom button:hover { background: #efedf2; }
+body.rt-preview #rtZoom button:active { transform: scale(.96); }
+body.rt-preview #rtZoom #rtZoomPct { min-width: 54px; font-variant-numeric: tabular-nums; }

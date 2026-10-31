@@ -85,7 +85,7 @@
 | P1-3 | 明文流量 | 第 40 行 `android:usesCleartextTraffic="true"` | 安全检测扣分，可能要求整改 | 改为 `false`；确保 SeaTable / DeepSeek / 自建服务器全部走 HTTPS |
 | P1-4 | 允许备份 | 第 38 行 `android:allowBackup="true"` + `fullBackupContent` | 作品数据与用户凭据可被备份导出，个人信息保护检测常要求关闭或限制范围 | 改为 `false`，或在 `res/xml/backup_rules.xml` 中显式排除凭据与作品目录 |
 | P1-5 | WebView 配置 | `MainActivity` 第 136–158 行：JS 开启、`allowFileAccess`、`allowContentAccess`、`addJavascriptInterface`，且 Web 组件可加载任意 URL | 安全检测会提风险；混合内容与任意远程页面加载是常见扣分点 | 远程加载走 HTTPS 域名白名单；对 `Native` 接口做调用来源校验；不必要时关闭 `allowContentAccess` |
-| P1-6 | 密钥与口令 | `build.ps1` 第 36–37 行默认口令 `doubao123` | 默认口令随脚本留存，发布包若沿用存在安全风险 | 出正式包必须通过 `FAST_KS_PASS` / `FAST_KEY_PASS` 环境变量提供独立口令；密钥文件不入库 |
+| P1-6 | 密钥与口令 | `build.ps1` 第 36–37 行默认口令 `（已脱敏）` | 默认口令随脚本留存，发布包若沿用存在安全风险 | 出正式包必须通过 `FAST_KS_PASS` / `FAST_KEY_PASS` 环境变量提供独立口令；密钥文件不入库 |
 | P1-7 | UGC / 社区 | README 提到“发布到社区” | 若保留社区、分享、评论能力，需内容审核、举报入口、未成年人保护机制 | 首版建议隐藏社区入口，仅保留本地作品与文件分享 |
 
 ---

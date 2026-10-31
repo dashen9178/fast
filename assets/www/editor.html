@@ -6,7 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>FAST</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='white'/><text x='50' y='72' font-size='62' font-family='Arial Black,Arial' font-weight='900' text-anchor='middle' fill='%23111'>F</text></svg>">
-<link rel="stylesheet" href="editor.css">
+<!-- 带 ?v= 让 WebView 缓存跟着版本失效（不然改了 CSS 用户重开还是旧的，图钉这类新控件会"看不到"） -->
+<link rel="stylesheet" href="editor.css?v=__BUILD__">
 </head>
 <body>
 
@@ -82,6 +83,11 @@
       </div>
     </div>
     <div id="csMsg" class="create-err hidden"></div>
+    <!-- 作品介绍（用户 2026-10-30 要求）：写一段话介绍作品，发布后显示在社区卡片上 -->
+    <div class="m3-outlined acct-field comm-intro-field">
+      <textarea id="csIntro" class="m3-input comm-intro" maxlength="200" rows="3"
+        placeholder="作品介绍（可选，最多 200 字）"></textarea>
+    </div>
     <div class="mbtns create-btns">
       <button id="csCancel" class="tb" type="button">取消</button>
       <button id="csGo" class="tb primary" type="button">发布</button>
@@ -107,6 +113,11 @@
           </div>
         </div>
       </div>
+    </div>
+    <!-- 作品介绍：更新分享也要能改（用户 2026-10-31 要求） -->
+    <div class="m3-outlined acct-field comm-intro-field">
+      <textarea id="cmIntro" class="m3-input comm-intro" maxlength="200" rows="3"
+        placeholder="作品介绍（可选，最多 200 字）"></textarea>
     </div>
     <div id="cmMsg" class="create-err hidden"></div>
     <div class="mbtns create-btns">
@@ -226,16 +237,30 @@
     <button id="btnAccountBack" class="tb icononly" title="返回" aria-label="返回">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
     </button>
-    <div class="help-h-title">账号</div>
-    <button id="btnAccountOut" class="tb">退出登录</button>
+    <div id="acctTitle" class="help-h-title">账号</div>
+    <!-- 社区搜索：用户 2026-10-31 要求挪到「刷新」左边（原来是社区列表标头里，滚走就看不见）。
+         默认 hidden，showAcctPane 切到「社区」栏才显示。 -->
+    <div id="commSearchWrap" class="comm-search comm-search-top hidden">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+      <input id="commSearch" class="comm-search-inp" type="search" autocomplete="off"
+             placeholder="搜索作品名 / 作者 / 介绍">
+      <button id="commSearchClear" class="comm-search-x hidden" type="button" aria-label="清空搜索">✕</button>
+    </div>
     <!-- 刷新挪到顶栏右上角：以前放在社区列表头部，一滚动就跟着滚没了（2026-10-27 用户要求）。
          默认 hidden，showAcctPane 切到「社区」栏才显示。 -->
     <button id="acctRefresh" class="tb acct-rf hidden" type="button">刷新</button>
   </div>
   <div class="acct-body">
     <div class="acct-rail">
-      <button id="acctNavInfo" class="acct-item on" type="button">个人信息</button>
-      <button id="acctNavComm" class="acct-item" type="button">社区</button>
+      <!-- 手机端：这两个按钮变成右下角悬浮岛台里的"只有图标"按钮（用户 2026-10-31 要求） -->
+      <button id="acctNavInfo" class="acct-item on" type="button" title="个人信息" aria-label="个人信息">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z"/></svg></span>
+        <span class="acct-txt">个人信息</span>
+      </button>
+      <button id="acctNavComm" class="acct-item" type="button" title="社区" aria-label="社区">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-8 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05C16.16 14.1 17 15.13 17 16.5V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
+        <span class="acct-txt">社区</span>
+      </button>
     </div>
     <div class="acct-content">
       <!-- 个人信息：上面头像 / 账号名 / 用户邮箱，下面我分享到社区的作品 -->
@@ -247,7 +272,11 @@
               <div class="m3-outlined acct-field">
                 <input id="acctName" class="m3-input" type="text" maxlength="24" placeholder="账号名" autocomplete="off">
               </div>
-              <button id="acctNameSave" class="tb primary acct-save" type="button">保存账号名</button>
+              <!-- 保存账号名 + 退出登录同一行（手机端退出按钮在保存账号名右边，用户 2026-10-31 要求） -->
+              <div class="acct-save-row">
+                <button id="acctNameSave" class="tb primary acct-save" type="button">保存账号名</button>
+                <button id="btnAccountOut" class="tb acct-logout" type="button">退出登录</button>
+              </div>
               <div class="acct-mailrow">
                 <span class="acct-mail" id="acctMail"></span>
                 <button id="acctMailBtn" class="tb acct-save" type="button">更换邮箱</button>
@@ -256,8 +285,15 @@
           </div>
           <div id="acctErr" class="create-err hidden"></div>
         </div>
-        <div class="acct-sec-title">我分享到社区的作品</div>
-        <div id="acctMine" class="acct-mine"></div>
+        <!-- 我的作品：横向选择栏（已分享 / 收藏 / 点赞 / 浏览记录），下面统一用社区卡片 -->
+        <div id="acctTabs" class="acct-tabs" role="tablist">
+          <button class="acct-tab on" data-atab="mine" type="button" role="tab">已分享</button>
+          <button class="acct-tab" data-atab="fav" type="button" role="tab">收藏</button>
+          <button class="acct-tab" data-atab="like" type="button" role="tab">点赞</button>
+          <button class="acct-tab" data-atab="history" type="button" role="tab">浏览记录</button>
+        </div>
+        <div id="acctMine" class="comm-list acct-works"></div>
+        <div id="acctMineEmpty" class="acct-empty hidden"></div>
       </section>
       <!-- 社区：两列卡片，最新在上 -->
       <section id="acctPaneComm" class="acct-pane hidden">
@@ -272,6 +308,42 @@
   </div>
 </div>
 
+<!-- ============ 社区作品详情页（用户 2026-10-31）============
+     点社区任意卡片进入：上半是作品基本信息（封面/名称/作者/时间/介绍 + 运行/保存本地），
+     下半是评论区（回复按父评论缩进一层，输入框既能发新评论也能回复某一条）。 -->
+<div id="viewComm" class="comm-page hidden">
+  <div id="commDrawer" class="comm-drawer" role="dialog" aria-modal="true" aria-label="作品详情">
+    <div class="comm-dw-head">
+      <button id="commDwClose" class="iconbtn" type="button" aria-label="返回社区">←</button>
+      <div class="comm-dw-titles">
+        <div class="comm-dw-title" id="commDwTitle">作品</div>
+        <div class="comm-dw-sub" id="commDwSub"></div>
+      </div>
+    </div>
+    <div class="comm-dw-body">
+      <div id="commDwInfo" class="comm-dw-info"></div>
+      <div class="comm-dw-sec">
+        <span>评论<span id="commDwCount" class="comm-dw-count"></span></span>
+        <!-- 评论排序：最热门（默认）/ 最新（用户 2026-10-31 要求） -->
+        <div id="commSort" class="comm-sort" role="tablist">
+          <button class="comm-sort-btn on" type="button" data-sort="hot" role="tab">最热门</button>
+          <button class="comm-sort-btn" type="button" data-sort="new" role="tab">最新</button>
+        </div>
+      </div>
+      <div id="commDwList" class="comm-dw-list"></div>
+    </div>
+    <div id="commDwReply" class="comm-dw-reply hidden">
+      <span>正在回复 <b id="commDwReplyTo"></b></span>
+      <button id="commDwReplyCancel" class="tb" type="button">取消</button>
+    </div>
+    <div class="comm-dw-input">
+      <textarea id="commDwText" class="comm-dw-text" rows="1" maxlength="300"
+                placeholder="说点什么…"></textarea>
+      <button id="commDwSend" class="tb primary" type="button">发送</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============ 编辑器 ============ -->
 <div id="viewEditor" class="editor hidden">
   <div id="topbar">
@@ -279,6 +351,10 @@
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
     </button>
     <div class="seg viewseg">
+      <!-- 电脑宽屏：全显 / 控件 / 代码（全显=两栏同屏，控件=只看设计，代码=只看代码）；
+           手机竖屏仍是「设计 / 代码」互斥切换（#tabAll 只在 body.desk 下显示）。
+           文案由 applyDeskMode() 按模式改写。 -->
+      <button id="tabAll" class="segbtn desk-only">全显</button>
       <button id="tabDesign" class="segbtn on">设计</button>
       <button id="tabBlocks" class="segbtn">代码</button>
     </div>
@@ -287,7 +363,7 @@
     <span class="tb-spacer"></span>
     <div class="layout-split">
       <button id="btnLayout" class="tb" title="拖动布局">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg>布局
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex:0 0 auto"><path d="M3 5h8v8H3zm10 0h8v5h-8zm0 7h8v7h-8zM3 15h8v4H3z"/></svg><span class="tb-tx">布局</span>
       </button>
       <!-- 「如何预览」下拉：选择预览方向（自动调整 / 强制横屏 / 强制竖屏），
            以及「控件在预览时是否显示边框」（是 / 否）。横屏在前是用户要求的顺序（2026-10-29）。 -->
@@ -304,14 +380,16 @@
       <button class="menu-item orient-border" data-b="0">否<span class="run-opt-ck">✓</span></button>
     </div>
     <div class="run-split" id="runSplit">
-      <button id="btnRun" class="tb primary run-main"><span id="runMainIco">⏮</span><span class="run-main-tx">运行</span></button>
+      <button id="btnRun" class="tb primary run-main"><span id="runMainIco" class="run-ico"></span><span class="run-main-tx">运行</span></button>
       <button id="btnRunCaret" class="tb primary run-caret" title="选择运行方式">▾</button>
     </div>
     <div id="runMenu" class="popover hidden">
-      <button class="menu-item run-opt" id="runFromStart"><span class="run-opt-ico">⏮</span><span class="run-opt-tx">从头开始运行</span><span class="run-opt-ck">✓</span></button>
-      <button class="menu-item run-opt" id="runCurrent"><span class="run-opt-ico">▶</span><span class="run-opt-tx">当前页面运行</span><span class="run-opt-ck">✓</span></button>
+      <button class="menu-item run-opt" id="runFromStart"><span class="run-opt-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6.5 5h2.2v14H6.5zM20 5.2v13.6L10.5 12z"/></svg></span><span class="run-opt-tx">从头开始运行</span><span class="run-opt-ck">✓</span></button>
+      <button class="menu-item run-opt" id="runCurrent"><span class="run-opt-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5.2v13.6L19 12z"/></svg></span><span class="run-opt-tx">当前页面运行</span><span class="run-opt-ck">✓</span></button>
     </div>
-    <button id="btnExport" class="tb accent">导出</button>
+    <button id="btnExport" class="tb accent" title="导出 / 打包">
+      <svg class="desk-ico" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11 3h2v9.6l2.3-2.3 1.4 1.4-4.7 4.8-4.7-4.8 1.4-1.4L11 12.6V3zM4 18h16v2H4v-2z"/></svg><span class="tb-tx">导出</span>
+    </button>
     <button id="btnMore" class="tb icononly caret" title="更多">▾</button>
 
     <!-- 页面切换/增删 菜单 -->
@@ -322,12 +400,8 @@
       <button id="menuDelScreen" class="menu-item danger">删除当前页面</button>
     </div>
 
-    <!-- 更多：当前页面名称 + 屏幕方向 -->
+    <!-- 更多：屏幕方向（页面改名已挪到「页面 ▾」菜单里每行的 ✎，2026-10-30 用户要求删掉这里那栏） -->
     <div id="moreMenu" class="popover hidden wide">
-      <div class="menu-field">
-        <span class="menu-label">当前页面名称</span>
-        <input id="morePageTitle" class="inp" type="text" placeholder="页面名称">
-      </div>
       <div class="menu-field">
         <span class="menu-label">屏幕方向</span>
         <div class="orient-seg" id="moreOrient">
@@ -345,12 +419,14 @@
     </div>
   </div>
 
+  <!-- 工作区：手机竖屏仍是「设计 / 代码」互斥切换（原样），电脑宽屏两栏常显（方案C：设计 + 代码同屏） -->
+  <div id="workArea" class="workarea">
   <!-- 设计视图（横屏三栏） -->
   <div id="viewDesign" class="view">
     <aside class="design-left">
       <div class="pane-sec">
         <div class="pane-title">控件类型
-          <button id="btnTpl" class="tpl-btn" type="button" title="一键搭好整页（控件 + 代码）">模板库</button>
+          <button id="btnIdea" class="tpl-btn idea-btn" type="button" title="想要更多控件？提个需求">＋</button>
         </div>
         <!-- 按类型分组收纳（用户要求：用「控件类型⬇️」把小分类收起来） -->
         <div class="addgroups">
@@ -423,15 +499,23 @@
     <aside id="propPanel" class="proppanel hidden"></aside>
   </div>
 
+  <!-- 电脑宽屏：设计 / 代码两栏的分隔条，拖动改宽度（双击还原 55 : 45） -->
+  <div id="cSplitter" class="csplit" title="拖动调整设计 / 代码宽度（双击还原）"></div>
+
   <!-- 代码视图 -->
   <div id="viewBlocks" class="view hidden">
     <div id="blocklyDiv"></div>
+    <!-- 代码栏图钉（电脑端）：钉住后切到「控件」页也不收起代码栏 -->
+    <button id="codePin" class="code-pin" type="button" aria-pressed="false" title="固定代码栏">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"/></svg>
+    </button>
 
     <div id="delZone">
       <svg viewBox="0 0 24 24" width="38" height="38"><path fill="#fff" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h12l-1 12H7L6 9zm3 2v8h2v-8H9zm4 0v8h2v-8h-2z"/></svg>
       <span>松手删除</span>
     </div>
   </div>
+  </div><!-- /workArea -->
 
   <!-- AI 悬浮球 + 面板：放在编辑器外壳里，设计页和代码页都能用
        （控件在设计页管、代码在代码页生成，助手要跟着用户走） -->
@@ -548,20 +632,30 @@
 <!-- ============ 独立全屏：页面布局（拖动排版） ============ -->
 <!-- 进入后是一个全新界面：只含 单个页面舞台 + 可拖控件 + 页面切换 + 控件控制台；方向跟随项目设置并物理旋转 -->
 <div id="viewLayout" class="layout-screen hidden">
-  <div class="lay-topbar">
-    <!-- 这两个按钮以前在 HTML 里丢了（JS 里还在找 #layPageBtn），结果布局页顶栏是空的：
-         退不出去、也换不了页面，只能靠系统返回键 —— 用户说的"致命问题"就是这个 -->
-    <button id="layBack" class="lay-back" title="返回编辑器" aria-label="返回编辑器">←</button>
-    <button id="layPageBtn" class="lay-page-pick">页面 ▾</button>
-    <span class="lay-top-spacer"></span>
-    <div id="layPageMenu" class="popover lay-page-menu hidden"></div>
-  </div>
-  <div class="lay-stage-wrap">
-    <!-- 「如何预览」：外层 #layShell 是**预览设备**（按所选方向），里面 #layStage 永远是页面自己的设计画布；
-         两者方向不一致时，把页面画面等比缩进设备框里居中显示（横屏页面选竖屏 = 竖框里显示横屏画面） -->
-    <div id="layShell" class="lay-shell">
-      <div id="layStage" class="lay-stage portrait">
-        <div id="layFlow" class="lay-flow"></div>
+  <!-- 电脑宽屏：整个布局页呈现为**右侧浮窗**（无遮罩，可从左侧控件库直接拖控件进来）；
+       手机上仍是原来的全屏界面（.lay-dlg 只做一层纵向包裹，视觉不变） -->
+  <div class="lay-dlg">
+    <div class="lay-topbar">
+      <!-- 电脑端：最左「显示边框」开关（点一下显示、再点不显示）；手机端不显示 -->
+      <button id="layBorderBtn" class="lay-back lay-border-btn" title="显示 / 隐藏控件边框" aria-label="显示边框">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M3.5 12h17M12 3.5v17"/></svg>
+      </button>
+      <!-- 这两个按钮以前在 HTML 里丢了（JS 里还在找 #layPageBtn），结果布局页顶栏是空的：
+           退不出去、也换不了页面，只能靠系统返回键 —— 用户说的"致命问题"就是这个 -->
+      <button id="layBack" class="lay-back" title="返回编辑器" aria-label="返回编辑器">←</button>
+      <button id="layPageBtn" class="lay-page-pick">页面 ▾</button>
+      <span class="lay-top-spacer"></span>
+      <!-- 电脑端：最右关闭按钮（再次点顶栏「布局」也能关） -->
+      <button id="layDlgClose" class="lay-back lay-dlg-close" title="关闭布局窗口" aria-label="关闭布局窗口">✕</button>
+      <div id="layPageMenu" class="popover lay-page-menu hidden"></div>
+    </div>
+    <div class="lay-stage-wrap">
+      <!-- 「如何预览」：外层 #layShell 是**预览设备**（按所选方向），里面 #layStage 永远是页面自己的设计画布；
+           两者方向不一致时，把页面画面等比缩进设备框里居中显示（横屏页面选竖屏 = 竖框里显示横屏画面） -->
+      <div id="layShell" class="lay-shell">
+        <div id="layStage" class="lay-stage portrait">
+          <div id="layFlow" class="lay-flow"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -647,9 +741,19 @@
   </div>
   <div class="acct-body">
     <div class="acct-rail" id="setRail">
-      <button class="acct-item on" data-cat="general" type="button">常规</button>
-      <button class="acct-item" data-cat="ai" type="button">AI</button>
-      <button class="acct-item" data-cat="feedback" type="button">反馈</button>
+      <!-- 手机端是右下角悬浮岛台，只显示图标（用户 2026-10-31 要求） -->
+      <button class="acct-item on" data-cat="general" type="button" title="常规" aria-label="常规">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94c0-.32-.02-.63-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.61.22L2.7 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.62-.05.94s.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.84c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg></span>
+        <span class="acct-txt">常规</span>
+      </button>
+      <button class="acct-item" data-cat="ai" type="button" title="AI" aria-label="AI">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9L12 2zm7 11l.95 2.55L22.5 16.5l-2.55.95L19 20l-.95-2.55L15.5 16.5l2.55-.95L19 13zM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14z"/></svg></span>
+        <span class="acct-txt">AI</span>
+      </button>
+      <button class="acct-item" data-cat="feedback" type="button" title="反馈" aria-label="反馈">
+        <span class="acct-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-2 11H6v-2h12v2zm0-3H6V8h12v2zm0-3H6V5h12v2z"/></svg></span>
+        <span class="acct-txt">反馈</span>
+      </button>
     </div>
     <div class="acct-content">
       <!-- 常规：主题 / 明暗 / 作品排序 / 界面动画 -->
@@ -819,6 +923,22 @@
   </div>
 </div>
 
+<!-- 想要更多控件：给开发者提需求（模板库按钮换成的加号弹窗） -->
+<div id="ideaMask" class="mask hidden">
+  <div class="modal idea-modal">
+    <div class="mtitle idea-title">想要更多有趣的控件？说明一下你的需求</div>
+    <div class="mbody">
+      <div class="idea-tip">你可以直接联系开发者：<b>微信：dashen1949</b>，<b>QQ：3457525474</b>。<br>或者你也可以在这里输入需求，我一定会尽力实现的</div>
+      <textarea id="ideaText" class="inp idea-input" rows="6" maxlength="500" placeholder="比如：我希望能有一个……控件，用来……"></textarea>
+      <div id="ideaMsg" class="create-err hidden"></div>
+    </div>
+    <div class="mbtns">
+      <button id="ideaClose" class="tb" type="button">关闭</button>
+      <button id="ideaSend" class="tb primary" type="button">发送</button>
+    </div>
+  </div>
+</div>
+
 <!-- 精美确认弹窗 -->
 <div id="confirmMask" class="mask hidden">
   <div class="modal" style="max-width:360px">
@@ -970,6 +1090,8 @@
 <script src="comp-spec.js?v=__BUILD__"></script>
 <script src="qr.js?v=__BUILD__"></script>
 <script src="blocks.js?v=__BUILD__"></script>
+<!-- 控件列表拖拽排序（SortableJS 1.15.6，MIT；已随包内置，不依赖外网 CDN） -->
+<script src="sortable.min.js?v=__BUILD__"></script>
 <script src="editor.js?v=__BUILD__"></script>
 </body>
 </html>

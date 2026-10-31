@@ -17,8 +17,8 @@ APKSIGNER=$BT/apksigner
 chmod +x "$AAPT2" "$ZIPALIGN" "$APKSIGNER" 2>/dev/null || true
 
 # 签名密码：优先读环境变量 FAST_KS_PASS / FAST_KEY_PASS，未设置时用默认值
-KS_PASS="${FAST_KS_PASS:-doubao123}"
-KEY_PASS="${FAST_KEY_PASS:-doubao123}"
+KS_PASS="${FAST_KS_PASS:-CHANGE_ME}"
+KEY_PASS="${FAST_KEY_PASS:-CHANGE_ME}"
 STAGE=stage
 # 成品目录：默认 ../../fastapk（对应 D:\DSH工作\fastapk），可用 FAST_OUT_DIR 覆盖
 OUT="${FAST_OUT_DIR:-../../fastapk}"

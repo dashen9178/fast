@@ -33,8 +33,8 @@ foreach ($tool in @($JAVA, $JAVAC, $AAPT2, $ZIPALIGN, $APKSIG, $D8JAR, $ANDROID_
 
 # 签名密码：优先读环境变量 FAST_KS_PASS / FAST_KEY_PASS；
 # 建议设好环境变量后，把下面的默认值删掉，密码就不再留在文件里。
-$KS_PASS  = if ($env:FAST_KS_PASS)  { $env:FAST_KS_PASS }  else { 'doubao123' }
-$KEY_PASS = if ($env:FAST_KEY_PASS) { $env:FAST_KEY_PASS } else { 'doubao123' }
+$KS_PASS  = if ($env:FAST_KS_PASS)  { $env:FAST_KS_PASS }  else { 'CHANGE_ME' }
+$KEY_PASS = if ($env:FAST_KEY_PASS) { $env:FAST_KEY_PASS } else { 'CHANGE_ME' }
 
 $STAGE = Join-Path $PSScriptRoot 'stage'
 # 原生工具（aapt2/zipalign）不认路径里的非 ASCII 字符（中文目录会报"找不到文件"），

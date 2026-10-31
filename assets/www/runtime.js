@@ -9,6 +9,8 @@
 /* 滑屏（用户要求：检测上/下/左/右滑 + 滑动距离）。滑完把方向与距离记在 lastSwipe，
    代码块里的「滑动的距离 / 滑动的方向」就是读它。 */
 var swipeHandlers = [], lastSwipe = { dir: '', dx: 0, dy: 0, dist: 0, ms: 0 };
+/* 侧滑返回是否可用（默认开）。作品用「禁用侧滑返回」块关掉后，返回键/边缘手势/Esc 模拟都不再退页。 */
+var swipeBackOn = true;
 /* 渲染容器子控件时，把"父容器宽度"放这里：这样居中锁/默认尺寸按容器算，而不是按整屏算 */
 var 渲染父宽 = null;
 // 计时器 / 画布 的运行时状态（按控件 id 存）
@@ -99,11 +101,23 @@ function 启动走秒(node, fmt) {
   }
 
   /* 参考设计画布尺寸；优先用编辑器在真机捕获的 project.design（与本机可用区同宽高比），
-     等比缩放后恰好铺满，上下左右严格对齐，不再出现“布局碰底、运行留缝”。 */
-  var DESIGN = { portrait: { w: 390, h: 827 }, landscape: { w: 827, h: 390 } };
+     等比缩放后恰好铺满，上下左右严格对齐，不再出现“布局碰底、运行留缝”。
+     ⚠️ 这里的兜底值必须和 editor.js 的 DESIGN 一致（严格 20:9 = 390×867）。
+     以前写的是 390×827，而设计页/布局预览按 390×867 排版 —— 桌面端不会写 project.design，
+     运行时就会用 827 的画布，**底部 40px 被裁掉**（用户 2026-10-31 报的"布局预览正常、点运行画面没显示完全"）。 */
+  var DESIGN = { portrait: { w: 390, h: 867 }, landscape: { w: 867, h: 390 } };
+  /* 和编辑器同一个断点（editor.js 的 DESK_MIN_W / DESK_MIN_H）。
+     桌面端不捕获 device 尺寸，布局预览永远按 20:9 的 DESIGN 排；
+     运行时如果还去读 project.design（手机上传过来的 390×844 之类），就会比预览矮一截，
+     底部控件被裁 —— 所以宽屏桌面上一律用 20:9 基准，只有手机/小窗口才用捕获尺寸。 */
+  function 宽屏桌面() {
+    var w = window.innerWidth, h = window.innerHeight;
+    return w >= 1000 && h >= 560 && w > h;
+  }
   function designSize() {
     var o = (current && current.orientation) || (project && project.orientation) || 'portrait';
     var base = (o === 'landscape') ? DESIGN.landscape : DESIGN.portrait;
+    if (宽屏桌面()) return base;
     var p = project && project.design;
     if (p && p.orientation === o &&
         typeof p.w === 'number' && isFinite(p.w) && typeof p.h === 'number' && isFinite(p.h) &&
@@ -123,11 +137,31 @@ function 启动走秒(node, fmt) {
    *   canvas = 设计画布尺寸，再按 min(vw/dw, vh/dh) 等比缩放居中。
    * #viewport 是 flex 居中 且 #screen 的 transform-origin 是 center，所以缩放后自然居中。
    */
+  /* 运行画面缩放（用户 2026-10-31 要求）：在「刚好放下」的基础上再乘一个用户倍率。
+     只影响 #screen 的显示大小，不改设计坐标、不改组件尺寸 —— 作品本身一个像素都不动。 */
+  var userScale = 1;
+  function 应用缩放UI() {
+    var p = $('#rtZoomPct');
+    if (p) p.textContent = Math.round(userScale * 100) + '%';
+  }
+  function setUserScale(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return;
+    userScale = Math.max(0.4, Math.min(2.5, n));
+    应用缩放UI();
+    fitScreen();
+  }
+
   function fitScreen() {
     var sc = $('#screen'); if (!sc || !project) return;
     var vw = window.innerWidth, vh = window.innerHeight;
     var d = designSize();
-    var k = Math.min(vw / d.w, vh / d.h);
+    /* 按**宽、高各自 contain**（就是编辑器布局页手机端那一套 kf），画面永远整块铺进窗口。
+       ⚠️ 不要再用"设计长边"统一缩放（2026-10-30 为了横竖屏视觉大小一致改过一次）：
+       竖屏手机上长边 = 设计高，k 会被压到 0.46 —— 390×867 的画布只画出 181×393，
+       用户看到的就是"点运行后画面没显示完全/只剩中间一小块"（2026-10-31 报的）。
+       布局预览用的是 contain，运行时必须跟它一模一样，否则又是"预览正常、运行不对"。 */
+    var k = Math.min(vw / d.w, vh / d.h) * userScale;
     if (!(k > 0) || !isFinite(k)) k = 1;
     sc.style.width = d.w + 'px';
     sc.style.height = d.h + 'px';
@@ -1463,6 +1497,11 @@ function 启动走秒(node, fmt) {
     toast: function (m, secs) { showToast(String(m == null ? '' : m), secs); },
     gotoPage: function (name) { var s = resolveScreen(name); if (s) navigate(s.id, false); },
     back: function () { goBack(); },
+    /* 侧滑返回开关（用户 2026-10-31 要求）：作品里的「禁用/启用侧滑返回」块调它。
+       关掉之后：系统返回键/侧滑手势被吞掉，电脑端 Esc 的模拟侧滑也不动 —— 避免作品内误触退出。
+       只影响"返回"这一条路径，作品自己的滑屏事件（RT.onSwipe）照常触发。 */
+    setSwipeBack: function (on) { swipeBackOn = !!on; return swipeBackOn; },
+    swipeBackEnabled: function () { return swipeBackOn; },
     listAdd: function (id, v) {
       var root = compRoot(id), ul = root && root.querySelector('.ul'); if (!ul) return;
       var empty = ul.querySelector('.empty'); if (empty) empty.remove();
@@ -2198,6 +2237,8 @@ function runCode(sc) {
 
   /* 系统返回键：能出栈就出栈；运行时页面不响应返回/侧滑返回；否则交给原生退出 */
   window.__rtSystemBack = function () {
+    // 作品关掉了侧滑返回：连系统返回键一起吃掉（结束运行仍可用通知卡片 / 桌面版退出按钮）
+    if (!swipeBackOn) return true;
     if (goBack()) return true;
     if (isPreview) {
       /* 2026-10-28 用户要求：试运行期间**关掉侧滑关闭运行**。
@@ -2234,4 +2275,82 @@ function runCode(sc) {
      系统返回手势和返回键也保持可用（我们没有 capture/ preventDefault 任何事件）。 */
 
   loadProject();
+
+  /* ---- 电脑/浏览器预览的退出通道（用户 2026-10-30 报「点运行之后退不出来」）----
+     手机端有通知栏卡片「终止运行」，电脑版没有；这里补两条：右下角按钮 + Esc。
+     ⚠️ 必须放在 loadProject() **之后**：isPreview 是在 loadProject 里读 localStorage 才置位的，
+     放前面时它还是 false，整个 IIFE 直接 return —— 表现就是"运行页没有退出按钮"（实测踩到）。
+     同时把留白和画面区分开：中间是「作品运行区」（#screen，带描边和投影），四周是预览外壳。 */
+  (function () {
+    var 有通知卡片 = false;
+    try { 有通知卡片 = !!(window.Native && Native.startRunNotice); } catch (e) {}
+    if (!isPreview || 有通知卡片) return;      // 手机真机 / 导出的独立 App 不加这个按钮
+    document.body.classList.add('rt-preview');
+
+    /* 运行画面缩放（用户 2026-10-31：「运行页面增加调整大小」）：
+       －/＋、点百分比回到 100%、Ctrl/⌘ + 滚轮微调。只改显示倍率，不改作品坐标。 */
+    try {
+      应用缩放UI();
+      var zo = document.getElementById('rtZoomOut');
+      var zi = document.getElementById('rtZoomIn');
+      var zp = document.getElementById('rtZoomPct');
+      if (zo) zo.addEventListener('click', function (e) { e.preventDefault(); setUserScale(userScale - 0.1); });
+      if (zi) zi.addEventListener('click', function (e) { e.preventDefault(); setUserScale(userScale + 0.1); });
+      if (zp) zp.addEventListener('click', function (e) { e.preventDefault(); setUserScale(1); });
+      window.addEventListener('wheel', function (e) {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        setUserScale(userScale + (e.deltaY < 0 ? 0.1 : -0.1));
+      }, { passive: false });
+    } catch (e) {}
+
+    function 退出运行() {
+      try { RT.restoreDisplay(); } catch (e) {}
+      try { if (window.Native && Native.stopRunNotice) Native.stopRunNotice(); } catch (e) {}
+      try { history.back(); } catch (e) {}
+    }
+
+    /* 用户 2026-10-31：Esc 不要"直接退出"，改成**模拟手机侧滑返回**：
+       先把画面整体右滑出屏（0.22s），然后走系统返回那套逻辑（有上一页就出栈，没有才退出运行）。
+       这样电脑上的手感和手机上侧滑返回一致，也不会误把整个试运行关掉。 */
+    function 模拟侧滑返回() {
+      if (!swipeBackOn) return;          // 作品里禁用了侧滑返回：Esc 也不动
+      var app = document.getElementById('app');
+      var went = false;
+      try {
+        if (app) {
+          app.style.transition = 'transform .22s cubic-bezier(.2,0,0,1), opacity .22s ease';
+          app.style.transform = 'translateX(42%)';
+          app.style.opacity = '.86';
+        }
+      } catch (e) { }
+      setTimeout(function () {
+        try { went = window.__rtSystemBack ? !!window.__rtSystemBack() : false; } catch (e) { went = false; }
+        if (!went) 退出运行();
+        // 没退出去（比如这里没有上一页）就把画面滑回来
+        try {
+          if (app && document.body && document.body.contains(app)) {
+            app.style.transform = '';
+            app.style.opacity = '';
+          }
+        } catch (e) { }
+      }, 190);
+    }
+
+    try {
+      var b = document.createElement('button');
+      b.id = 'rtExit';
+      b.type = 'button';
+      b.textContent = '退出运行';
+      b.title = '退出运行（Esc）';
+      b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); 退出运行(); });
+      document.body.appendChild(b);
+    } catch (e) {}
+
+    window.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      模拟侧滑返回();
+    }, true);
+  })();
 })();

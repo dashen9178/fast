@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>运行</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='white'/><text x='50' y='72' font-size='62' font-family='Arial Black,Arial' font-weight='900' text-anchor='middle' fill='%23111'>F</text></svg>">
-<link rel="stylesheet" href="runtime.css">
+<link rel="stylesheet" href="runtime.css?v=__BUILD__">
 </head>
 <body>
 <!-- 以前这里有整屏的 #splash「启动中…」遮罩，用户要求删掉：点运行/打开 App 时
@@ -18,6 +18,12 @@
   </div>
 </div>
 <div id="toast" class="toast"></div>
+<!-- 运行画面缩放（仅试运行预览显示）：－/＋ 调整，点百分比回到 100% -->
+<div id="rtZoom" class="rt-zoom">
+  <button id="rtZoomOut" type="button" aria-label="缩小画面">－</button>
+  <button id="rtZoomPct" type="button" title="恢复 100%">100%</button>
+  <button id="rtZoomIn" type="button" aria-label="放大画面">＋</button>
+</div>
 <!-- 结束试运行**不再有页面内按钮**：改由系统通知栏的卡片（《作品名》正在运行中 + 终止运行）结束，
      见 runtime.js 里的 Native.startRunNotice / window.__nativeStopRun。 -->
 <script src="comp-spec.js?v=__BUILD__"></script>

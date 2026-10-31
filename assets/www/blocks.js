@@ -177,6 +177,27 @@
       this.setColour(C_ACT);
     }
   };
+  /* 动作：禁用 / 启用侧滑返回（用户 2026-10-31 要求）。
+     "侧滑返回"在系统里就是返回键/边缘手势，电脑端 Esc 的模拟侧滑也走同一套逻辑。
+     关掉后，作品内的误触不会把页面退回上一页/退出运行；结束运行仍可用通知卡片或桌面版退出按钮。 */
+  B.Blocks['act_swipeback_off'] = {
+    init: function () {
+      this.appendDummyInput().appendField('禁用侧滑返回');
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour(C_ACT);
+      this.setTooltip('关掉"从左边缘右滑 / 按返回键返回上一页"。适合有横向滑动、全屏画面的作品，防止误触退出；可用「启用侧滑返回」恢复');
+    }
+  };
+  B.Blocks['act_swipeback_on'] = {
+    init: function () {
+      this.appendDummyInput().appendField('启用侧滑返回');
+      this.setPreviousStatement(true);
+      this.setNextStatement(true);
+      this.setColour(C_ACT);
+      this.setTooltip('恢复"从左边缘右滑 / 按返回键返回上一页"（默认就是启用的，只有禁用过才需要它）');
+    }
+  };
   // 动作：列表添加项
   B.Blocks['act_list_add'] = {
     init: function () {
@@ -634,6 +655,8 @@
     return "RT.gotoPage(" + q(b.getFieldValue('PAGE')) + ");\n";
   };
   JS.forBlock['act_back'] = function () { return "RT.back();\n"; };
+  JS.forBlock['act_swipeback_off'] = function () { return "RT.setSwipeBack(false);\n"; };
+  JS.forBlock['act_swipeback_on'] = function () { return "RT.setSwipeBack(true);\n"; };
   JS.forBlock['act_video_play'] = function (b) { return "RT.videoPlay(" + q(b.getFieldValue('COMP')) + ");\n"; };
   JS.forBlock['act_video_pause'] = function (b) { return "RT.videoPause(" + q(b.getFieldValue('COMP')) + ");\n"; };
   JS.forBlock['act_video_src'] = function (b) { var u = JS.valueToCode(b, 'URL', JS.ORDER_ATOMIC) || "''"; return "RT.videoSrc(" + q(b.getFieldValue('COMP')) + ", " + u + ");\n"; };
@@ -1539,12 +1562,33 @@
     audio: { head: [], tail: [plain('act_audio_play'), plain('act_audio_pause'), plain('act_audio_seek'), '<block type="act_audio_src">' + txtSh('URL', 'https://音频地址.mp3') + '</block>'] },
     web: { head: [], tail: ['<block type="act_web_url">' + txtSh('URL', 'https://example.com') + '</block>'] }
   };
-  function groupCategory(g) {
+  /**
+   * 给一块代码的「控件下拉」预填默认值（用户 2026-10-31：从控件卡片的「</>」按钮进来时，
+   * 这一类代码的下拉默认就指向那个控件，而不是永远指向第一个同类控件）。
+   * 只对还没有 COMP 字段的模板片段生效；id 是引擎生成的（text2 这种），不含引号，但仍做一次转义。
+   */
+  function 默认控件(frag, id) {
+    if (!id || !frag || frag.indexOf('name="COMP"') >= 0) return frag;
+    var safe = String(id).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    // 自闭合模板（plain() 生成）→ 展开成带 COMP 字段的块
+    if (/<block\b[^>]*\/>\s*$/.test(frag)) {
+      return frag.replace(/\/>\s*$/, '><field name="COMP">' + safe + '</field></block>');
+    }
+    /* 其它模板：插在**开标签之后**。这些块的 compField 都挂在第一个 dummy input 上，
+       加在末尾会跑到最后一个 value input 里，代码块的排版会错乱。 */
+    var i = frag.indexOf('<block');
+    if (i < 0) return frag;
+    var j = frag.indexOf('>', i);
+    if (j < 0) return frag;
+    return frag.slice(0, j + 1) + '<field name="COMP">' + safe + '</field>' + frag.slice(j + 1);
+  }
+  function groupCategory(g, prefer) {
+    var 用 = function (f) { return (prefer && prefer.cat === g.label) ? 默认控件(f, prefer.id) : f; };
     var xml = '<category name="' + g.label + '" colour="' + g.colour + '">';
     var ex = GROUP_EXTRA[g.key] || { head: [], tail: [] };
-    ex.head.forEach(function (f) { xml += f; });
-    g.shapes.forEach(function (s) { xml += vfrag(g.key, s); });
-    ex.tail.forEach(function (f) { xml += f; });
+    ex.head.forEach(function (f) { xml += 用(f); });
+    g.shapes.forEach(function (s) { xml += 用(vfrag(g.key, s)); });
+    ex.tail.forEach(function (f) { xml += 用(f); });
     return xml + '</category>';
   }
 
@@ -1666,7 +1710,8 @@
     return 'RT.setData(' + q(b.getFieldValue('COMP')) + ', ' + v + ');\n';
   };
 
-  function buildToolboxXml(usedTypes) {
+  // prefer：{cat:'文字', id:'text2'} —— 这一类代码的下拉默认指向该控件（控件卡片「</>」按钮用）
+  function buildToolboxXml(usedTypes, prefer) {
     var x = '<xml xmlns="https://developers.google.com/blockly/xml">';
     x += '<category name="事件" colour="#FB8C00"><block type="ev_start"/><block type="ev_first_start"/>'
       + '<block type="ev_swipe"/>'
@@ -1675,11 +1720,12 @@
       // usedTypes 为 null 时才全显示（兜底）；空 Set（工程里一个控件都没有）必须一个分类都不显示，
       // 否则空工程会错误地列出全部控件代码类型。
       if (usedTypes && !g.types.some(function (t) { return usedTypes.has(t); })) return;
-      x += groupCategory(g);
+      x += groupCategory(g, prefer);
     });
     x += '<category name="页面" colour="#0B57D0">'
       + '<block type="act_toast">' + txtSh('MSG', '提示内容') + numSh('DUR', '2') + '</block>'
-      + plain('act_goto') + plain('act_back') + '</category>';
+      + plain('act_goto') + plain('act_back')
+      + plain('act_swipeback_off') + plain('act_swipeback_on') + '</category>';
     x += '<category name="控件" colour="#8E24AA">'
       + '<block type="act_set_pos">' + numSh('X', '20') + numSh('Y', '20') + '</block>'
       + '<block type="act_set_size">' + numSh('W', '200') + numSh('H', '48') + '</block>'

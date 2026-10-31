@@ -75,6 +75,9 @@ body {
 button { font-family: inherit; cursor: pointer; color: inherit; }
 input, textarea { font-family: inherit; }
 ::selection { background: var(--primary-c); }
+/* 用户 2026-10-30：所有滚动条都不要显示（仍可滚，只是不画那根条） */
+html, body, * { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 /* ---------- M3 通用按钮：filled / tonal / outlined / text ---------- */
 .tb, .small, .segbtn, .orientbtn, .addbtns button,
@@ -115,7 +118,9 @@ input, textarea { font-family: inherit; }
 #runMenu { min-width: 196px; }
 /* 运行方式菜单项：图标 + 文案 + 右侧勾选 */
 #runMenu .run-opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
-#runMenu .run-opt-ico { flex: 0 0 18px; text-align: center; }
+#runMenu .run-opt-ico { flex: 0 0 18px; display: inline-flex; align-items: center; justify-content: center; }
+/* 运行按钮里的图标（主按钮跟着所选运行方式换：从头 = ▶|，当前页 = ▶） */
+.run-ico { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
 #runMenu .run-opt-tx { flex: 1 1 auto; }
 #runMenu .run-opt-ck { flex: 0 0 auto; color: var(--primary); font-weight: 700; opacity: 0; }
 #runMenu .run-opt.on .run-opt-ck { opacity: 1; }
@@ -277,6 +282,11 @@ input, textarea { font-family: inherit; }
 
 /* ================= 编辑器框架 ================= */
 .editor { height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--surface); }
+/* 工作区：手机端就是原来的「设计 / 代码」互斥两屏，这里只包一层，
+   好让电脑宽屏能把两者并排（见文件末尾的方案C）。手机端视觉不因此改变一个字。 */
+.workarea { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* 电脑宽屏的两栏分隔条：手机端不占位 */
+#cSplitter { display: none; }
 #topbar {
   flex: 0 0 auto; height: var(--tb-h);
   display: flex; flex-direction: row; align-items: center; gap: 8px;
@@ -337,7 +347,7 @@ input, textarea { font-family: inherit; }
 .addbtns button:active { background: var(--primary-c); }
 
 .design-mid { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); }
-.complist { flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.complist { position: relative; flex: 1 1 auto; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .compcard {
   background: var(--c-low); border: 1px solid transparent; border-radius: var(--r-md);
   padding: 12px; display: flex; align-items: center; gap: 12px;
@@ -347,23 +357,47 @@ input, textarea { font-family: inherit; }
 .compcard.is-hidden .ico { opacity: .65; }
 /* 拖着一张卡片压到容器卡片上：整块亮起来，提示"松手就放进这里" */
 .compcard.drop-in { background: var(--secondary-c); box-shadow: inset 0 0 0 2px var(--primary); }
-/* 从容器里往外拖子卡片：父卡片变成红框，提示"松手就移出容器" */
-.compcard.drop-out { box-shadow: inset 0 0 0 2px var(--error); background: var(--error-c); }
-/* 长按拖拽排序态：卡片跟随手指浮动 */
-.compcard.reordering {
-  position: fixed; z-index: 1200; margin: 0;
-  box-shadow: 0 14px 30px rgba(0,0,0,.24);
-  transform: scale(1.025); opacity: .97;
-  touch-action: none; cursor: grabbing;
-  background: var(--c-highest, #fff);
-}
-.compcard-reph {
-  box-sizing: border-box; flex: 0 0 auto;
-  border: 1.5px dashed var(--primary);
-  background: var(--secondary-c);
-  border-radius: var(--r-md);
-}
 .iconbtn.eye.off { color: var(--error); background: var(--error-c); }
+/* 控件卡片上的「代码」按钮（在删除 × 右边）：点它切到代码栏并选中该控件的代码类 */
+.iconbtn.code { font-size: 10px; font-weight: 700; letter-spacing: -.5px; color: var(--primary); }
+.iconbtn.code:hover { background: var(--primary-c); }
+/* ---------- 控件列表拖动（SortableJS：ghostClass=占位 / fallbackClass=跟手影子）----------
+   .compcard-ph   = 原卡留出的隐形占位（保持格子，不重排）
+   .compcard-ghost= 跟手的影子卡（forceFallback 克隆，必须不透明、和下面的卡明显区分）
+   影子必须 pointer-events:none，否则 elementFromPoint 命中的是它自己，"拖进容器"永远判不出来。 */
+/* 占位符**完全隐形**：长按 220ms 起拖后如果用户没移动就松手，那一瞬间不能出现
+   虚框/半透明（否则看起来像"按一下就闪"）。Sortable 的跟手影子正好盖在这个位置上，
+   所以按住不动时视觉上和没拖一样。 */
+/* ---------- 控件列表拖动（和首页作品卡同一套：影子 + 让位 + 占位）----------
+   .comp-holding = 原卡留在格子里但不画；.comp-ghost = fixed 跟手影子；
+   .comp-slot = 目标格的虚线占位；.comp-shift = 其余卡片让位（只跑 transform）。 */
+.compcard.comp-holding { visibility: hidden; }
+.compcard.comp-ghost {
+  position: fixed; left: 0; top: 0; margin: 0; z-index: 90; pointer-events: none;
+  box-shadow: 0 12px 32px rgba(0,0,0,.24); opacity: .98; will-change: transform;
+}
+.comp-slot {
+  position: absolute; pointer-events: none;
+  border-radius: var(--r-md); background: var(--secondary-c);
+  outline: 1.5px dashed var(--outline-var); outline-offset: -1.5px;
+  transition: left .18s var(--ease), top .18s var(--ease);
+}
+.compcard.comp-shift { transition: transform .18s var(--ease); }
+.compcard-ph {
+  visibility: hidden; border: none; background: transparent; box-shadow: none;
+}
+.compcard-ghost {
+  pointer-events: none !important;
+  /* 拖动中跟手的影子卡：必须**完全不透明**并且和下面的卡明显区分开。
+     以前 opacity .96 + 白底，影子压到别的白卡上时两块白会"融成一大条"，
+     看起来像多出来的白色区块（用户 2026-10-31 截图报的"特定情况会出现这种"）。 */
+  opacity: 1;
+  background: var(--c-lowest);
+  box-shadow: 0 12px 30px rgba(0,0,0,.26);
+  outline: 2px solid var(--primary);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
 .compcard .ico {
   width: 38px; height: 38px; border-radius: var(--r-sm); background: var(--primary-c); color: var(--on-primary-c);
   display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex: 0 0 auto;
@@ -476,6 +510,18 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 /* ================= 代码视图 ================= */
 #viewBlocks { flex: 1 1 auto; position: relative; background: var(--surface); min-height: 0; }
 #blocklyDiv { position: absolute; inset: 0; }
+/* 代码抽屉（.blocklyFlyout）的图钉：电脑宽屏专用，位置由 editor.js 贴着抽屉右上角算。
+   只在抽屉打开时出现；钉住 → 实心主色，并且这个抽屉不会再被关掉（用户 2026-10-31 原话）。 */
+.code-pin {
+  position: absolute; z-index: 30;
+  width: 34px; height: 34px; border-radius: 50%; border: none; padding: 0;
+  display: none; align-items: center; justify-content: center;
+  background: var(--c-low); color: var(--on-surface-var);
+  box-shadow: var(--shadow); transition: left .18s var(--ease), top .18s var(--ease), background .15s, color .15s, transform .1s;
+}
+.code-pin:hover { background: var(--c-high); }
+.code-pin:active { transform: scale(.94); }
+.code-pin.on { background: var(--primary); color: var(--on-primary); }
 #delZone {
   position: absolute; left: 0; top: 0; bottom: 0; width: var(--toolbox-w);
   display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
@@ -993,6 +1039,20 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 /* 操作行不参与压缩，保证“新建/删除”始终可见可点 */
 .popover > .menu-item, .popover > .menu-sep { flex: 0 0 auto; }
 .menu-sep { height: 1px; background: var(--outline-var); margin: 6px 4px; }
+/* 页面下拉：每行 = 页面名 + ✎ 改名（2026-10-30 用户要求，就地变输入框） */
+.menu-row { display: flex; align-items: center; gap: 4px; }
+.menu-row > .menu-item { flex: 1 1 auto; min-width: 0; }
+.menu-edit {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: var(--r-sm); border: none;
+  background: transparent; color: var(--on-surface-var); font-size: 15px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.menu-edit:active { background: var(--c-highest); }
+.menu-row .menu-rename {
+  flex: 1 1 auto; min-width: 0; width: 100%; height: 38px; border-radius: var(--r-sm);
+  border: 1px solid var(--primary); background: var(--c-lowest); color: var(--on-surface);
+  padding: 0 12px; font-size: 14px; outline: none;
+}
 .menu-field { padding: 8px; }
 .menu-label { display: block; font-size: 12px; color: var(--on-surface-var); margin-bottom: 6px; font-weight: 600; }
 .menu-field .orient-seg { margin-top: 2px; }
@@ -1004,6 +1064,18 @@ button.small#btnReset, .pp-field .small { height: 34px; }
   display: flex; flex-direction: column; background: var(--c-low); overflow: hidden;
   animation: layfade .18s var(--ease);
 }
+/* 布局内容的纵向包裹层：手机上只做一层壳（原有全屏结构不变），
+   电脑宽屏把它变成一个右侧浮窗（见文件末尾 body.desk 规则） */
+.lay-dlg { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+/* 电脑端专有按钮：手机端一律不显示 */
+.lay-border-btn, .lay-dlg-close { display: none; }
+/* 上面那条会被后面的 .lay-back（它也有这个类）覆盖掉，这里用更高优先级压回去：
+   手机端布局页只有左上角「返回」，没有浮窗的 ✕；电脑端由文件末尾的 body.desk 规则打开 */
+#viewLayout .lay-dlg-close { display: none; }
+/* 预览窗口四角的缩放把手（只缩放预览框本身，长宽比锁定）：电脑端才出现 */
+.lay-rs { display: none; }
+/* 代码分类栏「常规 / 控件」上下双栏之间的可拖分隔线：电脑端才出现 */
+.bb-panel-split { display: none; }
 @keyframes layfade { from { opacity: 0; } to { opacity: 1; } }
 .lay-topbar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 60;   /* 压在控制台面板之上，返回/页面按钮不会被盖 */
@@ -1648,6 +1720,17 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .pane-title .tpl-btn { margin-left: auto; border: none; background: var(--secondary-c); color: var(--on-secondary-c);
   border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; font-weight: 600; }
 .pane-title .tpl-btn:active { background: var(--primary-c); }
+/* 「＋」提需求按钮：圆形，跟模板库入口同位置 */
+.pane-title .idea-btn { width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 20px; line-height: 1; }
+/* 提需求弹窗：说明文字 + 大输入框 + 关闭 / 发送 */
+.idea-modal { max-width: 460px; }
+.idea-title { justify-content: flex-start; font-size: 18px; line-height: 1.45; text-align: left; }
+.idea-tip { font-size: 13px; line-height: 1.75; color: var(--on-surface-var); margin: 2px 0 12px; }
+.idea-input { width: 100%; min-height: 138px; padding: 12px 14px; line-height: 1.6;
+  border: 1px solid var(--outline); border-radius: var(--r-md); background: var(--c-low);
+  color: var(--on-surface); font-size: 13px; resize: vertical; outline: none; }
+.idea-input:focus { border-color: var(--primary); }
 .tpl-sub { font-size: 12px; color: var(--on-surface-var); margin-bottom: 8px; }
 .tpl-item { display: block; width: 100%; text-align: left; border: 1px solid var(--outline-var);
   background: var(--c-lowest); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font: inherit; color: var(--on-surface); }
@@ -1864,11 +1947,12 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .bb-thumb-live .blocklyTrash, .bb-thumb-live .blocklyZoom { display: none !important; }
 /* 只读代码图：手指要能滑动它。Blockly 的 SVG 会把触摸吃掉，所以盖一层透明膜，
    滑动只作用于这张图（横向滚图；纵向手势交给页面继续滚）。 */
-/* 控件右下角的圆弧手柄：挂在舞台上（挂控件里会被 overflow 裁掉），用两条圆角边拼出圆弧 */
+/* 控件右下角的圆弧手柄：挂在舞台上（挂控件里会被 overflow 裁掉），用两条圆角边拼出圆弧
+   用户 2026-10-31：这个圆弧把手太大，改小一圈（24 → 16，描边 5 → 3，弧半径 16 → 10） */
 .lay-stage > .li-rs {
-  position: absolute; width: 24px; height: 24px; margin: 0;
-  border-right: 5px solid var(--primary); border-bottom: 5px solid var(--primary);
-  border-bottom-right-radius: 16px; background: transparent; z-index: 9;
+  position: absolute; width: 16px; height: 16px; margin: 0;
+  border-right: 3px solid var(--primary); border-bottom: 3px solid var(--primary);
+  border-bottom-right-radius: 10px; background: transparent; z-index: 9;
   cursor: nwse-resize; touch-action: none;
 }
 .lay-stage > .li-rs:active { border-color: var(--tertiary); }
@@ -1944,9 +2028,11 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .acct-body { flex: 1 1 auto; min-height: 0; display: flex; }
 /* 左列表故意做窄（用户要求），只放得下「个人信息 / 社区」两项 */
 .acct-rail { flex: 0 0 132px; border-right: 1px solid var(--outline-var); overflow-y: auto; padding: 10px 8px; }
-.acct-item { display: block; width: 100%; text-align: left; border: none; background: transparent;
+.acct-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: none; background: transparent;
   color: var(--on-surface-var); font: inherit; font-size: 13px; padding: 10px 10px;
   border-radius: 10px; margin-bottom: 3px; }
+/* 图标只在手机端显示（桌面端仍然是文字列表） */
+.acct-ico { display: none; flex: 0 0 auto; align-items: center; justify-content: center; }
 .acct-item.on { background: var(--secondary-c); color: var(--on-secondary-c); font-weight: 700; }
 /* 按下态改由 JS 管（见上面 .bb-cat.按住 那条注释），不用 :active —— WebView 会把它"粘住" */
 .acct-content { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 14px 16px 28px; }
@@ -1962,6 +2048,14 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .acct-save { align-self: flex-start; height: 34px; padding: 0 16px; font-size: 13px; }
 .acct-mailrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .acct-mail { font-size: 13px; color: var(--on-surface-var); word-break: break-all; }
+/* 我的作品：横向选择栏（已分享 / 收藏 / 点赞 / 浏览记录） */
+.acct-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 10px; margin-top: 16px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.acct-tabs::-webkit-scrollbar { display: none; }
+.acct-tab { flex: 0 0 auto; height: 34px; padding: 0 16px; border: none; border-radius: 17px;
+  background: var(--c-high); color: var(--on-surface-var); font-size: 13px; font-weight: 600; }
+.acct-tab.on { background: var(--secondary-c); color: var(--on-secondary-c); }
+.acct-works { margin-top: 2px; }
 .acct-sec-title { font-size: 15px; font-weight: 700; color: var(--on-surface); margin: 18px 0 10px; }
 /* 选图弹窗：预设图标 + 从相册选 */
 .pick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
@@ -1970,6 +2064,10 @@ body.ai-dragging #aiPanel { opacity: .35; }
   color: #fff; font-size: 20px; font-weight: 700; }
 .pick-it:active { filter: brightness(1.06); }
 .pick-it.on { border-color: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); }
+/* 保存账号名 + 退出登录 同一行（用户 2026-10-31 要求退出按钮在保存账号名右边） */
+.acct-save-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.acct-logout { height: 34px; padding: 0 16px; border-radius: 17px; font-size: 13px;
+  color: #b3261e; border-color: rgba(179,38,30,.35); }
 .acct-comm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .acct-comm-head .acct-sec-title { margin: 0; }
 /* 社区刷新按钮：钉在账号页顶栏右上角（不随内容滚动），只有社区栏显示 */
@@ -1988,24 +2086,246 @@ body.ai-dragging #aiPanel { opacity: .35; }
 .mine-meta { font-size: 12px; color: var(--on-surface-var); margin-top: 3px; }
 .mine-ops { flex: 0 0 auto; display: flex; gap: 8px; }
 .mine-ops .tb { height: 32px; padding: 0 14px; font-size: 13px; }
-/* 社区：仍然两列，但每张卡是「左小图标 + 右详细信息」的横排小卡（用户要求改小） */
-.comm-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.comm-card { background: var(--c-low); border-radius: var(--r-md); padding: 8px;
-  display: flex; flex-direction: row; align-items: flex-start; gap: 8px; }
-.comm-cover { flex: 0 0 auto; width: 50px; height: 50px; border-radius: 10px;
+/* 社区：卡片式瀑布流（用户 2026-10-30 要求"看起来像个完整的社区页面"）
+   以前是「左 50px 小图标 + 右几行小字」的横排小卡，像设置列表；现在改成：
+   封面图在上（整宽）、下面标题/介绍/作者时间/按钮，白底卡片 + 描边 + 轻投影。 */
+.comm-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+/* 社区卡片（用户 2026-10-31）：左边一张图，右边名称/作者/介绍/日期/赞/评论/收藏 + 「查看」 */
+.comm-card {
+  background: var(--c-lowest); border: 1px solid var(--outline-var); border-radius: var(--r-lg);
+  padding: 0; overflow: hidden; display: flex; flex-direction: row; align-items: stretch;
+  box-shadow: var(--shadow); cursor: pointer;
+}
+.comm-cover {
+  flex: 0 0 120px; width: 120px; height: auto; min-height: 132px; border-radius: 0;
   background: var(--c-high) center/cover no-repeat;
-  display: flex; align-items: center; justify-content: center; color: var(--on-surface-var); font-size: 19px; font-weight: 700; }
-.comm-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.comm-name { font-size: 13px; font-weight: 600; color: var(--on-surface);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--on-surface-var); font-size: 38px; font-weight: 700;
+}
+.comm-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 14px 16px; }
+.comm-name { font-size: 14px; font-weight: 600; color: var(--on-surface);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comm-intro { font-size: 12px; color: var(--on-surface-var); line-height: 1.45; margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .comm-sub { font-size: 11px; color: var(--on-surface-var); line-height: 1.35;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .comm-tag { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 7px;
-  background: var(--secondary-c); color: var(--on-secondary-c); margin-left: 5px; }
-.comm-ops { display: flex; gap: 6px; margin-top: 5px; }
-.comm-ops .tb { flex: 1 1 0; min-width: 0; height: 28px; padding: 0 4px; font-size: 12px; border-radius: 14px; }
+  background: var(--secondary-c); color: var(--on-secondary-c); margin-left: 5px; vertical-align: 1px; }
+/* 时间 + 评论按钮那一行：时间在左，评论数贴右 */
+.comm-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.comm-cmtbtn {
+  flex: 0 0 auto; border: none; background: transparent; padding: 2px 4px;
+  color: var(--primary); font-size: 11px; font-weight: 700; border-radius: 8px;
+}
+.comm-cmtbtn:hover { background: var(--primary-c); }
+.comm-ops { display: flex; gap: 8px; margin-top: 9px; }
+/* 统计行 + 「查看」 */
+.comm-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; font-size: 11px; color: var(--on-surface-var); }
+.comm-stat { white-space: nowrap; }
+/* 点赞 / 收藏按钮（卡片和详情页共用一套状态样式） */
+.comm-acts { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.comm-act { height: 26px; padding: 0 10px; border: 1px solid var(--outline-var); border-radius: 13px;
+  background: transparent; color: var(--on-surface-var); font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 3px; }
+.comm-act.on { color: var(--primary); border-color: var(--primary); background: var(--primary-c); }
+.comm-act.like.on { color: #e5484d; border-color: #e5484d; background: rgba(229,72,77,.10); }
+.comm-date { margin-top: 3px; }
+/* 已分享卡片底部的「管理 / 删除分享」 */
+.comm-manage { display: flex; gap: 6px; margin-top: 6px; }
+.comm-manage .tb { flex: 1 1 0; min-width: 0; height: 28px; padding: 0 6px; font-size: 11px; border-radius: 14px; }
+.comm-view { align-self: flex-end; margin-top: auto; height: 30px; padding: 0 16px; border-radius: 15px; font-size: 12px; }
+.comm-ops .tb { flex: 1 1 0; min-width: 0; height: 32px; padding: 0 4px; font-size: 12px; border-radius: 16px; }
 .comm-ops .tb[disabled] { opacity: .45; }
 .comm-ops .tb[disabled]:active { background: var(--c-high); }
+
+/* ---------- 社区搜索（标头右侧，输入即筛） ---------- */
+.comm-search {
+  flex: 0 1 320px; min-width: 150px; height: 36px; display: flex; align-items: center; gap: 8px;
+  padding: 0 10px 0 12px; border-radius: 18px; background: var(--c-high); color: var(--on-surface-var);
+}
+/* 顶栏里的搜索：排在「刷新」左边（用户 2026-10-31 要求），靠右收拢 */
+.comm-search-top { flex: 0 1 260px; min-width: 120px; margin-left: auto; }
+.comm-search-inp {
+  flex: 1 1 auto; min-width: 0; height: 100%; border: none; outline: none; background: transparent;
+  color: var(--on-surface); font-size: 13px;
+}
+.comm-search-inp::-webkit-search-cancel-button { display: none; }
+.comm-search-x { flex: 0 0 auto; width: 22px; height: 22px; border: none; border-radius: 50%;
+  background: var(--c-highest); color: var(--on-surface-var); font-size: 11px; padding: 0; }
+
+/* 详情页里弹出的保存/运行提示必须盖在详情页之上（同 z-index 时后出现的 commMask 会挡在它前面，
+   这就是"保存按钮点了没反应"的根因） */
+#commSaveMask, #runHowMask { z-index: 1200; }
+
+/* ---------- 社区作品详情页（整页，不是抽屉） ----------
+   用户 2026-10-31：点社区卡片进入一个页面，上面是基本信息，下面是评论区。
+   整页铺满（手机/电脑都一样），内部自己滚动；底部的输入条吸底。 */
+.comm-page {
+  position: fixed; inset: 0; z-index: 1001; background: var(--surface);
+  display: flex; flex-direction: column; overflow: hidden;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+}
+.comm-drawer {
+  flex: 1 1 auto; width: 100%; max-width: 980px; min-height: 0; height: 100%;
+  margin: 0 auto; background: var(--surface);
+  display: flex; flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: page-up .2s var(--ease);
+}
+@keyframes page-up { from { transform: translateY(14px); opacity: .92; } to { transform: none; opacity: 1; } }
+/* 顶部栏必须**不透明**（以前用了未定义的 var(--bg)，等于透明，内容滚上来会和标题叠在一起） */
+.comm-dw-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px 10px 6px; border-bottom: 1px solid var(--outline-var);
+  z-index: 5; background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.comm-dw-titles { flex: 1 1 auto; min-width: 0; }
+.comm-dw-title { font-size: 18px; font-weight: 700; color: var(--on-surface);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comm-dw-sub { font-size: 12px; color: var(--on-surface-var); margin-top: 2px; }
+/* 中间整块（作品信息 + 评论）统一滚动，输入框固定在底部；
+   以前把评论列表单独设成 flex:1，屏幕高度不够时会被挤成 0 高 —— 手机端就完全滑不动。 */
+.comm-dw-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+/* 基本信息：**左边完整正方形封面 + 右边四个操作按钮**（用户 2026-10-31 补充要求） */
+.comm-dw-info { padding: 14px 16px 6px; }
+.comm-dw-hero { display: flex; align-items: flex-start; gap: 14px; }
+.comm-dw-cover {
+  flex: 0 0 auto; width: clamp(150px, 32vw, 240px); aspect-ratio: 1 / 1; height: auto;
+  border-radius: var(--r-lg); background-color: var(--c-low);
+  background-position: center; background-repeat: no-repeat; background-size: contain;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--on-surface-var); font-size: 34px; font-weight: 800; overflow: hidden;
+}
+.comm-dw-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+/* 按钮按文字长度自然宽，靠右换行；不拉满整行（用户 2026-10-31 要求） */
+.comm-dw-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.comm-dw-acts .tb { width: auto; height: 36px; padding: 0 16px; border-radius: 18px; font-size: 13px; }
+.comm-dw-acts .tb.on { color: var(--primary); border-color: var(--primary); background: var(--primary-c); }
+.comm-dw-acts .tb.like.on { color: #e5484d; border-color: #e5484d; background: rgba(229,72,77,.10); }
+.comm-dw-intro { font-size: 13px; line-height: 1.6; color: var(--on-surface-var);
+  white-space: pre-wrap; word-break: break-word; }
+.comm-dw-side .comm-dw-intro { margin-top: 0; }
+.comm-dw-sec {
+  padding: 12px 16px 2px; border-top: 1px solid var(--outline-var);
+  font-size: 14px; font-weight: 700; color: var(--on-surface);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.comm-dw-count { font-weight: 400; color: var(--on-surface-var); margin-left: 4px; }
+/* 最热门 / 最新 切换 */
+.comm-sort { display: flex; gap: 4px; padding: 2px; border-radius: 14px; background: var(--c-high); }
+.comm-sort-btn { height: 26px; padding: 0 12px; border: none; border-radius: 12px; background: transparent;
+  color: var(--on-surface-var); font-size: 12px; font-weight: 600; }
+.comm-sort-btn.on { background: var(--c-lowest); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,.10); }
+.comm-dw-list { padding: 4px 16px 10px; }
+.comm-cmt {
+  display: flex; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--c-high);
+}
+.comm-cmt:last-child { border-bottom: none; }
+.comm-cmt-ava {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--primary-c);
+  color: var(--on-primary-c); font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.comm-cmt-main { flex: 1 1 auto; min-width: 0; }
+.comm-cmt-top { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.comm-cmt-who { font-size: 12px; font-weight: 700; color: var(--on-surface); }
+.comm-cmt-at { font-size: 11px; color: var(--primary); }
+.comm-cmt-time { font-size: 11px; color: var(--on-surface-var); }
+.comm-cmt-tx { font-size: 13px; line-height: 1.5; color: var(--on-surface); margin-top: 3px;
+  white-space: pre-wrap; word-break: break-word; }
+.comm-cmt-ops { margin-top: 3px; }
+.comm-cmt-reply { border: none; background: transparent; color: var(--on-surface-var);
+  font-size: 11px; font-weight: 600; padding: 0 6px 0 0; }
+.comm-cmt-reply:hover { color: var(--primary); }
+.comm-cmt.off { opacity: .55; }
+/* 每条评论最右侧的点赞（用户 2026-10-31 要求） */
+.comm-cmt-like {
+  flex: 0 0 auto; align-self: flex-start; min-width: 34px; padding: 2px 4px;
+  border: none; border-radius: 10px; background: transparent;
+  color: var(--on-surface-var); font-size: 10px; font-weight: 700;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2;
+}
+.comm-cmt-like svg { width: 15px; height: 15px; }
+.comm-cmt-like.on { color: #e5484d; background: rgba(229,72,77,.10); }
+/* 回复折叠：默认只显示「展开 X 条回复」，点开一次最多 6 条（用户 2026-10-31 要求） */
+.comm-cmt-more {
+  display: inline-block; margin: 2px 0 6px 28px; padding: 3px 10px;
+  border: none; border-radius: 12px; background: var(--c-high);
+  color: var(--primary); font-size: 11px; font-weight: 700;
+}
+/* 折叠状态时，按钮直接放进这条评论的操作行里，避免看起来像"下一条评论的标题" */
+.comm-cmt-more.inline { margin: 3px 0 0 0; padding: 2px 8px; font-size: 11px; }
+.comm-cmt-more:hover { background: var(--primary-c); }
+.comm-dw-reply {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 16px; background: var(--secondary-c); color: var(--on-secondary-c); font-size: 12px;
+}
+.comm-dw-reply .tb { height: 28px; padding: 0 12px; font-size: 12px; background: transparent; }
+.comm-dw-input {
+  flex: 0 0 auto; display: flex; align-items: flex-end; gap: 10px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--outline-var); background: var(--surface);
+}
+.comm-dw-text {
+  flex: 1 1 auto; min-height: 40px; max-height: 110px; resize: none;
+  border: 1px solid var(--outline); border-radius: var(--r-lg); padding: 9px 12px;
+  font-size: 13px; line-height: 1.45; background: transparent; color: var(--on-surface); outline: none;
+}
+.comm-dw-text:focus { border-color: var(--primary); }
+.comm-dw-input .tb { height: 40px; padding: 0 18px; border-radius: 20px; flex: 0 0 auto; }
+/* 手机/平板（触摸设备）：社区卡片三列、保持电脑端的横版样式；
+   账号导航改成右下角**竖向**圆润悬浮岛台，只放两个图标按钮（用户 2026-10-31）。
+   条件带 (pointer: coarse)：Android WebView / 平板即使逻辑宽度超过 900，也不会退回单列。 */
+@media (max-width: 900px), (pointer: coarse) {
+  /* 手机/平板：**三列**，卡片保持电脑端的「左图 + 右信息」横版（用户 2026-10-31 要求） */
+  .comm-list, .acct-works { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .comm-card { flex-direction: row; align-items: stretch; }
+  .comm-cover { flex: 0 0 clamp(52px, 9vw, 120px); width: clamp(52px, 9vw, 120px); height: auto; min-height: 96px; font-size: 22px; }
+  .comm-info { padding: 7px 7px 8px; gap: 2px; }
+  .comm-name { font-size: 11px; }
+  .comm-info .comm-intro { display: none; }            /* 卡片介绍在三列里放不下；⚠️不能写成 .comm-intro，会把弹窗里的介绍输入框一起隐藏 */
+  .comm-sub { font-size: 9px; }
+  .comm-tag { font-size: 8px; margin-left: 3px; padding: 0 4px; }
+  .comm-acts { flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+  .comm-act { flex: 1 1 0; min-width: 0; height: 20px; padding: 0 2px; font-size: 9px; justify-content: center; }
+  .comm-stat { font-size: 9px; }
+  .comm-view { width: 100%; align-self: stretch; height: 24px; margin-top: 4px; padding: 0; font-size: 10px; }
+  .comm-manage { gap: 3px; margin-top: 3px; }
+  .comm-manage .tb { height: 22px; font-size: 9px; }
+
+  /* 账号导航：右下角**竖向**悬浮岛台，选中项有明确高亮（用户 2026-10-31 要求） */
+  .acct-rail {
+    position: fixed; left: auto; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom));
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 6px;
+    border: 1px solid var(--outline-var); border-radius: 26px;
+    background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: visible; z-index: 70;
+  }
+  .acct-rail .seg-pill { display: none; }
+  .acct-rail .acct-item { width: 44px; height: 44px; padding: 0; margin: 0; border-radius: 50%;
+    justify-content: center; font-size: 0; color: var(--on-surface-var); }
+  /* 必须盖过 .acct-rail.has-pill .acct-item.on 的 transparent —— 手机端只用底色表示选中，**不要描边** */
+  .acct-rail.has-pill .acct-item.on { background: var(--secondary-c); color: var(--on-secondary-c);
+    box-shadow: none; }
+  .acct-rail .acct-txt { display: none; }
+  .acct-rail .acct-ico { display: flex; }
+  .acct-content { padding: 10px 10px 132px; }   /* 留出竖向岛台高度 */
+
+  .comm-search-top { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .comm-dw-hero { gap: 10px; }
+  .comm-dw-cover { width: clamp(120px, 36vw, 180px); }
+  .comm-dw-side .tb { height: 34px; font-size: 12px; }
+  .comm-dw-info { padding: 10px 12px 4px; }
+  .comm-dw-head { padding: 8px 10px 8px 4px; }
+  .acct-tabs { margin-top: 12px; }
+  .comm-dw-sec { padding: 10px 12px 2px; }
+  .comm-dw-list { padding: 4px 12px 10px; }
+}
+/* 电脑端也是同一个整页详情页：不再从右边抽一条抽屉出来 */
+
+/* 发布到社区：作品介绍输入框（多行，跟着 M3 描边框样式） */
+.comm-intro-field { margin-top: 10px; }
+.comm-intro { height: auto; min-height: 76px; padding: 10px 14px; line-height: 1.45; resize: none; }
 
 /* ================= 卡片上的分享 / 管理 按钮 ================= */
 /* 「管理」排在「分享」左边（用户要求：发布过之后分享按钮左边出现管理） */
@@ -2017,7 +2337,8 @@ body.ai-dragging #aiPanel { opacity: .35; }
 /* ================= 分享弹窗（三个大框） =================
    三个框**横着排一行**（用户强调过两次），关闭按钮贴到右下角，整个弹窗不许出滚动条：
    高度按最矮的手机横屏（约 360px）留量，短屏再收一档。 */
-.share-modal { max-width: 460px; max-height: none; overflow: hidden; padding: 20px 20px 14px; }
+/* 允许纵向滚动：矮屏/手机键盘弹出时，作品介绍输入框不会被裁掉（用户 2026-10-31 反馈手机端看不到介绍框） */
+.share-modal { max-width: 460px; max-height: 92vh; overflow-y: auto; padding: 20px 20px 14px; }
 .share-name { font-size: 14px; color: var(--on-surface-var); margin: -8px 0 14px; }
 .share-acts { display: flex; flex-direction: row; gap: 10px; align-items: stretch; }
 .share-act { flex: 1 1 0; min-width: 0; height: 86px; padding: 6px 4px; line-height: 1.3;
@@ -2095,6 +2416,23 @@ body.no-anim *, body.no-anim *::before, body.no-anim *::after {
   .set-page .seed-swatch { width: 32px; height: 32px; }
   .set-page .mode-seg button { font-size: 13px; }
 }
+/* 手机/平板：设置页的分类栏也变成右下角竖向悬浮岛台，只显示图标（用户 2026-10-31 要求） */
+@media (max-width: 900px), (pointer: coarse) {
+  .set-page .acct-rail {
+    position: fixed; left: auto; right: 14px; bottom: calc(16px + env(safe-area-inset-bottom));
+    flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 6px;
+    border: 1px solid var(--outline-var); border-radius: 26px;
+    background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: visible; z-index: 70;
+  }
+  .set-page .acct-rail .seg-pill { display: none; }
+  .set-page .acct-item { width: 44px; height: 44px; padding: 0; margin: 0; border-radius: 50%;
+    justify-content: center; font-size: 0; color: var(--on-surface-var); }
+  .set-page .acct-item.on { background: var(--secondary-c); color: var(--on-secondary-c); box-shadow: none; }
+  .set-page .acct-txt { display: none; }
+  .set-page .acct-ico { display: flex; }
+  .set-page .acct-content { padding: 14px 14px 132px; }
+}
 /* 矮屏（横屏手机）：组内留白再收 */
 @media (max-height: 480px) {
   .set-page .acct-content { padding-top: 12px; }
@@ -2110,3 +2448,242 @@ body.no-anim *, body.no-anim *::before, body.no-anim *::after {
 .updlog-item .updlog-ver { font-size: 15px; font-weight: 700; color: var(--on-surface); }
 .updlog-item .updlog-date { font-size: 12px; color: var(--on-surface-var); }
 .updlog-item .updlog-body { margin-top: 6px; font-size: 13px; line-height: 1.7; color: var(--on-surface-var); white-space: pre-wrap; }
+
+/* ============================================================
+   电脑宽屏（方案C：设计 + 代码同屏）
+   断点：宽 ≥1100 且高 ≥600 且横向；body.desk 由 editor.js 用 matchMedia 挂上。
+   全部规则以 body.desk 开头、写在文件最末 —— 手机/平板原有规则一条没动。
+   视觉：能悬浮的都做成"岛台"（圆角 + 阴影 + 相互留缝），除属性面板外尽量图标化。
+   ============================================================ */
+/* 顶栏 → 浮动胶囊岛台：去掉整条通栏底边线 */
+body.desk #topbar {
+  height: 56px; flex: 0 0 auto; margin: 12px 14px 0; padding: 0 10px;
+  background: var(--c-lowest); border: 1px solid var(--outline-var);
+  border-radius: 18px; box-shadow: var(--shadow-2);
+}
+/* 岛台之间的"桌面"：比卡片深一档，卡片才浮得起来 */
+body.desk .editor { background: var(--c-low); }
+body.desk .workarea {
+  flex-direction: row; align-items: stretch;
+  padding: 12px 14px 14px; gap: 0;
+}
+/* 设计区（左控件库 + 中控件列表）宽度可拖：--dw 由 JS 写进 #workArea */
+body.desk #viewDesign {
+  flex: 0 0 var(--dw, 55%); min-width: 0;
+  gap: 12px; background: transparent;
+}
+/* 左栏控件库：悬浮岛台卡片 */
+body.desk .design-left {
+  flex: 0 0 224px; width: 224px; padding: 12px;
+  background: var(--c-lowest); border-right: none; border-radius: 18px;
+  box-shadow: var(--shadow-2);
+}
+/* 中栏控件列表：画布卡（点阵底，列宽收窄居中，像一张手机画布） */
+body.desk .design-mid {
+  flex: 1 1 auto; border-radius: 18px; overflow: hidden;
+  background-color: var(--c-lowest);
+  background-image: radial-gradient(rgba(128,128,140,.16) 1px, transparent 1px);
+  background-size: 18px 18px;
+  box-shadow: var(--shadow-2);
+}
+body.desk .complist { padding: 14px 16px 18px; align-items: center; }
+/* 已添加控件卡片：按设计区实际宽度排 1 / 2 / 3 列（--comp-cols 由 JS 按宽度写，拖分隔条实时变） */
+body.desk .complist {
+  display: grid; align-content: start; justify-content: stretch;
+  grid-template-columns: repeat(var(--comp-cols, 1), minmax(0, 1fr));
+}
+body.desk .complist > * { width: 100%; max-width: none; flex: 0 0 auto; }
+/* 只有一列时保持原来“窄画布、居中”的样子，别把卡片拉成全宽 */
+body.desk .complist[data-cols="1"] > * { max-width: 520px; justify-self: center; }
+/* 代码区：右侧岛台卡片（Blockly 画布铺满卡片内） */
+body.desk #viewBlocks {
+  flex: 1 1 auto; min-width: 0;
+  border-radius: 18px; overflow: hidden;
+  background: var(--c-lowest); box-shadow: var(--shadow-2);
+}
+/* 两栏之间的可拖分隔条（双击还原 55 : 45） */
+body.desk #cSplitter {
+  display: block; flex: 0 0 20px; width: 20px; position: relative;
+  cursor: col-resize; touch-action: none;
+}
+body.desk #cSplitter::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px; height: 46px; border-radius: 3px;
+  background: var(--outline-var);
+  transition: background .16s var(--ease), height .16s var(--ease);
+}
+body.desk #cSplitter:hover::after, body.desk #cSplitter.drag::after {
+  background: var(--primary); height: 72px;
+}
+/* 属性面板：真正悬浮的岛台（不占布局、不遮两侧卡片边角） */
+body.desk .proppanel {
+  position: fixed; left: auto; top: 84px; right: 22px; bottom: 86px;
+  width: 320px; max-width: none; height: auto;
+  border: 1px solid var(--outline-var); border-left: 1px solid var(--outline-var);
+  border-radius: 18px; box-shadow: var(--shadow-2);
+  animation: pp-in-desk .2s var(--ease);
+}
+@keyframes pp-in-desk {
+  from { transform: translateX(14px) scale(.985); opacity: .5; }
+  to { transform: none; opacity: 1; }
+}
+/* 顶栏按钮图标化：文字标签只在电脑宽屏收起（手机端保持原样） */
+.desk-ico { display: none; }
+body.desk .desk-ico { display: inline-flex; align-items: center; }
+/* 顶栏按钮在电脑宽屏显示文字（用户 2026-10-30 要求：图标+文字，不再只剩图标） */
+body.desk #btnMore { font-size: 17px; }
+/* AI 对话面板：电脑宽屏从顶栏岛台下面开始，别把「运行 / 导出」压在面板底下 */
+body.desk .ai-panel {
+  top: 84px; bottom: auto;
+  /* 默认别顶满整个高度（用户 2026-10-30：「AI 悬浮窗竖向太长」）；拖过边角后按记住的尺寸来 */
+  height: min(520px, calc(100% - 104px));
+}
+/* AI 面板的 8 个缩放手柄（四边 + 四角，电脑端才显示；手机端不参与） */
+.ai-rs { display: none; }
+body.desk .ai-rs { display: block; position: absolute; z-index: 8; touch-action: none; }
+body.desk .ai-rs[data-rs="n"] { left: 12px; right: 12px; top: 0; height: 8px; cursor: ns-resize; }
+body.desk .ai-rs[data-rs="s"] { left: 12px; right: 12px; bottom: 0; height: 8px; cursor: ns-resize; }
+body.desk .ai-rs[data-rs="e"] { top: 12px; bottom: 12px; right: 0; width: 8px; cursor: ew-resize; }
+body.desk .ai-rs[data-rs="w"] { top: 12px; bottom: 12px; left: 0; width: 8px; cursor: ew-resize; }
+body.desk .ai-rs[data-rs="ne"] { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+body.desk .ai-rs[data-rs="nw"] { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+body.desk .ai-rs[data-rs="se"] { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+body.desk .ai-rs[data-rs="sw"] { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+/* 电脑端鼠标：可点的东西给个手型；画布/卡片不抢文本选择 */
+@media (hover: hover) and (pointer: fine) {
+  body.desk .addbtns button:hover { background: var(--primary-c); }
+  body.desk .compcard:hover { background: var(--c-high); }
+  body.desk .tb:hover { background: var(--c-high); }
+  body.desk .tb.primary:hover { background: var(--primary); filter: brightness(1.06); }
+}
+
+/* ============================================================
+   电脑宽屏（D 方案）：三段页签 / 布局浮窗 / 可拖分类双栏
+   依然全部以 body.desk 开头 —— 手机端规则一条不动。
+   ============================================================ */
+/* ---- A. 顶栏「全显 / 控件 / 代码」三段（手机只显示 设计 / 代码） ---- */
+/* 手机端默认不显示第三段（下面 body.desk 里再打开） */
+#tabAll { display: none; }
+body.desk #tabAll { display: inline-flex; align-items: center; justify-content: center; }
+/* 顺序必须是 全显 / 控件 / 代码（2026-10-30 用户截图指出：原来排成了 控件 / 全显 / 代码） */
+body.desk #tabAll { order: 0; }
+body.desk #tabDesign { order: 1; }
+body.desk #tabBlocks { order: 2; }
+/* 三段的选中态：仍交给 .seg-pill 滑块（容器宽度会随第三个页签出现而变化，
+   切到电脑模式后同步一次滑块位置即可） */
+
+/* 三种视图模式的"挤压"动画：
+   全显 = 现在的两栏；控件 = 代码栏缩到 0 并右移淡出、设计区拉满；
+   代码 = 设计区缩到 0 并左移淡出、代码拉满。 */
+body.desk #viewDesign {
+  transition: flex-basis .28s var(--ease), opacity .28s var(--ease), transform .28s var(--ease);
+}
+body.desk #viewBlocks {
+  transition: flex-basis .28s var(--ease), opacity .28s var(--ease), transform .28s var(--ease);
+}
+body.desk.desk-view-design #viewBlocks,
+body.desk.desk-view-blocks #viewDesign {
+  flex-basis: 0 !important; flex-grow: 0 !important; min-width: 0;
+  opacity: 0; overflow: hidden; pointer-events: none;
+}
+body.desk.desk-view-design #viewBlocks { transform: translateX(36px); }
+body.desk.desk-view-blocks #viewDesign { transform: translateX(-36px); }
+body.desk.desk-view-design #cSplitter,
+body.desk.desk-view-blocks #cSplitter { display: none; }
+
+/* ---- D. 代码分类栏：常规 / 控件 两栏同时可见，中间可拖的横线 ---- */
+body.desk #bbCats .bb-switch-wrap { display: none; }
+body.desk #bbCats .bb-rail-viewport { display: flex; flex-direction: column; }
+body.desk #bbCats .bb-panel {
+  position: relative; left: auto; right: auto; top: auto; height: auto; min-height: 0;
+  transform: none !important; opacity: 1; pointer-events: auto;
+  transition: none;
+}
+body.desk #bbCats .bb-panel-general {
+  order: 0; flex: 0 0 var(--bb-gp, 50%);
+}
+body.desk #bbCats .bb-panel-widget {
+  order: 2; flex: 1 1 auto;
+}
+body.desk #bbCats .bb-panel-split {
+  display: block; order: 1; flex: 0 0 9px; position: relative; cursor: row-resize;
+  touch-action: none; background: var(--c-low); z-index: 3;
+}
+body.desk #bbCats .bb-panel-split::after {
+  content: ""; position: absolute; left: 8px; right: 8px; top: 50%;
+  transform: translateY(-50%); height: 3px; border-radius: 3px;
+  background: var(--outline-var); transition: background .16s var(--ease);
+}
+body.desk #bbCats .bb-panel-split:hover::after,
+body.desk #bbCats .bb-panel-split.drag::after { background: var(--primary); }
+
+/* ---- B. 布局按钮：电脑端变成右侧浮窗（无遮罩，可从左侧控件库直接拖进来） ---- */
+body.desk #btnLayoutCaret { display: none; }        /* 右侧向下箭头入口删掉（方向固定「自动」） */
+body.desk #layoutOrientMenu { display: none !important; }
+body.desk #viewLayout {
+  background: transparent; pointer-events: none;
+  /* 电脑端：浮窗是"浮在编辑器上的窗口"，位置/尺寸由 JS 写在 .lay-dlg 上，可自由拖动 */
+  display: block; padding: 0;
+}
+body.desk #viewLayout .lay-dlg {
+  pointer-events: auto; position: absolute;
+  left: 0; top: 16px; width: 600px; height: 600px;   /* 实际值由 JS 按记住的位置/尺寸覆盖 */
+  margin: 0; flex: 0 0 auto; min-height: 0;
+  background: var(--c-lowest); border: 1px solid var(--outline-var);
+  border-radius: 18px; box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+body.desk #viewLayout .lay-topbar {
+  position: static; background: transparent; min-height: 52px;
+  padding: 6px 8px; border-bottom: 1px solid var(--outline-var);
+  cursor: move;                                      /* 顶栏空白处可拖动整个浮窗 */
+  pointer-events: auto;                              /* 整条都能接住拖动（大屏规则里它原本是 none） */
+}
+body.desk #viewLayout .lay-topbar button,
+body.desk #viewLayout .lay-topbar input,
+body.desk #viewLayout .lay-topbar select { cursor: pointer; }
+body.desk #viewLayout #layBack { display: none; }
+body.desk #viewLayout .lay-border-btn,
+body.desk #viewLayout .lay-dlg-close { display: inline-flex; }
+body.desk #viewLayout .lay-border-btn.on { background: var(--secondary-c); color: var(--on-secondary-c); }
+body.desk #viewLayout .lay-stage-wrap { background: var(--c); }
+body.desk #viewLayout .lay-sheet,
+body.desk #viewLayout .lay-fab { display: none !important; }
+/* 预览窗口缩放把手：只保留右下角，做成"圆弧角"的视觉（用户 2026-10-30：方块角很突兀） */
+body.desk #viewLayout .lay-stage-wrap { position: relative; }
+body.desk .lay-rs {
+  display: block; position: absolute; width: 14px; height: 14px; z-index: 20;
+  border-radius: 4px; background: var(--primary); opacity: .55;
+  border: 2px solid var(--c-lowest);
+}
+body.desk .lay-rs:hover { opacity: 1; }
+body.desk .lay-rs[data-rs="se"] {
+  width: 26px; height: 26px; background: transparent; border: none; opacity: 1;
+  border-radius: 0 0 18px 0; cursor: nwse-resize;
+}
+body.desk .lay-rs[data-rs="se"]::before {
+  content: ""; position: absolute; right: 4px; bottom: 4px; width: 11px; height: 11px;
+  border-right: 2px solid var(--primary); border-bottom: 2px solid var(--primary);
+  border-radius: 0 0 9px 0; opacity: .6; transition: opacity .16s var(--ease);
+}
+body.desk .lay-rs[data-rs="se"]:hover::before { opacity: 1; }
+
+/* 检查更新（电脑版）：安装包下方的「欢迎下载手机版」二维码 */
+.upd-qr { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.upd-qr-tip { font-size: 14px; font-weight: 600; color: var(--on-surface); }
+.upd-qr-img { width: 210px; height: 210px; border-radius: 12px; background: #fff; padding: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.10); display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: #666; text-align: center; }
+.upd-qr-img svg { width: 198px; height: 198px; display: block; }
+.upd-qr-note { font-size: 12px; color: var(--on-surface-var); }
+
+/* ---- C. 控件库拖拽：跟随指针的"幽灵"标签（拖到控件列表 / 预览窗口松手） ---- */
+.add-ghost {
+  position: fixed; left: 0; top: 0; z-index: 2000; pointer-events: none;
+  transform: translate(-50%, -50%);
+  padding: 6px 12px; border-radius: 12px; font-size: 13px; white-space: nowrap;
+  background: var(--primary); color: var(--on-primary); box-shadow: var(--shadow-2);
+  opacity: .92;
+}
+body.add-dragging, body.add-dragging * { cursor: grabbing !important; }
