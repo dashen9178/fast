@@ -338,22 +338,37 @@ namespace FastDesktop
                                 "return s&&s.items?s.items.length:-1}catch(e){return -2}})()");
                             Log("local projects = " + r);
 
-                            // 第一次启动且本地库是空的 → 把旧壳的作品写进去，再刷新一次让页面读到。
+                            // 旧壳（Electron 时代）的作品库只灌一次：灌过就打标记 __fast_seed_done_v1。
+                            //
+                            // 为什么必须打标记（用户 2026-11-01 报的"删完作品重进又回来了"）：
+                            // 以前的条件是"本地库为空就灌"，用户把作品全删光 → items=0 → 下次启动又被灌回来，
+                            // 看着就像删除没生效。现在只有**从没灌过**的配置目录才灌；已经有作品的库
+                            // 也顺手打上标记，这样以后删空也不会再被复原。
                             // （不在 document-created 阶段注入：实测那边写进去会被页面自己的初始化覆盖掉）
-                            if (!_seeded && r == "0" && _seedJson != null)
+                            if (!_seeded)
                             {
                                 _seeded = true;
-                                // ⚠️ setItem 只接受字符串：种子是 JSON 文本，必须 JSON.stringify 再写，
-                                // 直接塞对象会被存成 "[object Object]"，页面 JSON.parse 失败 → 又变回空库（踩过）
-                                var set = "(function(){try{localStorage.setItem('__bb_projects_v2',JSON.stringify(" + _seedJson +
-                                          "));return 'ok'}catch(e){return 'err:'+e.message}})()";
-                                var sr = await _wv.CoreWebView2.ExecuteScriptAsync(set);
-                                Log("seed write -> " + sr);
-                                var chk = await _wv.CoreWebView2.ExecuteScriptAsync(
-                                    "(function(){try{var t=localStorage.getItem('__bb_projects_v2');var s=JSON.parse(t);" +
-                                    "return 'len='+t.length+' items='+(s&&s.items?s.items.length:'none')}catch(e){return 'ERR '+e.message}})()");
-                                Log("after write: " + chk);
-                                await _wv.CoreWebView2.ExecuteScriptAsync("location.reload()");
+                                if (r != "0")
+                                {
+                                    // 已有作品（或库读不出来）：只打标记，不碰数据
+                                    await _wv.CoreWebView2.ExecuteScriptAsync(
+                                        "(function(){try{localStorage.setItem('__fast_seed_done_v1','1')}catch(e){};return 'ok'})()");
+                                    Log("seed marker set (items=" + r + ")");
+                                }
+                                else if (_seedJson != null)
+                                {
+                                    // ⚠️ setItem 只接受字符串：种子是 JSON 文本，必须 JSON.stringify 再写，
+                                    // 直接塞对象会被存成 "[object Object]"，页面 JSON.parse 失败 → 又变回空库（踩过）
+                                    var set = "(function(){try{localStorage.setItem('__bb_projects_v2',JSON.stringify(" + _seedJson +
+                                              "));localStorage.setItem('__fast_seed_done_v1','1');return 'ok'}catch(e){return 'err:'+e.message}})()";
+                                    var sr = await _wv.CoreWebView2.ExecuteScriptAsync(set);
+                                    Log("seed write -> " + sr);
+                                    var chk = await _wv.CoreWebView2.ExecuteScriptAsync(
+                                        "(function(){try{var t=localStorage.getItem('__bb_projects_v2');var s=JSON.parse(t);" +
+                                        "return 'len='+t.length+' items='+(s&&s.items?s.items.length:'none')}catch(e){return 'ERR '+e.message}})()");
+                                    Log("after write: " + chk);
+                                    await _wv.CoreWebView2.ExecuteScriptAsync("location.reload()");
+                                }
                             }
                         }
                         catch (Exception ee) { Log("nav handler error " + ee.Message); }
