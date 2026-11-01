@@ -8434,6 +8434,7 @@
     table: '更新'
   };
   var updateLatest = null;   // 只缓存"最新版本"那一行 —— 界面不再列版本列表
+  var updatePick = 'main';   // 当前选中哪一行：main=普通包，compat=Win7 适配版（电脑版才有第二行）
   /** 本地构建号："v1.0.1" → "1.0.1"；开发态（没有构建号）返回空串。
       兼容 3 段与 4 段版本号（以前只认 4 段，导致 1.0.0/1.0.1 这类正式版号永远查不到更新）。 */
   function 本地版本号() {
@@ -8521,6 +8522,16 @@
      云端「更新」表只有版本号 + 附件，没有正文列，所以正文写死在这里最省事。
      发版时只在数组最前面加一条（新的在上、旧的在下），不用动云端表结构。 */
   var CHANGELOG = [
+    { v: '1.0.9', d: '2026-11-01', t: [
+      '电脑版检查更新改成两行：第一行普通安装包、第二行 Win7 适配版，点哪行就下载哪行',
+      'Win7 适配版安装包内置 WebView2 运行库，老系统装不上普通版时用它'
+    ] },
+    { v: '1.0.8', d: '2026-11-01', t: [
+      '新增隐私政策与首次启动同意弹窗（同意前不联网）',
+      '应用名改为纯 ASCII（FAST），targetSdk 提升到 34',
+      '布局页：桌面端保留网格图标，属性面板按开关状态刷新',
+      '全新应用图标；版本号支持 3 段格式，检查更新恢复可用'
+    ] },
     { v: '1.0.116.141', d: '2026-10-29', t: [
       '修：松手落位顺序不对 —— 旁边的卡片会先反向甩一格再滑回来（先撤过渡、再插卡、最后清位移）',
       '诊断信息返回设置不再闪一下首页；松手时影子卡滑到落点后再显示真卡'
@@ -8595,55 +8606,74 @@
     $('updateMask').classList.remove('hidden');
     $('updateStatus').textContent = '正在检查更新…';
     $('updateList').innerHTML = '';
-    渲染兼容版入口();          // 电脑版：老系统装不上时给 Win7 兼容版
     updateLatest = null;
+    updatePick = 'main';
     $('updateGo').disabled = true;
     设更新红点(false);   // 用户已经点开看了，红点使命结束
     try {
       var r = await 拉更新最新行();
-      if (!r) { $('updateStatus').textContent = '暂无更新包'; return; }
       updateLatest = r;
-      var pkg = 平台上包(r);                       // 按当前平台挑包（电脑版只认 exe 列）
-      var ver = pkg.ver || '最新版本';
-      更新红点已看过 = String(r['0000'] || '');   // 这一版已经点开看过了，别再亮红点打扰
-      var card = el('div', 'upd-item sel');
-      card.appendChild(el('span', 'upd-ver', ver));
-      card.appendChild(el('span', 'upd-file', pkg.name || (isDesk() ? '（这一版还没有电脑版）' : '')));
-      $('updateList').appendChild(card);
-      if (isDesk()) 渲染手机版二维码(r);           // 电脑版：装包下方给手机版的二维码
-      $('updateStatus').textContent = 校验更新提示(pkg.ver || r['0000']);
-      $('updateGo').disabled = !pkg.rel;
+      更新红点已看过 = String((r && r['0000']) || '');   // 这一版已经点开看过了，别再亮红点打扰
+      渲染更新行列表(r);
+      if (isDesk()) 渲染手机版二维码(r);           // 电脑版：两行装包下方给手机版的二维码
+      $('updateStatus').textContent = r ? 校验更新提示(平台上包(r).ver || r['0000']) : '暂无更新包';
     } catch (e) {
+      // 读表失败也要把「适配版」那一行给出来：装不上更新的人往往正是网络/版本最乱的时候
+      渲染更新行列表(null);
       $('updateStatus').textContent = '检查失败：' + (e.message || '网络错误');
     }
   }
-  /** 电脑版专用的 Win7 兼容版安装包（固定文件名，每次发版覆盖，避免版本号写死在客户端） */
+  /** 电脑版专用的 Win7 适配版安装包（固定文件名，每次发版覆盖，避免版本号写死在客户端） */
   var WIN7_PKG_REL = 'files/2026-09/FAST_Setup_win7.exe';
-  function 渲染兼容版入口() {
-    var box = $('updCompat'); if (!box) return;
-    if (!isDesk()) { box.classList.add('hidden'); return; }
-    box.classList.remove('hidden');
-    var go = $('updCompatGo'), pkg = $('updCompatPkg');
-    var 下载 = function () { 下载兼容版(); };
-    if (go) go.onclick = 下载;
-    if (pkg) pkg.onclick = 下载;
+  /** 适配版这一行的下载信息（只有电脑版用得上） */
+  function 兼容版包() {
+    var r = updateLatest;
+    return {
+      ver: String((r && (r['版本（exe）'] || r['0000'])) || ''),
+      rel: WIN7_PKG_REL,
+      name: 'FAST_Setup_win7.exe'
+    };
   }
-  function 下载兼容版() {
-    try {
-      var direct = 更新包直链(WIN7_PKG_REL);
-      var name = 'FAST_Setup_win7.exe';
-      $('updateStatus').textContent = '正在下载兼容版安装包…';
-      if (window.Native && Native.downloadApk) {
-        window.__updCid = 'upd_win7_' + Date.now();
-        Native.downloadApk(window.__updCid, direct, name);
-      } else {
-        var a = document.createElement('a');
-        a.href = direct; a.download = name; a.rel = 'noopener';
-        document.body.appendChild(a); a.click(); a.remove();
-      }
-    } catch (e) {
-      $('updateStatus').textContent = '下载失败：' + (e.message || e);
+  /** 一行更新项。电脑版固定两行：①普通安装包 ②Win7 适配版；点哪一行，「下载并安装」就走哪一行。 */
+  function 建更新行(种类, ver, 描述) {
+    var row = el('div', 'upd-item');
+    row.setAttribute('data-pick', 种类);
+    row.appendChild(el('span', 'upd-ver', ver || '新版'));
+    row.appendChild(el('span', 'upd-file', 描述 || ''));
+    if (种类 === 'compat') row.appendChild(el('span', 'upd-tag', '适配版'));
+    row.addEventListener('click', function () {
+      updatePick = 种类;
+      同步更新选中();
+    });
+    return row;
+  }
+  /** 电脑版两行（普通包 + 适配版）；手机版只有一行 APK */
+  function 渲染更新行列表(r) {
+    var list = $('updateList');
+    if (!list) return;
+    list.innerHTML = '';
+    var pkg = 平台上包(r);
+    list.appendChild(建更新行('main', pkg.ver || (r && r['0000']) || '',
+      pkg.name || (isDesk() ? '（这一版还没有电脑版）' : '（暂缺安装包）')));
+    if (isDesk()) {
+      var 兼容ver = String((r && (r['版本（exe）'] || r['0000'])) || '');
+      list.appendChild(建更新行('compat', 兼容ver, 'Windows 7 兼容版（内置运行库）'));
     }
+    updatePick = 'main';
+    同步更新选中();
+  }
+  /** 选中态只管两件事：哪一行高亮、「下载并安装」能不能点（状态文字由调用方决定） */
+  function 同步更新选中() {
+    var list = $('updateList');
+    if (list) {
+      var rows = list.querySelectorAll('.upd-item');
+      for (var i = 0; i < rows.length; i++) {
+        rows[i].classList.toggle('sel', rows[i].getAttribute('data-pick') === updatePick);
+      }
+    }
+    var pkg = (updatePick === 'compat' && isDesk()) ? 兼容版包() : 平台上包(updateLatest);
+    var go = $('updateGo');
+    if (go) go.disabled = !pkg.rel;
   }
   /** 更新包直链：绝对地址原样用；`/api/...` 拼云函数；附件路径走带口令的 /api/download。
       `u` 这个 UUID 服务端根本不看（_download 只读 path 和 t），所以不带。 */
@@ -8723,9 +8753,9 @@
     return false;
   }
   async function doUpdate() {
-    var r = updateLatest;   // 只会是最新版本那一行（界面已经不提供选择）
-    if (!r) return;
-    var pkg = 平台上包(r);
+    var r = updateLatest;
+    // 电脑版两行可选：选中适配版就下 Win7 包，否则下普通包（手机版永远只有普通包）
+    var pkg = (updatePick === 'compat' && isDesk()) ? 兼容版包() : 平台上包(r);
     if (!pkg.rel) { snack(isDesk() ? '这一版还没有上传电脑版安装包' : '该版本没有安装包'); return; }
     var fp = String(pkg.ver || '') + '|' + String(pkg.name || '');
     if (本版已下载(fp)) {

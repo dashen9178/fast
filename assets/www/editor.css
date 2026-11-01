@@ -1429,16 +1429,9 @@ button.small#btnReset, .pp-field .small { height: 34px; }
 .upd-file { flex: 1 1 auto; font-size: 12.5px; color: var(--on-surface-var); text-align: right;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #updateGo[disabled] { opacity: .5; pointer-events: none; }
-/* 电脑版：无法安装更新时的 Win7 兼容版入口 */
-.upd-compat { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--outline-var); font-size: 12.5px; }
-.upd-compat-q { color: var(--on-surface-var); }
-.upd-compat-go, .upd-compat-pkg { border: none; background: none; padding: 0; color: var(--primary);
-  font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.upd-compat-note { color: var(--outline); font-size: 12px; }
-.upd-compat-pkg { margin-left: auto; text-decoration: none; border: 1px solid var(--outline-var);
-  border-radius: 14px; padding: 3px 10px; background: var(--surface); }
-.upd-compat-pkg:active { background: var(--c-high); }
+/* 电脑版第二行（Win7 适配版）右上角的小标签，跟普通包区分开 */
+.upd-tag { flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--tertiary);
+  background: var(--tertiary-c); border-radius: 7px; padding: 2px 8px; }
 /* 检查更新：右上角“联系开发者”胶囊按钮 + 联系开发者弹窗 */
 .upd-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 /* 两个按钮必须成组贴在标题栏右边（之前直接挂在 flex 里，被 space-between 顶到中间） */
