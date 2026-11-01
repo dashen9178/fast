@@ -348,7 +348,14 @@ namespace FastDesktop
                             if (!_seeded)
                             {
                                 _seeded = true;
-                                if (r != "0")
+                                // 先看标记：灌过一次就再也不灌（否则删空作品后重启又会被复原）
+                                var done = await _wv.CoreWebView2.ExecuteScriptAsync(
+                                    "(function(){try{return localStorage.getItem('__fast_seed_done_v1')==='1'?1:0}catch(e){return 0}})()");
+                                if (done.Trim() == "1")
+                                {
+                                    Log("seed skipped (already seeded once), items=" + r);
+                                }
+                                else if (r != "0")
                                 {
                                     // 已有作品（或库读不出来）：只打标记，不碰数据
                                     await _wv.CoreWebView2.ExecuteScriptAsync(
