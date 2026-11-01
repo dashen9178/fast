@@ -14105,6 +14105,41 @@
   var commExpand = {};     // 每条根评论已展开的回复条数（0=折叠，用户 2026-10-31 要求）
   var commSort = 'hot';    // hot=最热门（默认）/ new=最新（用户 2026-10-31 要求）
   var commSending = false;
+  /**
+   * 评论员的「最新资料」缓存：邮箱 → 账号表里的当前名字 / 头像。
+   *
+   * 评论行里只存了发表当时的作者名，用户后来改名、换头像，历史评论还会挂着旧名字
+   * （用户 2026-11-01 报的 bug）。所以画评论前先把账号表读一遍，
+   * 名字和头像都以账号表为准，评论行里的「作者」只在账号表查不到时兜底。
+   */
+  var commUsers = { at: 0, loading: null, byEmail: {} };
+  function 载入评论账号(force) {
+    if (commUsers.loading) return commUsers.loading;
+    if (!force && commUsers.at && Date.now() - commUsers.at < 15000) return Promise.resolve(commUsers.byEmail);
+    commUsers.loading = tblRows(AUTH_TABLE).then(function (rows) {
+      var map = {};
+      (rows || []).forEach(function (r) {
+        var em = String(strOf(r[AUTH_COL.email])).trim().toLowerCase();
+        if (!em) return;
+        map[em] = { name: strOf(r[ACCT_COL.name]) || '', avatar: r[ACCT_COL.avatar] };
+      });
+      commUsers.at = Date.now(); commUsers.byEmail = map; commUsers.loading = null;
+      return map;
+    }).catch(function () {
+      commUsers.loading = null;
+      return commUsers.byEmail;
+    });
+    return commUsers.loading;
+  }
+  /** 一条评论现在该显示的名字 / 头像（账号表为准，评论行兜底） */
+  function 评论作者资料(r) {
+    var em = String(strOf(r && r[COMMT_COL.email])).trim().toLowerCase();
+    var u = em ? commUsers.byEmail[em] : null;
+    return {
+      名: (u && u.name) || strOf(r && r[COMMT_COL.user]) || '匿名',
+      头像: u ? u.avatar : ''
+    };
+  }
   var ICON_THUMB = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 10h4v10H2V10zm20-1a2 2 0 0 0-2-2h-6.31l.95-4.57.03-.32a1.5 1.5 0 0 0-.44-1.06L13.17 0 6.59 6.59A2 2 0 0 0 6 8v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-1.73l1.3-6A2 2 0 0 0 22 11v-2z"/></svg>';
   /** 评论里的点赞名单（兼容数组 / JSON 字符串 / 逗号串） */
   function 评论赞名单(r) {
@@ -14277,7 +14312,8 @@
     $('viewComm').scrollTop = 0;
     var body = $('commDwList') && $('commDwList').closest ? $('commDwList').closest('.comm-dw-body') : null;
     if (body) body.scrollTop = 0;
-    载入社区评论(true).then(function () { 画评论(); }).catch(function () { 画评论(); });
+    // 评论 + 账号资料一起读：评论里的名字/头像要按账号表里的最新值画（用户改名后历史评论也要跟着变）
+    Promise.all([载入社区评论(true), 载入评论账号(true)]).then(function () { 画评论(); }).catch(function () { 画评论(); });
   }
   function 关评论() {
     $('viewComm').classList.add('hidden');
@@ -14288,7 +14324,7 @@
     var 条 = null;
     commComments.rows.forEach(function (x) { if (strOf(x[COMMT_COL.cid]) === cid) 条 = x; });
     commDraw.parent = cid || '';
-    commDraw.replyTo = 条 ? (strOf(条[COMMT_COL.user]) || '匿名') : '';
+    commDraw.replyTo = 条 ? 评论作者资料(条).名 : '';
     var bar = $('commDwReply');
     if (bar) bar.classList.toggle('hidden', !cid);
     if ($('commDwReplyTo')) $('commDwReplyTo').textContent = commDraw.replyTo;
@@ -14311,15 +14347,19 @@
     Object.keys(kids).forEach(function (k) { kids[k].sort(排评论); });
     function 画一条(r, 深) {
       var cid = strOf(r[COMMT_COL.cid]);
-      var 名 = strOf(r[COMMT_COL.user]) || '匿名';
+      var 资料 = 评论作者资料(r);
+      var 名 = 资料.名;
       var item = el('div', 'comm-cmt');
       if (深 > 0) item.style.marginLeft = String(Math.min(深, 3) * 18) + 'px';
-      item.appendChild(el('div', 'comm-cmt-ava', 名.slice(0, 1)));
+      // 头像用账号表里的最新头像；没设头像就退回名字首字（改名后首字也会跟着变）
+      var ava = el('div', 'comm-cmt-ava');
+      设头像(ava, 资料.头像, 名.slice(0, 1));
+      item.appendChild(ava);
       var main = el('div', 'comm-cmt-main');
       var top = el('div', 'comm-cmt-top');
       top.appendChild(el('span', 'comm-cmt-who', 名));
       var p = strOf(r[COMMT_COL.parent]).trim();
-      if (p && byCid[p]) top.appendChild(el('span', 'comm-cmt-at', '回复 @' + (strOf(byCid[p][COMMT_COL.user]) || '匿名')));
+      if (p && byCid[p]) top.appendChild(el('span', 'comm-cmt-at', '回复 @' + 评论作者资料(byCid[p]).名));
       top.appendChild(el('span', 'comm-cmt-time', fmtTime(评论时间(r))));
       main.appendChild(top);
       main.appendChild(el('div', 'comm-cmt-tx', String(r[COMMT_COL.text] || '')));
@@ -14406,6 +14446,9 @@
     row[COMMT_COL.email] = String(u.email || '').trim().toLowerCase();
     row[COMMT_COL.text] = txt.slice(0, 300);
     row[COMMT_COL.time] = Date.now();
+    // 自己这条也按「账号表最新资料」画：把当前账号同步进缓存（头像沿用已有的，没有就显示首字）
+    var em = String(u.email || '').trim().toLowerCase();
+    if (em) commUsers.byEmail[em] = { name: String(u.name || ''), avatar: (commUsers.byEmail[em] || {}).avatar || '' };
     /* 乐观更新：先把这条显示出来，网络慢也不用干等好几秒；写失败再回滚（用户 2026-10-31） */
     commComments.rows.push(row);
     commComments.counts[commDraw.sid] = (commComments.counts[commDraw.sid] || 0) + 1;
@@ -15255,9 +15298,18 @@
         var row = authFind(rows, u.email);
         if (!row || !row._id) return null;
         var fields = {}; fields[ACCT_COL.avatar] = [url];
-        return tblUpdate(AUTH_TABLE, row._id, fields);
+        return tblUpdate(AUTH_TABLE, row._id, fields).then(function () { return url; });
       });
-    }).then(function () { snack('头像已更新'); })
+    }).then(function (url) {
+      // 评论区里「我」的头像也立刻换成新的：历史评论的头像不能还停在旧图
+      if (url) {
+        var mail = String(u.email || '').trim().toLowerCase();
+        var cur = commUsers.byEmail[mail] || {};
+        commUsers.byEmail[mail] = { name: cur.name || String(u.name || ''), avatar: [url] };
+        if (commDraw.sid) 画评论();
+      }
+      snack('头像已更新');
+    })
       .catch(function (e) { modal('头像没换成功', (e && e.message) || '网络错误'); });
   }
   function renderAccount() {
@@ -15435,7 +15487,13 @@
     var u = currentUser(); if (!u || !nm) return Promise.resolve();
     var mail = String(u.email || '').trim().toLowerCase();
     if (!mail) return Promise.resolve();
-    return tblRows(COMM_TABLE).then(function (rows) {
+    // 先把本机缓存改掉：评论区可能正开着，不用等云端回包就能显示新名字
+    if (commUsers.byEmail[mail]) commUsers.byEmail[mail].name = nm;
+    commComments.rows.forEach(function (r) {
+      if (String(strOf(r[COMMT_COL.email])).trim().toLowerCase() === mail) r[COMMT_COL.user] = nm;
+    });
+    if (commDraw.sid) 画评论();
+    var 社区 = tblRows(COMM_TABLE).then(function (rows) {
       var 改 = [];
       (rows || []).forEach(function (r) {
         if (!r || !r._id) return;
@@ -15455,6 +15513,26 @@
     }).catch(function () {
       // 静默：改名本身已经成功，这里失败不影响用户；下次发布/更新那一件会自动带上新名字
     });
+    return Promise.all([社区, 同步评论作者名(mail, nm)]);
+  }
+  /**
+   * 改名后，把评论表里我发过的历史评论的「作者」一起刷新。
+   * 评论行存的是发表时的名字，只改账号表的话，旧评论下面还挂着旧名字
+   * （用户 2026-11-01 报的 bug：改名后评论区历史评论的名字/头像没同步）。
+   */
+  function 同步评论作者名(mail, nm) {
+    return tblRows(COMMT_TABLE).then(function (rows) {
+      var 改 = [];
+      (rows || []).forEach(function (r) {
+        if (!r || !r._id) return;
+        if (String(strOf(r[COMMT_COL.email])).trim().toLowerCase() !== mail) return;
+        if (strOf(r[COMMT_COL.user]) === nm) return;
+        var o = {}; o[COMMT_COL.user] = nm;
+        改.push({ rowId: r._id, row: o });
+      });
+      if (!改.length) return;
+      return tblUpdateMany(COMMT_TABLE, 改);
+    }).catch(function () {});
   }
   /** 换账号名：重名不给改（大小写不同不算重复，精确比较） */
   function doSaveAccountName() {
