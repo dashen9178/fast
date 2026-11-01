@@ -62,6 +62,23 @@ namespace FastSetup
             if (string.IsNullOrEmpty(forced) && hasDirArg) forced = dirArg;
             Trace("test=" + test + " forced=" + forced);
 
+            // 工作区（D:\DSH工作 等被系统标记为不可信的目录）里的安装包会被降成低完整性，
+            // 写安装目录必然被拒。这里直接提示去用 D 盘根目录下的副本，避免用户白点。
+            if (!test)
+            {
+                int rid = IntegrityRid();
+                if (rid > 0 && rid < 0x2000)
+                {
+                    MessageBox.Show(
+                        "这个位置下的安装包会被系统限制写入权限，装不进安装目录。\r\n\r\n" +
+                        "请改用在资源管理器里双击 D 盘根目录下的安装包：\r\n" +
+                        @"D:\FAST_Setup_v1.0.7.exe" + "\r\n\r\n" +
+                        "（本窗口关掉即可，无需再试。）",
+                        APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+            }
+
             if (test)
             {
                 SilentInstall(forced);
