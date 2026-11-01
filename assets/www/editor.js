@@ -233,7 +233,7 @@
   }
   /* 当前构建号：打包脚本会把它同步成手机版的版本号（如 1.0.116.141）。
      桌面壳不会往 script 上写 ?v=（所以以前首页显示"开发版"），这里作为兜底值。 */
-  var 内置版本号 = '1.0.7';
+  var 内置版本号 = '1.0.8';
 
   /* ================= 隐私政策与首次同意 =================
      首次进入必须先同意隐私政策；同意之前不初始化界面、不发任何网络请求。
@@ -8595,6 +8595,7 @@
     $('updateMask').classList.remove('hidden');
     $('updateStatus').textContent = '正在检查更新…';
     $('updateList').innerHTML = '';
+    渲染兼容版入口();          // 电脑版：老系统装不上时给 Win7 兼容版
     updateLatest = null;
     $('updateGo').disabled = true;
     设更新红点(false);   // 用户已经点开看了，红点使命结束
@@ -8614,6 +8615,34 @@
       $('updateGo').disabled = !pkg.rel;
     } catch (e) {
       $('updateStatus').textContent = '检查失败：' + (e.message || '网络错误');
+    }
+  }
+  /** 电脑版专用的 Win7 兼容版安装包（固定文件名，每次发版覆盖，避免版本号写死在客户端） */
+  var WIN7_PKG_REL = 'files/2026-09/FAST_Setup_win7.exe';
+  function 渲染兼容版入口() {
+    var box = $('updCompat'); if (!box) return;
+    if (!isDesk()) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    var go = $('updCompatGo'), pkg = $('updCompatPkg');
+    var 下载 = function () { 下载兼容版(); };
+    if (go) go.onclick = 下载;
+    if (pkg) pkg.onclick = 下载;
+  }
+  function 下载兼容版() {
+    try {
+      var direct = 更新包直链(WIN7_PKG_REL);
+      var name = 'FAST_Setup_win7.exe';
+      $('updateStatus').textContent = '正在下载兼容版安装包…';
+      if (window.Native && Native.downloadApk) {
+        window.__updCid = 'upd_win7_' + Date.now();
+        Native.downloadApk(window.__updCid, direct, name);
+      } else {
+        var a = document.createElement('a');
+        a.href = direct; a.download = name; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+    } catch (e) {
+      $('updateStatus').textContent = '下载失败：' + (e.message || e);
     }
   }
   /** 更新包直链：绝对地址原样用；`/api/...` 拼云函数；附件路径走带口令的 /api/download。

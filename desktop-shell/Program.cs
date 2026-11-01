@@ -32,6 +32,16 @@ namespace FastDesktop
         [STAThread]
         private static void Main()
         {
+            // Win7 等系统可能没有（或装不上）WebView2 运行时：安装包里带了固定版运行时就优先用它。
+            // 必须在创建 CoreWebView2Environment 之前设置。
+            try
+            {
+                var fixedRt = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2Runtime");
+                if (File.Exists(Path.Combine(fixedRt, "msedgewebview2.exe")))
+                    Environment.SetEnvironmentVariable("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", fixedRt);
+            }
+            catch (Exception e) { System.Diagnostics.Debug.WriteLine("fixed runtime: " + e.Message); }
+
             // 单实例：第二次双击时，把已运行的窗口拉到前台（不重复起服务）
             bool created;
             var mutex = new Mutex(true, "FAST.Desktop.SingleInstance", out created);
@@ -358,7 +368,8 @@ namespace FastDesktop
                         "加载编辑器失败：\r\n" + ex.Message +
                         "\r\n\r\n如果提示「请求的资源在使用中」，说明上一次 FAST 的进程没退干净，" +
                         "等几秒再双击一次 FAST.exe 就行（程序会自动清理残留）。\r\n" +
-                        "如果提示缺少 WebView2 运行时，请安装 Microsoft Edge WebView2 Runtime 后重试。",
+                        "如果提示缺少 WebView2 运行时，请安装 Microsoft Edge WebView2 Runtime 后重试。" +
+                        "\r\n（Win7 只能用 109 版本的 WebView2 运行时，新版运行时不支持 Win7。）",
                         "FAST", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };

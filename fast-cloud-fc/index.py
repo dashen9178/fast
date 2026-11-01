@@ -322,6 +322,20 @@ def _oss_signed_url(key, expires=604800):
         urllib.parse.quote(OSS_AK, safe=""), ts, urllib.parse.quote(sig, safe=""))
 
 
+def _oss_put_signed_url(key, expires=900, ctype="application/octet-stream"):
+    """OSS 预签名 PUT 直链：大文件（例如 182MB 的 Win7 兼容安装包）直接传 OSS，不经过函数。"""
+    if not (OSS_AK and OSS_SK):
+        raise StorageError("没配置 OSS_AK / OSS_SK")
+    k = "/".join(urllib.parse.quote(seg, safe="") for seg in key.lstrip("/").split("/"))
+    resource = "/%s/%s" % (OSS_BUCKET, key.lstrip("/"))
+    ts = int(time.time()) + int(expires)
+    sts = "PUT\n\n%s\n%d\n%s" % (ctype, ts, resource)
+    sig = base64.b64encode(hmac.new(OSS_SK.encode(), sts.encode(), hashlib.sha1).digest()).decode()
+    return "https://%s.%s/%s?OSSAccessKeyId=%s&Expires=%d&Signature=%s" % (
+        OSS_BUCKET, OSS_HOST, k,
+        urllib.parse.quote(OSS_AK, safe=""), ts, urllib.parse.quote(sig, safe=""))
+
+
 # ---------------------------------------------------------------- 存储层：GitHub（备）
 def _gh_req(method, key, body=None):
     if not GH_TOKEN:
@@ -1100,6 +1114,27 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, None, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"},
                    raw=html.encode("utf-8"))
 
+    def _serve_upload_url(self):
+        """给大文件发的 OSS 预签名 PUT 地址（要口令；只允许 files/ 前缀）。"""
+        if not self._guard():
+            return
+        if not self._authed():
+            self._send(401, {"error": "未授权：X-App-Token 不正确"})
+            return
+        try:
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            key = urllib.parse.unquote(str((qs.get("key") or [""])[0])).lstrip("/")
+        except Exception:  # noqa: BLE001
+            return self._send(400, {"error": "bad key"})
+        if not key.startswith("files/") or ".." in key or len(key) > 300:
+            return self._send(400, {"error": "只允许 files/ 下的附件路径"})
+        try:
+            url = _oss_put_signed_url(key)
+        except Exception as e:  # noqa: BLE001
+            return self._send(502, {"error": "生成上传地址失败：%s" % e})
+        self._send(200, {"upload_url": url, "key": key,
+                         "content_type": "application/octet-stream"}, {"Cache-Control": "no-store"})
+
     def _serve_reconcile(self):
         """阿里云 OSS 主库 与 GitHub 备份库 的一致性检查 / 校准。
 
@@ -1320,6 +1355,10 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/admin/reconcile":
             # OSS 主库 与 GitHub 备份 的一致性检查/校准（要口令；默认只检查）
             self._serve_reconcile()
+            return
+        if p == "/api/admin/upload-url":
+            # 大文件直传 OSS 的预签名地址（要口令）
+            self._serve_upload_url()
             return
         if raw_path.startswith("/api/") and not raw_path.startswith("/api/download"):
             self._relay_direct("GET")

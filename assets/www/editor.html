@@ -935,6 +935,13 @@
     <div class="mbody compact">
       <div id="updateStatus" class="upd-status">正在检查更新…</div>
       <div id="updateList" class="upd-list"></div>
+      <!-- 电脑版专用：新版安装包在某些老系统上装不上时，给一个 Win7 兼容版安装包 -->
+      <div id="updCompat" class="upd-compat hidden">
+        <span class="upd-compat-q">无法安装更新？</span>
+        <button type="button" id="updCompatGo" class="upd-compat-go">安装兼容版</button>
+        <span class="upd-compat-note">Windows 7 专用</span>
+        <button type="button" id="updCompatPkg" class="upd-compat-pkg">安装包</button>
+      </div>
     </div>
     <div class="mbtns pinned">
       <button id="updateCancel" class="tb">关闭</button>

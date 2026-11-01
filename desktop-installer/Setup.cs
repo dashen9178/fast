@@ -72,11 +72,26 @@ namespace FastSetup
                     MessageBox.Show(
                         "这个位置下的安装包会被系统限制写入权限，装不进安装目录。\r\n\r\n" +
                         "请改用在资源管理器里双击 D 盘根目录下的安装包：\r\n" +
-                        @"D:\FAST_Setup_v1.0.7.exe" + "\r\n\r\n" +
+                        @"D:\FAST_Setup_v" + 版本号() + ".exe" + "\r\n\r\n" +
                         "（本窗口关掉即可，无需再试。）",
                         APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
+            }
+
+            // 软件本体需要 .NET Framework 4.7.2；本机版本太低时先讲清楚怎么补（Win7 尤其常见）
+            if (!test && !NetFx足够())
+            {
+                MessageBox.Show(
+                    "这台电脑的 .NET Framework 版本太低（当前：" + NetFx版本名() + "），FAST 需要 4.7.2 或更高。\r\n\r\n" +
+                    "Win7 补装步骤：\r\n" +
+                    "1) 确认系统是 Win7 SP1；\r\n" +
+                    "2) 先装 KB4019990（Win7 上 .NET 4.7+ 的必备更新）；\r\n" +
+                    "3) 再装 .NET Framework 4.7.2 离线安装包（不一定要装 4.8）；\r\n" +
+                    "4) 如果提示缺少 SHA-2 补丁，先装 KB4474419、KB4490628。\r\n\r\n" +
+                    "装好后再双击本安装包。",
+                    APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             if (test)
@@ -151,6 +166,78 @@ namespace FastSetup
                     DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + env + (msg ?? "") + "\r\n");
             }
             catch { }
+        }
+
+        /// <summary>本机 .NET Framework 4.x 的 Release 值；0 表示读不到</summary>
+        private static int NetFxRelease()
+        {
+            try
+            {
+                using (var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"))
+                {
+                    if (k == null) return 0;
+                    var v = k.GetValue("Release");
+                    return v == null ? 0 : Convert.ToInt32(v);
+                }
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>软件本体要求 4.7.2（Release 461808）及以上</summary>
+        private static bool NetFx足够()
+        {
+            var r = NetFxRelease();
+            return r >= 461808;
+        }
+
+        private static string NetFx版本名()
+        {
+            int r = NetFxRelease();
+            if (r <= 0) return "未安装或无法识别";
+            if (r >= 533320) return "4.8.1 或更高";
+            if (r >= 528040) return "4.8";
+            if (r >= 461808) return "4.7.2";
+            if (r >= 461308) return "4.7.1";
+            if (r >= 460798) return "4.7";
+            if (r >= 394802) return "4.6.2";
+            if (r >= 394254) return "4.6.1";
+            if (r >= 393295) return "4.6";
+            if (r >= 379893) return "4.5.2";
+            if (r >= 378675) return "4.5.1";
+            if (r >= 378389) return "4.5";
+            return "低于 4.5";
+        }
+
+        /// <summary>WebView2 运行时是否已安装（软件本体靠它显示界面，Win7 只能用 109 版）</summary>
+        private static bool WebView2已安装()
+        {
+            try
+            {
+                const string clientId = @"{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+                foreach (var hive in new[] { Registry.LocalMachine, Registry.CurrentUser })
+                {
+                    foreach (var sub in new[] {
+                        @"SOFTWARE\Microsoft\EdgeUpdate\Clients\" + clientId,
+                        @"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\" + clientId })
+                    {
+                        using (var k = hive.OpenSubKey(sub))
+                        {
+                            if (k == null) continue;
+                            var pv = k.GetValue("pv") as string;
+                            if (!string.IsNullOrEmpty(pv) && pv != "0.0.41.0" && pv != "0.0.0.0") return true;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>安装包自身的版本号，如 1.0.9</summary>
+        private static string 版本号()
+        {
+            var v = Assembly.GetExecutingAssembly().GetName().Version;
+            return v.Major + "." + v.Minor + "." + v.Build;
         }
 
         /// <summary>当前进程是不是管理员（安装到 D:\ 这类目录、或被杀软拦写时，需要提权重试）</summary>
@@ -508,6 +595,9 @@ namespace FastSetup
                     // pack（导出 APK 用的运行时壳）：老安装包漏了这一步，全新安装后导出会失败
                     stage = "更新打包壳";
                     CopyDir(Path.Combine(temp, "pack"), Path.Combine(dir, "pack"));
+                    // 自带的 WebView2 固定版运行时（Win7/8.1 装不上新版运行时，只能靠这份）
+                    stage = "更新 WebView2 运行时";
+                    CopyDir(Path.Combine(temp, "WebView2Runtime"), Path.Combine(dir, "WebView2Runtime"));
                 }
                 catch (Exception ex)
                 {
@@ -801,7 +891,7 @@ namespace FastSetup
                 {
                     var root = Path.GetPathRoot(Path.GetFullPath(dir));
                     var d = new DriveInfo(root);
-                    return "磁盘可用空间：" + (d.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0).ToString("0.0") + " GB（需要约 30 MB）";
+                    return "磁盘可用空间：" + (d.AvailableFreeSpace / 1024.0 / 1024.0 / 1024.0).ToString("0.0") + " GB（需要约 700 MB）";
                 }
                 catch { return ""; }
             }
@@ -866,15 +956,18 @@ namespace FastSetup
                                 SetBusy(false);
                                 int rid = IntegrityRid();
                                 bool low = rid > 0 && rid < 0x2000;
+                                // Win7 默认开 UAC：进程是“中完整性”时 IsAdmin() 仍可能返回 true，
+                                // 所以这里按完整性级别判断是否真的提权了（不能信 IsAdmin）。
+                                bool elevated = rid >= 0x3000 || (rid == 0 && IsAdmin());
                                 string more = low
                                     ? "\r\n\r\n当前进程被系统限制了写入权限（多见于从 IDE 内置终端或沙箱里启动安装包）。" +
                                       "\r\n请关掉本窗口，直接在资源管理器里双击安装包运行。"
-                                    : IsAdmin()
+                                    : elevated
                                         ? "\r\n\r\n当前已经是管理员权限。若仍失败，请换一个安装位置（建议 D 盘）后重试。"
-                                        : "\r\n\r\n是否以管理员身份重新打开安装向导再试一次？";
+                                        : "\r\n\r\n安装包没有真正提权（Win7/开了 UAC 的系统会出现这种情况）。是否以管理员身份重新打开安装向导再试一次？";
                                 var r = MessageBox.Show(this, "安装失败：\r\n" + err + more,
-                                    APP_TITLE, (low || IsAdmin()) ? MessageBoxButtons.OK : MessageBoxButtons.YesNo, MessageBoxIcon.Error);
-                                if (!low && !IsAdmin() && r == DialogResult.Yes)
+                                    APP_TITLE, (low || elevated) ? MessageBoxButtons.OK : MessageBoxButtons.YesNo, MessageBoxIcon.Error);
+                                if (!low && !elevated && r == DialogResult.Yes)
                                 {
                                     if (RestartElevated(target)) { Close(); return; }
                                 }
@@ -882,6 +975,17 @@ namespace FastSetup
                                 return;
                             }
                             SetBusy(false); // 安装成功后要恢复按钮，否则"完成"是灰的、点不动
+                            bool hasWv2 = WebView2已安装() ||
+                                File.Exists(Path.Combine(target, "WebView2Runtime", "msedgewebview2.exe"));
+                            if (!hasWv2)
+                            {
+                                MessageBox.Show(this,
+                                    "程序已经装好，但这台电脑缺少 WebView2 运行时，FAST 现在打不开。\r\n\r\n" +
+                                    "Windows 10 / 11：安装 Microsoft Edge WebView2 Runtime（官方 Evergreen 安装包）。\r\n" +
+                                    "Windows 7 / 8.1：只能装 109 版的 WebView2 运行时（更新的版本已不支持 Win7）。\r\n\r\n" +
+                                    "装好运行时后再双击 FAST 图标即可。",
+                                    APP_TITLE, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            }
                             _donePath.Text = target;
                             ShowPage(3);
                         }));
