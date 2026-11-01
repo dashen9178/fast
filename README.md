@@ -32,4 +32,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
 - 仓库**不含**签名密钥（`keys/editor.p12`）。自行构建需要生成自己的密钥，并设置
   `FAST_KS_PASS` / `FAST_KEY_PASS`；不设置会用脚本里的默认口令，仅供本地调试。
 - 部署云函数需要 `FAST_APP_TOKEN`（App 下载口令）和阿里云访问密钥，均由环境变量传入，不写进仓库。
-- 未声明开源许可证，默认保留所有权利。
+
