@@ -8671,9 +8671,11 @@
         rows[i].classList.toggle('sel', rows[i].getAttribute('data-pick') === updatePick);
       }
     }
-    var pkg = (updatePick === 'compat' && isDesk()) ? 兼容版包() : 平台上包(updateLatest);
+    /* 下载按钮**永远可点**：以前这里按「表里有没有填安装包路径」来判断，
+       路径缺失（或读表失败）时按钮是灰的，用户点不动 —— 反馈"下载不了最新安装包"。
+       现在缺路径就按版本号推一条（见 平台上包），所以不再拦按钮。 */
     var go = $('updateGo');
-    if (go) go.disabled = !pkg.rel;
+    if (go) go.disabled = false;
   }
   /** 更新包直链：绝对地址原样用；`/api/...` 拼云函数；附件路径走带口令的 /api/download。
       `u` 这个 UUID 服务端根本不看（_download 只读 path 和 t），所以不带。 */
@@ -8695,7 +8697,12 @@
     if (isDesk()) {
       var rel = firstPath(r['exe程序']);
       if (typeof rel === 'string') rel = assetRel(rel);
-      return { ver: String(r['版本（exe）'] || r['0000'] || ''), rel: rel || '', name: rel ? String(rel).split('/').pop() : '' };
+      var ver = String(r['版本（exe）'] || r['0000'] || '');
+      /* 表里没填路径也照样能下：安装包是按版本号命名的固定规则
+         （files/2026-09/FAST_Setup_v<版本>.exe），拿版本号直接拼出来。
+         用户要求"只要一点下载就下载"，不再去云端探测文件在不在。 */
+      if (!rel && ver) rel = 'files/2026-09/FAST_Setup_v' + ver + '.exe';
+      return { ver: ver, rel: rel || '', name: rel ? String(rel).split('/').pop() : '' };
     }
     var files = r['etRB'] || [];
     var ver = String(r['版本（APK）'] || r['0000'] || '');
@@ -8725,16 +8732,13 @@
     box.appendChild(el('div', 'upd-qr-note', '手机扫码直接安装手机版'));
     list.appendChild(box);
   }
-  var UPD_DL_KEY = '__bb_upd_dl_v1';
-  function 本版已下载(fp) {
-    try {
-      var o = JSON.parse(localStorage.getItem(UPD_DL_KEY) || 'null');
-      return !!(o && o.fp === fp && Date.now() - Number(o.at || 0) < 24 * 3600 * 1000);
-    } catch (e) { return false; }
-  }
-  function 记本版已下载(fp) {
-    try { localStorage.setItem(UPD_DL_KEY, JSON.stringify({ fp: fp, at: Date.now() })); } catch (e) {}
-    // 电脑壳下载完成后会回调这个：把安装包路径记下来，下次直接打开
+  /**
+   * 下载完成回调：电脑壳把安装包落盘后调用（更新状态栏）。
+   * 以前这里还兼着"本版已下载"的标记 + 跳过重复下载，结果**下载一旦失败也会被记成已下载**，
+   * 24 小时内再点就只回一句"这个版本已经下载过了，不重复下载"——用户反馈"下载不了最新安装包"。
+   * 现在彻底去掉这个判断：点一次下一次，失败就重下。
+   */
+  function 装下载完成回调() {
     try {
       window.__updateDownloaded = function (path) {
         try { localStorage.setItem('__bb_upd_file', JSON.stringify({ path: path, at: Date.now() })); } catch (e) {}
@@ -8742,45 +8746,17 @@
       };
     } catch (e) {}
   }
-  /** 电脑版：已经下载过就发消息给外壳，直接打开安装程序，不再重复下载 */
-  function 打开已下载安装包() {
-    try {
-      if (window.chrome && chrome.webview && chrome.webview.postMessage) {
-        chrome.webview.postMessage({ type: 'openUpdate' });
-        return true;
-      }
-    } catch (e) {}
-    return false;
-  }
   async function doUpdate() {
     var r = updateLatest;
     // 电脑版两行可选：选中适配版就下 Win7 包，否则下普通包（手机版永远只有普通包）
     var pkg = (updatePick === 'compat' && isDesk()) ? 兼容版包() : 平台上包(r);
-    if (!pkg.rel) { snack(isDesk() ? '这一版还没有上传电脑版安装包' : '该版本没有安装包'); return; }
-    var fp = String(pkg.ver || '') + '|' + String(pkg.name || '');
-    if (本版已下载(fp)) {
-      if (isDesk() && 打开已下载安装包()) {
-        $('updateStatus').textContent = '正在打开已下载的安装包…';
-        return;
-      }
-      if (!isDesk()) {
-        try {
-          var ap = JSON.parse(localStorage.getItem('__bb_upd_apk') || 'null');
-          if (ap && ap.path && ap.ver === String(pkg.ver || '') && window.Native && Native.installApk) {
-            $('updateStatus').textContent = '正在打开已下载的安装包…';
-            Native.installApk(ap.path, '');
-            return;
-          }
-        } catch (e) {}
-      }
-      $('updateStatus').textContent = '这个版本已经下载过了，不重复下载';
-      snack('这个版本已经下载过了：' + (pkg.name || ''));
-      return;
-    }
+    // 连版本号都读不到才真的没法下（正常情况路径/版本至少有一个）
+    if (!pkg.rel) { snack('没读到版本号，请关掉弹窗重新点「检查更新」再试'); return; }
     $('updateGo').disabled = true;
     try {
       $('updateStatus').textContent = '正在下载安装包…';
       window.__updVer = String(pkg.ver || '');
+      装下载完成回调();          // 必须在发起下载**之前**挂好，安装包很小的时候外壳可能瞬间就完成
       var direct = 更新包直链(pkg.rel);
       var name = pkg.name || ('update_' + Date.now() + (isDesk() ? '.exe' : '.apk'));
       if (window.Native && Native.downloadApk) {
@@ -8792,7 +8768,8 @@
         a.href = direct; a.download = name; a.rel = 'noopener';
         document.body.appendChild(a); a.click(); a.remove();
       }
-      记本版已下载(fp);
+      // 下载是异步的：按钮马上恢复可点，失败时用户能立刻再点一次
+      setTimeout(function () { try { $('updateGo').disabled = false; } catch (e) {} }, 800);
     } catch (e) {
       $('updateStatus').textContent = '下载失败：' + (e.message || '网络错误');
       $('updateGo').disabled = false;

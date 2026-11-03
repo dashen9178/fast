@@ -255,6 +255,19 @@ namespace FastDesktop
                             var name = string.IsNullOrEmpty(orig) ? "" : Path.GetFileName(orig);
                             if (string.IsNullOrEmpty(name)) name = "FAST_Setup_latest.exe";
                             var full = Path.Combine(updDir, name);
+                            /* 同名文件已存在时**换一个名字**，不要去覆盖。
+                               以前的路径是固定的，上次失败留下的半截文件会让这一次的下载直接落败，
+                               用户看到的就是"下载不了最新安装包"。 */
+                            if (File.Exists(full))
+                            {
+                                var stem = Path.GetFileNameWithoutExtension(name);
+                                var ext = Path.GetExtension(name);
+                                for (int i = 1; i < 1000; i++)
+                                {
+                                    var cand = Path.Combine(updDir, stem + " (" + i + ")" + ext);
+                                    if (!File.Exists(cand)) { full = cand; break; }
+                                }
+                            }
                             e.ResultFilePath = full;
                             e.DownloadOperation.StateChanged += (o, a) =>
                             {
@@ -262,6 +275,8 @@ namespace FastDesktop
                                 {
                                     if (e.DownloadOperation.State.ToString() == "Completed")
                                     {
+                                        var fi = new FileInfo(full);
+                                        if (!fi.Exists || fi.Length <= 0) return;   // 空文件不当成下载成功
                                         File.WriteAllText(Path.Combine(updDir, "last.txt"), full);
                                         var esc = full.Replace("\\", "\\\\").Replace("'", "\\'");
                                         _wv.CoreWebView2.ExecuteScriptAsync(
