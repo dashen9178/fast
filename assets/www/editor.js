@@ -9613,7 +9613,15 @@
     try { doc = new DOMParser().parseFromString(s, 'text/xml'); } catch (e) { doc = null; }
     if (!doc || doc.getElementsByTagName('parsererror').length) throw new Error('AI 生成的代码格式无法解析');
 
-    // 白名单：工具箱里出现过的类型
+    // 白名单：工具箱里出现过的类型 + Blockly 里真正注册过的类型。
+    //
+    // 为什么不能只看工具箱（2026-11-03 用户反馈"AI 生成的代码块不显示 / 不完整"）：
+    // 变量、函数、云列表这几类是**动态分类**（custom=VARIABLE / PROCEDURE / BB_CLOUD），
+    // 静态工具箱 XML 里只有一个空标签，blocks.js 里的 variables_get、procedures_callnoreturn、
+    // cloud_add… 这些 type 一个都不会出现在 aiCatalog() 里。
+    // 于是模型只要用了变量/函数/云列表，整块就被当成"不存在的类型"删掉；
+    // 如果它嵌在 <value> 或 <statement> 里，父块还会留下一个空槽 —— 表现就是"少了几块 / 不完整"。
+    // 判断标准改成"Blockly 里有没有注册"：注册过就是本 App 支持的，没注册才是模型瞎编的。
     var allowed = {};
     try {
       var cat = aiCatalog();
@@ -9622,12 +9630,15 @@
     } catch (e) {}
     // Blockly 内置的取值代码也在工具箱里出现过，若仍缺则补上常用几个
     ['text', 'math_number', 'logic_boolean', 'logic_compare', 'logic_operation', 'controls_if'].forEach(function (t) { allowed[t] = 1; });
+    function 已注册(t) {
+      try { return !!(t && B && B.Blocks && B.Blocks[t]); } catch (e) { return false; }
+    }
 
     var dropped = [];
     var nodes = doc.getElementsByTagName('block');
     for (var i = nodes.length - 1; i >= 0; i--) {
       var t = nodes[i].getAttribute('type');
-      if (!t || !allowed[t]) { dropped.push(t || '(空类型)'); nodes[i].parentNode.removeChild(nodes[i]); }
+      if (!t || !(allowed[t] || 已注册(t))) { dropped.push(t || '(空类型)'); nodes[i].parentNode.removeChild(nodes[i]); }
     }
     var remain = doc.getElementsByTagName('block').length;
     if (!remain) throw new Error('AI 生成的代码里没有可用的类型' + (dropped.length ? '（丢弃了：' + dropped.join('、') + '）' : ''));

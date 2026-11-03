@@ -11,7 +11,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Product>FAST 安装包</Product>
     <AssemblyTitle>FAST 安装包</AssemblyTitle>
-    <Version>1.0.13.0</Version>
+    <Version>1.0.14.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
