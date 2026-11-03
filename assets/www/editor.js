@@ -9587,6 +9587,24 @@
     if (!tops.length) return '';
     return '<xml xmlns="https://developers.google.com/blockly/xml">' + tops.join('') + '</xml>';
   }
+  /**
+   * 模型的 blocks 字段不一定老老实实是字符串：实测有的回复给成数组
+   * （["<block ...>", "<block ...>"]）或对象（{"xml":"..."}）。
+   * 以前直接 String(obj.blocks) 会变成 "[object Object]"，校验必然失败，
+   * 用户看到的就是「这次没能生成可用的内容」（模型自己还说"已经写好放画布了"）。
+   * 这里把各种写法都拉平成一段 XML 文本。
+   */
+  function aiBlocksText(v) {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) {
+      return v.map(aiBlocksText).filter(function (s) { return s && s.trim(); }).join('\n');
+    }
+    if (typeof v === 'object') {
+      return aiBlocksText(v.xml || v.blocks || v.code || v.content || '');
+    }
+    return String(v);
+  }
   function aiValidateXml(xmlText) {
     var s = String(xmlText || '').trim();
     if (!s) return null;
@@ -9594,15 +9612,7 @@
     try { doc = new DOMParser().parseFromString(s, 'text/xml'); } catch (e) { doc = null; }
     if (!doc || doc.getElementsByTagName('parsererror').length) throw new Error('AI 生成的代码格式无法解析');
 
-    // 白名单：工具箱里出现过的类型 + Blockly 里真正注册过的类型。
-    //
-    // 为什么不能只看工具箱（2026-11-03 用户反馈"AI 生成的代码块不显示 / 不完整"）：
-    // 变量、函数、云列表这几类是**动态分类**（custom=VARIABLE / PROCEDURE / BB_CLOUD），
-    // 静态工具箱 XML 里只有一个空标签，blocks.js 里的 variables_get、procedures_callnoreturn、
-    // cloud_add… 这些 type 一个都不会出现在 aiCatalog() 里。
-    // 于是模型只要用了变量/函数/云列表，整块就被当成"不存在的类型"删掉；
-    // 如果它嵌在 <value> 或 <statement> 里，父块还会留下一个空槽 —— 表现就是"少了几块 / 不完整"。
-    // 判断标准改成"Blockly 里有没有注册"：注册过就是本 App 支持的，没注册才是模型瞎编的。
+    // 白名单：工具箱里出现过的类型
     var allowed = {};
     try {
       var cat = aiCatalog();
@@ -9611,15 +9621,12 @@
     } catch (e) {}
     // Blockly 内置的取值代码也在工具箱里出现过，若仍缺则补上常用几个
     ['text', 'math_number', 'logic_boolean', 'logic_compare', 'logic_operation', 'controls_if'].forEach(function (t) { allowed[t] = 1; });
-    function 已注册(t) {
-      try { return !!(t && B && B.Blocks && B.Blocks[t]); } catch (e) { return false; }
-    }
 
     var dropped = [];
     var nodes = doc.getElementsByTagName('block');
     for (var i = nodes.length - 1; i >= 0; i--) {
       var t = nodes[i].getAttribute('type');
-      if (!t || !(allowed[t] || 已注册(t))) { dropped.push(t || '(空类型)'); nodes[i].parentNode.removeChild(nodes[i]); }
+      if (!t || !allowed[t]) { dropped.push(t || '(空类型)'); nodes[i].parentNode.removeChild(nodes[i]); }
     }
     var remain = doc.getElementsByTagName('block').length;
     if (!remain) throw new Error('AI 生成的代码里没有可用的类型' + (dropped.length ? '（丢弃了：' + dropped.join('、') + '）' : ''));
@@ -9944,9 +9951,10 @@
     // 代码：渲染成可视预览，可拖可插
     var checked = null;
     window.__aiLastRaw = content;                    // 诊断用：模型原样返回
-    window.__aiLastXml = String(obj.blocks || obj.xml || '');
+    var 代码文本 = aiBlocksText(obj.blocks != null ? obj.blocks : obj.xml);
+    window.__aiLastXml = 代码文本;
     window.__aiLastPreviewError = null;
-    try { checked = aiValidateXml(obj.blocks || obj.xml || ''); } catch (e) { checked = null; window.__aiLastXmlError = String(e && e.message || e); }
+    try { checked = aiValidateXml(代码文本); } catch (e) { checked = null; window.__aiLastXmlError = String(e && e.message || e); }
     // 校验没过：再尝试从**整段原始返回**里把 XML 抢救出来（模型常把代码裹在说明文字/代码围栏里，
     // 以前这种一律显示"没能生成可用的内容"——用户截图反馈"我让他给我两组代码他给不了"）。
     if (!checked) {
@@ -9990,6 +9998,13 @@
       : (aiPendingComps ? '有控件改动，确认后点「应用这些改动」'
       : '这次没能生成可用的内容'));
     if (droppedN) 状态短语 += '（有 ' + droppedN + ' 项不可用的内容已忽略）';
+    /* 没生成出东西时把**真实原因**说出来：以前只写一句"没能生成"，用户和开发者都无从下手。
+       常见原因在 window.__aiLastXmlError 里（格式无法解析 / 没有可用的类型 / blocks 字段为空）。 */
+    if (!gotSomething) {
+      var 原因 = String(window.__aiLastXmlError || '').trim();
+      if (!原因 && !代码文本) 原因 = '模型这次没返回代码（blocks 字段为空）';
+      if (原因) 状态短语 += '：' + 原因;
+    }
     aiSetStatus(状态短语, !gotSomething);
     // 追问也要记进对话：下一轮模型才知道自己问过什么
     var recorded = msg + (ask ? '\n（我在问用户：' + aiDeJargon(ask.question) + '　选项：' + ask.options.map(aiDeJargon).join(' / ') + '）' : '');
@@ -11661,7 +11676,7 @@
         continue;
       }
       var checked = null;
-      try { checked = aiValidateXml(f.blocks || f.xml || ''); } catch (e) { checked = null; }
+      try { checked = aiValidateXml(aiBlocksText(f.blocks != null ? f.blocks : f.xml)); } catch (e) { checked = null; }
       if (!checked) continue;
       out.push({ index: Math.round(idx), reason: String(f.reason || '').trim(), del: false, doc: checked.doc });
     }
