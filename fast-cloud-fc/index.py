@@ -1072,7 +1072,9 @@ class Handler(BaseHTTPRequestHandler):
     def _apk_rel(self):
         try:
             rows = _table_read("更新")
-            for r in rows:
+            # 从**最后一行**往前找：表按发版顺序追加，最后一行才是最新的安装包。
+            # 以前是从第一行开始找，结果 /api/apkfile 一直发最旧的那版（用户反馈二维码不是最新版）。
+            for r in reversed(rows):
                 v = r.get("APK程序")
                 rel = ""
                 if isinstance(v, str):

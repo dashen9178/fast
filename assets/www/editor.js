@@ -8706,8 +8706,12 @@
     }
     var files = r['etRB'] || [];
     var ver = String(r['版本（APK）'] || r['0000'] || '');
-    // /api/apkfile 回二进制 + Content-Disposition(.apk)：原生下载器和浏览器都能拿到真正的 APK。
-    return { ver: ver, rel: '/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN),
+    /* 优先用这一行「APK程序」里的真实路径 —— 二维码和手机下载都走它。
+       以前固定用 /api/apkfile，而云函数那边取的是**最旧**一行的 APK（用户反馈二维码不是最新版）。
+       表里没填路径时才退回 /api/apkfile。 */
+    var rel = assetRel(r['APK程序']);
+    if (!rel) rel = '/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN);
+    return { ver: ver, rel: rel,
              name: 'FAST_v' + (ver || 'latest') + '.apk' };
   }
   /** 电脑版检查更新：在安装包下方给一个手机版二维码（扫码直接装手机版） */
@@ -8721,9 +8725,9 @@
     box.appendChild(el('div', 'upd-qr-tip', '欢迎下载手机版'));
     var img = el('div', 'upd-qr-img');
     try {
-      // 直接用 /api/apkfile：它回二进制 + Content-Disposition(.apk)，扫码后下载的是能装的 APK。
-      // （/api/apk 回的是 HTML 跳转页，手机图省事会把页面本身存成 .html，用户报过这个问题）
-      var 地址 = 更新包直链('/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN));
+      // 二维码必须指向**这一行**的 APK 文件（最新版）。
+      // 以前是 /api/apkfile：云函数取的是表里第一行（最旧）的 APK，扫出来就是老版本。
+      var 地址 = 更新包直链(assetRel(r['APK程序']) || ('/api/apkfile?t=' + encodeURIComponent(MAIL_APP_TOKEN)));
       var 图 = window.FAST_QR && FAST_QR.svg ? FAST_QR.svg(地址, 200, '#1d1b20', '#ffffff') : '';
       if (图) img.innerHTML = 图;
       else img.textContent = window.FAST_QR ? '链接太长，二维码放不下' : '二维码组件未加载';
